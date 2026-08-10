@@ -22,9 +22,12 @@ if (result.status !== 0) {
   process.stderr.write(result.stderr);
   process.exit(result.status ?? 1);
 }
-const jsonStart = result.stdout.search(/^\[\s*$/m);
+const jsonStart = result.stdout.search(/^[\[{]/m);
 if (jsonStart < 0) throw new Error(`npm pack returned no JSON:\n${result.stdout}`);
 const packed = JSON.parse(result.stdout.slice(jsonStart));
-const filename = packed[0]?.filename;
+const record = Array.isArray(packed)
+  ? packed[0]
+  : Object.values(packed)[0];
+const filename = record?.filename;
 if (!filename) throw new Error(`npm pack returned no filename: ${result.stdout}`);
 console.log(resolve(outputDir, filename));
