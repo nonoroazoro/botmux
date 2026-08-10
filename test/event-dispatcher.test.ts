@@ -78,8 +78,6 @@ const mockGetMessageDetail = vi.fn(async () => ({ items: [] as any[] }));
 // 默认所有 open_id 都判为「非真人」（bot）→ 保持既有用例「全部登记」的预期；
 // 需要模拟真人的用例用 mockResolvedValueOnce(true)。
 const mockIsHumanOpenId = vi.fn(async () => false);
-// best-effort profile 查询（授权申请卡取申请人名字用）：默认查不到 → 卡片回落缩略身份。
-const mockGetUserProfile = vi.fn(async () => null as { name: string } | null);
 const mockGetChatName = vi.fn(async () => null as string | null);
 vi.mock('../src/im/lark/client.js', () => ({
   getChatInfo: (...args: any[]) => mockGetChatInfo(...args),
@@ -96,8 +94,13 @@ vi.mock('../src/im/lark/client.js', () => ({
   listChatMessagesUntil: (...args: any[]) => mockListChatMessagesUntil(...args),
   resolveCurrentChatBotOpenIdsByLarkAppIds: (...args: any[]) => mockResolveCurrentChatBotOpenIds(...(args as [string, string, string[]])),
   listThreadMessages: (...args: any[]) => mockListThreadMessages(...args),
-  getUserProfile: (...args: any[]) => mockGetUserProfile(...args),
   getChatName: (...args: any[]) => mockGetChatName(...args),
+}));
+
+// Grant request cards use the production sender resolver. Tests opt into names explicitly.
+const mockResolveSender = vi.fn(async () => undefined as { openId: string; type: 'user' | 'bot'; name?: string } | undefined);
+vi.mock('../src/im/lark/identity-cache.js', () => ({
+  resolveSender: (...args: any[]) => mockResolveSender(...args),
 }));
 
 vi.mock('../src/utils/logger.js', () => ({
@@ -181,7 +184,7 @@ beforeEach(() => {
   // leak one scenario's group shape into the next.
   mockGetChatInfo.mockReset().mockResolvedValue({ userCount: 3, botCount: 1 });
   mockGetChatName.mockReset().mockResolvedValue(null);
-  mockGetUserProfile.mockReset().mockResolvedValue(null);
+  mockResolveSender.mockReset().mockResolvedValue(undefined);
   mockSendUserMessage.mockReset().mockResolvedValue('dm-msg-id');
 });
 
@@ -2097,7 +2100,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     setupBotState({ allowedUsers: ['ou_owner'] });
     mockGetOwnerOpenId.mockReturnValue('ou_owner');
     mockGetChatName.mockResolvedValueOnce('Oncall Room');
-    mockGetUserProfile.mockResolvedValueOnce({ name: 'Alice' });
+    mockResolveSender.mockResolvedValueOnce({ openId: USER_OPEN_ID, type: 'user', name: 'Alice' });
     mockGetChatMode.mockResolvedValueOnce('group');
     handlers.isSessionOwner.mockReturnValue(false);
     const event = makeUserMessageEvent({
@@ -2114,11 +2117,17 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
 
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
     expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(mockResolveSender).toHaveBeenCalledWith(
+      MY_APP_ID,
+      USER_OPEN_ID,
+      'user',
+      { messageId: 'msg-human-request' },
+    );
     expect(mockGetChatName).toHaveBeenCalledWith(MY_APP_ID, 'chat-human-request');
     expect(mockSendUserMessage).toHaveBeenCalledWith(
       MY_APP_ID,
       'ou_owner',
-      expect.stringMatching(/Alice.*Oncall Room/s),
+      expect.stringMatching(new RegExp(`<at id=${USER_OPEN_ID}></at>.*Oncall Room`, 's')),
       'interactive',
     );
     const groupCard = mockSendUserMessage.mock.calls.at(-1)?.[2] as string;
@@ -5047,7 +5056,7 @@ describe('im.message.receive_v1 — p2p chat-mode topic reply anchoring', () => 
     _resetGrantPending();
     setupBotState({ p2pMode: 'chat', allowedUsers: ['ou_owner'] });
     mockGetOwnerOpenId.mockReturnValue('ou_owner');
-    mockGetUserProfile.mockResolvedValueOnce({ name: 'Alice' });
+    mockResolveSender.mockResolvedValueOnce({ openId: USER_OPEN_ID, type: 'user', name: 'Alice' });
     const request = makeUserMessageEvent({
       senderOpenId: USER_OPEN_ID,
       content: JSON.stringify({ text: 'can I use this bot?' }),
@@ -5065,7 +5074,7 @@ describe('im.message.receive_v1 — p2p chat-mode topic reply anchoring', () => 
     expect(mockSendUserMessage).toHaveBeenCalledWith(
       MY_APP_ID,
       'ou_owner',
-      expect.stringMatching(/Alice.*\u79c1\u804a/s),
+      expect.stringMatching(new RegExp(`<at id=${USER_OPEN_ID}></at>.*私聊`, 's')),
       'interactive',
     );
     const p2pCard = mockSendUserMessage.mock.calls.at(-1)?.[2] as string;

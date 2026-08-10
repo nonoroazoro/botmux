@@ -87,8 +87,8 @@ export const messages: Record<string, string> = {
 
   // 对话授权卡片
   'card.grant.title': '🔑 使用授权',
-  'card.grant.body_request_group': '用户 **{name}** 申请在群聊 **{chat}** 中使用我。是否授权 ta 在该群与我对话？',
-  'card.grant.body_request_p2p': '用户 **{name}** 申请私聊使用我。是否授权 ta 在这个私聊中与我对话？',
+  'card.grant.body_request_group': '用户 {name} 申请在群聊 **{chat}** 中使用我。是否授权 ta 在该群与我对话？',
+  'card.grant.body_request_p2p': '用户 {name} 申请私聊使用我。是否授权 ta 在这个私聊中与我对话？',
   'card.grant.body_owner': '是否授权 **{name}** 在本群与我对话？（<at id={owner}></at>）',
   'card.grant.body_owner_multi': '是否授权 {names} 在本群与我对话？（<at id={owner}></at>）',
   'card.grant.btn_chat': '授权本群对话',
@@ -120,6 +120,8 @@ export const messages: Record<string, string> = {
   'card.grant.result_global': '✅ 已全局授权',
   'card.grant.result_deny': '🚫 已拒绝该申请',
   'card.grant.partial_failed': '⚠️ 以下目标授权失败（可重新 /grant 重试）：{names}',
+  'card.grant.processing_group': '授权已通过，我正在该话题中处理你的问题。',
+  'card.grant.processing_p2p': '授权已通过，我正在处理你的问题。',
   'card.grant.notify_chat': '✅ {at} 已获授权在本群使用我，发消息 @ 我即可。',
   'card.grant.notify_group': '✅ {at} 已获授权在群聊 **{chat}** 中与我对话，发消息 @ 我即可。',
   'card.grant.notify_p2p': '✅ {at} 已获授权在与我的私聊中对话，可以直接继续发送消息。',

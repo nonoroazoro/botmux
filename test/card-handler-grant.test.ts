@@ -13,6 +13,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
 });
 
 const replyMock = vi.fn(async () => 'om_notify');
+const sendMock = vi.fn(async () => 'om_processing');
 const deleteMock = vi.fn(async () => true);  // deleteMessage now returns boolean (success)
 // 默认：卡片处于话题里（有 thread_id）→ 线程化回复。单测可 mockResolvedValueOnce 改写。
 const getMessageDetailMock = vi.fn(async () => ({ items: [{ thread_id: 'omt_thread' }] }));
@@ -23,6 +24,7 @@ vi.mock('../src/im/lark/client.js', async (importOriginal) => {
   return {
     ...actual,
     replyMessage: (...a: any[]) => replyMock(...a),
+    sendMessage: (...a: any[]) => sendMock(...a),
     deleteMessage: (...a: any[]) => deleteMock(...a),
     getMessageDetail: (...a: any[]) => getMessageDetailMock(...a),
     isHumanOpenId: (...a: any[]) => isHumanMock(...a),
@@ -60,7 +62,7 @@ function action(a: string, extra: Record<string, any> = {}, openMsgId?: string) 
 }
 
 beforeEach(() => {
-  replyMock.mockClear(); deleteMock.mockClear(); deleteMock.mockImplementation(async () => true);
+  replyMock.mockClear(); sendMock.mockClear(); deleteMock.mockClear(); deleteMock.mockImplementation(async () => true);
   getMessageDetailMock.mockClear(); getMessageDetailMock.mockImplementation(async () => ({ items: [{ thread_id: 'omt_thread' }] }));
   recordObservedMock.mockClear();
   isHumanMock.mockClear(); isHumanMock.mockImplementation(async () => false);
@@ -168,6 +170,62 @@ describe('card-handler grant actions', () => {
     const flat = JSON.stringify(res);
     expect(flat).toContain('与我的私聊中对话');
     expect(flat).not.toContain('本群');
+  });
+
+  it('creates a visible source topic before replaying a newly granted group request', async () => {
+    const { pending, handler } = await fresh();
+    const originalEvent = {
+      message: {
+        message_id: 'om_group_request',
+        chat_id: 'oc_source_group',
+        chat_type: 'group',
+      },
+    };
+    const nonce = pending.openPending('h1', 'oc_1', 'ou_g', undefined, originalEvent);
+    const replayGrantedMessage = vi.fn();
+
+    await handler.handleCardAction(
+      action('grant_chat', { nonce }),
+      { ...deps, replayGrantedMessage },
+      'h1',
+    );
+
+    expect(replyMock).toHaveBeenCalledWith(
+      'h1',
+      'om_group_request',
+      '授权已通过，我正在该话题中处理你的问题。',
+      'text',
+      true,
+    );
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(replayGrantedMessage).toHaveBeenCalledWith(originalEvent, 'h1');
+  });
+
+  it('acknowledges a newly granted direct request without creating a topic', async () => {
+    const { pending, handler } = await fresh();
+    const originalEvent = {
+      message: {
+        message_id: 'om_p2p_request',
+        chat_id: 'oc_source_p2p',
+        chat_type: 'p2p',
+      },
+    };
+    const nonce = pending.openPending('h1', 'oc_1', 'ou_g', undefined, originalEvent);
+    const replayGrantedMessage = vi.fn();
+
+    await handler.handleCardAction(
+      action('grant_chat', { nonce }),
+      { ...deps, replayGrantedMessage },
+      'h1',
+    );
+
+    expect(sendMock).toHaveBeenCalledWith(
+      'h1',
+      'oc_source_p2p',
+      '授权已通过，我正在处理你的问题。',
+    );
+    expect(replyMock).not.toHaveBeenCalled();
+    expect(replayGrantedMessage).toHaveBeenCalledWith(originalEvent, 'h1');
   });
 
   it('deny → in-place result patch + cooldown, never touches grant-store', async () => {

@@ -84,8 +84,8 @@ export const messages: Record<string, string> = {
 
   // Conversation authorization card
   'card.grant.title': '🔑 Access Request',
-  'card.grant.body_request_group': 'User **{name}** is requesting to use me in group chat **{chat}**. Grant them permission to talk to me in that group?',
-  'card.grant.body_request_p2p': 'User **{name}** is requesting to use me in a direct message. Grant them permission to talk to me in this conversation?',
+  'card.grant.body_request_group': 'User {name} is requesting to use me in group chat **{chat}**. Grant them permission to talk to me in that group?',
+  'card.grant.body_request_p2p': 'User {name} is requesting to use me in a direct message. Grant them permission to talk to me in this conversation?',
   'card.grant.body_owner': 'Grant **{name}** permission to talk to me in this chat? (<at id={owner}></at>)',
   'card.grant.body_owner_multi': 'Grant {names} permission to talk to me in this chat? (<at id={owner}></at>)',
   'card.grant.btn_chat': 'Grant talk in this chat',
@@ -117,6 +117,8 @@ export const messages: Record<string, string> = {
   'card.grant.result_global': '✅ Granted globally',
   'card.grant.result_deny': '🚫 Request denied',
   'card.grant.partial_failed': '⚠️ The following targets failed to authorize (re-run /grant to retry): {names}',
+  'card.grant.processing_group': 'Access granted. I am processing your request in this topic.',
+  'card.grant.processing_p2p': 'Access granted. I am processing your request.',
   'card.grant.notify_chat': '✅ {at} can now use me in this chat — just @-mention me.',
   'card.grant.notify_group': '✅ {at} can now talk to me in group chat **{chat}**; just @-mention me.',
   'card.grant.notify_p2p': '✅ {at} can now talk to me in this direct conversation and may continue messaging directly.',

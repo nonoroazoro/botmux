@@ -10,7 +10,8 @@ import { atomicWriteFileSync } from '../../utils/atomic-write.js';
 import { join } from 'node:path';
 import { getBot, getAllBots, findOncallChat, getOwnerOpenId, loadBotConfigs, type BotState } from '../../bot-registry.js';
 import { config, isVcMeetingAgentGloballyEnabled, vcMeetingAgentGlobalListenerBotAppId } from '../../config.js';
-import { getChatInfo, getChatMode, getCachedChatMode, getChatName, getUserProfile, listChatMessagesUntil, resolveSiblingBotBySenderOpenId, replyMessage, sendMessage, sendUserMessage, isHumanOpenId, updateMessage } from './client.js';
+import { getChatInfo, getChatMode, getCachedChatMode, getChatName, listChatMessagesUntil, resolveSiblingBotBySenderOpenId, replyMessage, sendMessage, sendUserMessage, isHumanOpenId, updateMessage } from './client.js';
+import { resolveSender } from './identity-cache.js';
 import { logger } from '../../utils/logger.js';
 import { BoundedMap } from '../../utils/bounded-map.js';
 import { serializeByAnchor } from '../../utils/anchor-serializer.js';
@@ -1622,18 +1623,26 @@ async function maybeSendGrantRequestCard(
   const owner = getOwnerOpenId(larkAppId);
   if (!owner || !requesterOpenId) return;
   if (isThrottled(larkAppId, chatId, requesterOpenId)) return;
-  // 名字优先级：本消息 mentions（真人发送方、被 @ 目标都在此）→ observed-bots 花名册
-  // （/introduce 登记过的 (open_id,name)）→ 裸 open_id 兜底。外部 bot 发送方不在自己
-  // 消息的 mentions 里（那是 @ 目标），只靠 mentions 会让 owner 只看到 open_id。
+  // Resolve the requester name from mentions, the observed-bot roster, or the
+  // shared sender resolver (identity cache, Contact API, then message.get).
+  // Senders normally do not appear in their own mention list, and Contact may
+  // return not_visible; message.get can still expose the original sender name.
   const mentionName = (message?.mentions ?? []).find((m: any) => mentionOpenId(m) === requesterOpenId)?.name;
   const observedName = mentionName
     ? undefined
     : listObservedBots(config.session.dataDir, larkAppId, chatId).find(b => b.openId === requesterOpenId)?.name;
-  const profileName = mentionName || observedName
+  const requesterSenderType = messageData?.sender?.sender_type;
+  const requesterIsBot = requesterSenderType === 'app' || requesterSenderType === 'bot';
+  const resolvedName = mentionName || observedName
     ? undefined
-    : (await getUserProfile(larkAppId, requesterOpenId).catch(() => null))?.name;
+    : (await resolveSender(
+        larkAppId,
+        requesterOpenId,
+        requesterSenderType,
+        { messageId: message?.message_id },
+      ).catch(() => undefined))?.name;
   const shortRequester = `${requesterOpenId.slice(0, 10)}…${requesterOpenId.slice(-4)}`;
-  const name = mentionName ?? observedName ?? profileName ?? shortRequester;
+  const name = mentionName ?? observedName ?? resolvedName ?? shortRequester;
   const sourceChatType = message?.chat_type === 'p2p' ? 'p2p' : 'group';
   const sourceChatName = sourceChatType === 'group'
     ? (await getChatName(larkAppId, chatId).catch(() => null)) ?? chatId
@@ -1651,7 +1660,7 @@ async function maybeSendGrantRequestCard(
   const card = buildGrantCard(
     {
       ownerOpenId: owner,
-      targets: [{ openId: requesterOpenId, name: String(name) }],
+      targets: [{ openId: requesterOpenId, name: String(name), isBot: requesterIsBot }],
       chatId,
       nonce,
       mode: 'request',

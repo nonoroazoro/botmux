@@ -1326,7 +1326,7 @@ export function buildRepoSelectCard(projects: ProjectInfo[], currentPath?: strin
 export interface GrantCardOpts {
   ownerOpenId: string;
   /** 待授权目标，支持一次 /grant @a @b 多目标；owner 点一次范围对全部生效。 */
-  targets: Array<{ openId: string; name: string }>;
+  targets: Array<{ openId: string; name: string; isBot?: boolean }>;
   chatId: string;
   nonce: string;
   /** 'request' = 无权限者自助申请；'owner' = owner 主动 /grant。仅文案不同。 */
@@ -1344,12 +1344,17 @@ export interface GrantCardOpts {
 export function buildGrantCard(o: GrantCardOpts, locale?: Locale): string {
   const names = o.targets.map(t => `**${escapeMd(t.name)}**`).join('、');
   const single = o.targets[0];
+  const requester = single?.isBot
+    ? `**${escapeMd(single.name)}**`
+    : single
+      ? `<at id=${single.openId}></at>`
+      : '';
   const sourceChatName = o.sourceChatName ?? o.chatId;
   const body = o.mode === 'request'
     ? o.sourceChatType === 'p2p'
-      ? t('card.grant.body_request_p2p', { name: escapeMd(single?.name ?? '') }, locale)
+      ? t('card.grant.body_request_p2p', { name: requester }, locale)
       : t('card.grant.body_request_group', {
-          name: escapeMd(single?.name ?? ''),
+          name: requester,
           chat: escapeMd(o.sourceChatName ?? o.chatId),
         }, locale)
     : o.targets.length > 1

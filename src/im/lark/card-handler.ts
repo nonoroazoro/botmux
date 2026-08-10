@@ -1148,8 +1148,34 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
         })
         .catch(err => logger.error(`grant post-callback background tasks failed: ${err}`));
     }
-    // 授权成功后重放触发本次申请的原始消息，用户无需再 @ 一遍。
-    // replayGrantedMessage 内部异步执行（setImmediate），不阻塞 callback 响应。
+    // Give the requester immediate visible confirmation before replay starts.
+    // A group reply also creates the source topic deterministically, while a
+    // direct-message acknowledgement stays flat in the original conversation.
+    if (pendingMessage) {
+      const sourceMessage = pendingMessage?.message;
+      const sourceMessageId = sourceMessage?.message_id;
+      const sourceChatId = sourceMessage?.chat_id;
+      try {
+        if (sourceMessage?.chat_type === 'p2p' && sourceChatId) {
+          await sendMessage(
+            larkAppId,
+            sourceChatId,
+            t('card.grant.processing_p2p', undefined, loc),
+          );
+        } else if (sourceMessageId) {
+          await replyMessage(
+            larkAppId,
+            sourceMessageId,
+            t('card.grant.processing_group', undefined, loc),
+            'text',
+            true,
+          );
+        }
+      } catch (err) {
+        logger.warn(`grant processing acknowledgement failed (replay continues): ${err}`);
+      }
+    }
+    // Replay remains asynchronous so CLI startup cannot block the card callback.
     if (pendingMessage && deps.replayGrantedMessage) {
       try {
         deps.replayGrantedMessage(pendingMessage, larkAppId);

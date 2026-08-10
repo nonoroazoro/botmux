@@ -1,188 +1,66 @@
 # Contributing to botmux
 
-## Development Setup
+Read [AGENTS.md](AGENTS.md) before changing code. It defines code style, impact assessment, verification, PR, and release rules.
+
+## Setup
 
 ```bash
 git clone https://github.com/deepcoldy/botmux.git
 cd botmux
 pnpm install
 pnpm build
+```
 
-# Run directly (no PM2)
+Run without PM2:
+
+```bash
 pnpm daemon
+```
 
-# Or with PM2
+Run with PM2:
+
+```bash
 pnpm daemon:start
 pnpm daemon:logs
 ```
 
-> Every code change requires `pnpm build` then `pnpm daemon:restart`.
-
 ## Architecture
 
-```
-Lark WebSocket Events
-    |
-Daemon (daemon.ts → core/ modules)
-    |-- im/lark/event-dispatcher: event routing
-    |-- im/lark/card-handler: card interactions
-    |-- core/worker-pool: worker process pool
-    |-- core/command-handler: slash commands
-    |-- core/session-manager: session lifecycle
-    |-- core/scheduler: cron scheduling
-    |
-Worker (worker.ts) -- forked per session
-    |-- adapters/cli/*: CLI adapters (Claude Code / Codex / Gemini / OpenCode)
-    |-- adapters/backend: PtyBackend or TmuxBackend
-    |-- utils/idle-detector: idle detection
-    |-- HTTP + WebSocket: xterm.js web terminal
-    |-- Headless xterm: screen capture for streaming cards
-    |-- IPC: daemon communication
-    |
-AI Coding CLI (interactive TTY)
-    |-- Auto-installed Skills (~/.claude/skills/, ~/.gemini/skills/, ~/.config/opencode/skills/)
-    |-- ~/.botmux/bin/botmux wrapper on PATH → `botmux send/schedule/bots/thread` subcommands
-    |
-Lark API
-    |-- Replies, reactions, card updates, DMs
-```
+- `src/index-daemon.ts`, `src/daemon.ts`: daemon entry and assembly.
+- `src/worker.ts`: per-session CLI execution and streaming.
+- `src/adapters/cli/`: CLI and API-agent adapters.
+- `src/adapters/backend/`: PTY, tmux, Zellij, Zmx, Herdr, and Riff backends.
+- `src/core/`, `src/services/`: shared runtime logic and persistent services.
+- `src/im/lark/`: Lark events, messages, cards, grants, and API access.
+- `src/dashboard.ts`, `src/dashboard/`: dashboard server and UI support.
+- `src/workflows/`, `src/vc-agent/`, `src/platform/`, `src/desktop/`: extended runtime surfaces.
 
-## Project Structure
+See [AGENTS.md](AGENTS.md) for the current impact checklist. Do not duplicate implementation inventories here; use the source registries as the source of truth.
 
-```
-src/
-  cli.ts                    # CLI entry (setup/start/stop/restart/logs/list/delete + send/bots/schedule/thread subcommands)
-  daemon.ts                 # Daemon orchestrator
-  worker.ts                 # Worker: CLI + PTY management, web terminal
-  bot-registry.ts           # Multi-bot registry
-  config.ts                 # Environment config
-  types.ts                  # IPC message types
-  adapters/
-    cli/
-      types.ts              # CliAdapter interface, CliId type
-      registry.ts           # Adapter factory + resolveCommand
-      claude-code.ts        # Claude Code adapter
-      codex.ts              # Codex adapter
-      gemini.ts             # Gemini CLI adapter
-    backend/
-      types.ts              # SessionBackend interface
-      pty-backend.ts        # node-pty backend
-      tmux-backend.ts       # tmux backend (persistent sessions)
-  core/
-    types.ts                # DaemonSession core type
-    worker-pool.ts          # Worker process pool
-    command-handler.ts      # Slash command processing
-    session-manager.ts      # Session lifecycle + path resolution
-    cost-calculator.ts      # Token usage & cost estimation
-    scheduler.ts            # Cron scheduling (natural language parsing)
-  im/
-    types.ts                # ImAdapter interface (multi-IM abstraction)
-    lark/
-      client.ts             # Lark API wrapper
-      event-dispatcher.ts   # Lark WebSocket event routing
-      card-handler.ts       # Lark card interaction handling
-      card-builder.ts       # Lark interactive card builders
-      message-parser.ts     # Lark event message parsing
-  skills/
-    definitions.ts          # Built-in Skill markdown (botmux-send/schedule/bots/thread-messages)
-    installer.ts            # Syncs skills into each CLI's native skills dir
-  services/
-    session-store.ts        # Session persistence (JSON)
-    schedule-store.ts       # Scheduled task persistence
-    message-queue.ts        # Per-thread JSONL message queue
-    project-scanner.ts      # Git repo/worktree discovery
-  utils/
-    idle-detector.ts        # CLI idle detection
-    terminal-renderer.ts    # Headless xterm renderer (screen capture & TUI filtering)
-    logger.ts               # Logging utility
-```
+## Adding a CLI Adapter
 
-## CLI-Agent Interaction (Skills + CLI subcommands)
+1. Add the adapter under `src/adapters/cli/`.
+2. Add its ID to `CliId` in `src/adapters/cli/types.ts`.
+3. Register it in `src/adapters/cli/registry.ts`.
+4. Add type-correct tests and validate one unrelated adapter if shared code changed.
+5. Update user documentation when setup or configuration changes.
 
-botmux exposes its Lark-interaction surface as **CLI subcommands**
-(`botmux send`, `botmux schedule`, `botmux bots`,
-`botmux thread messages`) paired with auto-installed **Skills** that
-teach the agent when/how to use them.
+Use the full checklist in [`src/adapters/cli/CLAUDE.md`](src/adapters/cli/CLAUDE.md).
 
-**Runtime setup per CLI worker spawn** (see `src/core/worker-pool.ts`):
-
-1. `ensureCliSkills(cliId)` — writes `src/skills/definitions.ts` content
-   into the CLI's native skill dir (`~/.claude/skills/`, `~/.gemini/skills/`,
-   `~/.config/opencode/skills/`). Synchronous, idempotent per lifecycle.
-2. Worker `PATH` is prepended with `~/.botmux/bin`, which contains a
-   `botmux` shell wrapper written by the daemon at startup (points at the
-   running daemon's `dist/cli.js` — always in sync).
-3. `--append-system-prompt` flag injects the routing instruction
-   ("user reads Lark, not terminal — use `botmux send` for user-facing content")
-   into each CLI session.
-4. Every user message carries a per-message hint (`[回复请用 botmux send]`)
-   appended in `buildFollowUpContent` to keep the instruction near the attention
-   window even in long conversations.
-
-### CLI subcommands (agent-facing)
-
-| Subcommand | Description |
-|------------|-------------|
-| `botmux send [content]` | Send message to current thread (stdin / heredoc / `--content-file`; `--images` / `--files` / `--videos` / `--mention` flags) |
-| `botmux bots list` | List bots in current chat with their `open_id`s |
-| `botmux thread messages [--limit N]` | Fetch thread message history (JSON) |
-| `botmux schedule add <schedule> <prompt>` | Create scheduled task bound to current thread |
-| `botmux schedule list/remove/pause/resume/run` | Manage tasks |
-
-All agent-facing subcommands auto-detect session context by walking the
-process tree looking for a CLI-pid marker written by the worker
-(`{dataDir}/.botmux-cli-pids/{pid}`). Works across every CLI that can
-spawn child processes — no extra protocol support required from the CLI.
-
-## Adding a New CLI Adapter
-
-1. Create a new file in `src/adapters/cli/`, implementing the `CliAdapter` interface
-2. Add the new ID to the `CliId` type in `src/adapters/cli/types.ts`
-3. Add a case to the switch in `src/adapters/cli/registry.ts`
-4. Set `"cliId": "<new-id>"` in `bots.json` to use it
-
-> Full checklist — display names, setup choices, README updates:
-> see [`src/adapters/cli/CLAUDE.md`](src/adapters/cli/CLAUDE.md).
-
-The `CliAdapter` interface requires:
-
-| Method / Property | Description |
-|-------------------|-------------|
-| `id` | Unique CLI identifier |
-| `resolvedBin` | Path to the CLI binary |
-| `buildArgs()` | Construct CLI launch arguments |
-| `writeInput()` | Write user input to the PTY (handles multi-line, Enter key timing) |
-| `skillsDir` | Absolute path to the CLI's skills directory (optional; Skills only installed when set) |
-| `completionPattern` | Regex to detect when a turn is complete (optional) |
-| `readyPattern` | Regex to detect when the CLI is ready for input (optional) |
-| `systemHints` | System-level hints injected into the CLI (optional) |
-| `altScreen` | Whether the CLI uses alternate screen mode |
-| `modelChoices` | Curated model candidates surfaced in `botmux setup` (optional). Set when the CLI accepts a model flag (consumed in `buildArgs` via the `model` opt); omit when the CLI has no `--model` concept — setup then skips the model prompt for that CLI |
-
-## Tests
-
-Tests are split into two Vitest projects with different execution profiles
-(see `vitest.config.ts`):
-
-- **`unit`** (`*.test.ts`) — pure, filesystem-mocked or temp-dir-isolated.
-  Runs with **file parallelism on** (one process per file). This is what
-  `pnpm test` runs, so the default is fast (~10s) and needs no real CLI binary
-  or browser.
-- **`e2e`** (`*.e2e.ts`) — spawns real CLIs / drives the Feishu web UI through a
-  shared daemon, so files run **sequentially**. Opt-in only.
+## Verification
 
 ```bash
-pnpm test                # Unit tests only — parallel, ~10s (default)
-pnpm test:all            # Unit + E2E (needs real CLIs / browser session)
-pnpm test:e2e            # All *.e2e.ts (sequential)
-pnpm test:codex          # Codex input E2E
-pnpm test:gemini         # Gemini CLI input E2E
-pnpm test:bench          # Benchmark the unit suite (see docs/test-benchmark.md)
-pnpm test:bench --compare   # serial vs parallel vs parallel+time-scale table
+pnpm build
+pnpm test
+pnpm workflow-core:test
+pnpm test:e2e
 ```
 
-> **Speed knob:** adapter `writeInput()` waits real wall-clock time to confirm a
-> submit (poll the CLI history/transcript). `BOTMUX_TIME_SCALE` (read by
-> `src/utils/timing.ts`, default `1` = unchanged in production) multiplies every
-> such delay. Filesystem-mocked unit tests set it small to collapse those waits.
-> See [`docs/test-benchmark.md`](docs/test-benchmark.md).
+- `pnpm test` runs the unit project.
+- `pnpm test:e2e` runs real CLI or browser-backed tests sequentially.
+- Run only the relevant E2E subset when a full E2E environment is unavailable.
+- For live Lark verification, follow the local or devbox1 deployment runbook in [AGENTS.md](AGENTS.md).
+
+## Pull Requests
+
+Use `type(scope): <Chinese summary>` for the title and commit messages. Write the PR body in Chinese, include actual verification results, describe the regression surface, and attach screenshots for UI changes.
