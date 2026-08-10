@@ -180,11 +180,15 @@ describe('card-handler grant actions', () => {
         chat_id: 'oc_source_group',
         chat_type: 'group',
       },
+      sender: {
+        sender_type: 'user',
+        sender_id: { open_id: 'ou_g' },
+      },
     };
     const nonce = pending.openPending('h1', 'oc_1', 'ou_g', undefined, originalEvent);
     const replayGrantedMessage = vi.fn();
 
-    await handler.handleCardAction(
+    const result = await handler.handleCardAction(
       action('grant_chat', { nonce }),
       { ...deps, replayGrantedMessage },
       'h1',
@@ -198,6 +202,9 @@ describe('card-handler grant actions', () => {
       true,
     );
     expect(sendMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).toContain('<at id=ou_g></at>');
+    expect(isHumanMock).not.toHaveBeenCalled();
+    expect(recordObservedMock).not.toHaveBeenCalled();
     expect(replayGrantedMessage).toHaveBeenCalledWith(originalEvent, 'h1');
   });
 
@@ -208,6 +215,10 @@ describe('card-handler grant actions', () => {
         message_id: 'om_p2p_request',
         chat_id: 'oc_source_p2p',
         chat_type: 'p2p',
+      },
+      sender: {
+        sender_type: 'user',
+        sender_id: { open_id: 'ou_g' },
       },
     };
     const nonce = pending.openPending('h1', 'oc_1', 'ou_g', undefined, originalEvent);

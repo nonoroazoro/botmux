@@ -1068,8 +1068,8 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
     }
     const quota = limits.quota;
     const expiresAt = limits.durationMs === undefined ? undefined : Date.now() + limits.durationMs;
-    // 触发本次授权申请的原始消息事件：授权成功后重放，用户无需再 @ 一遍。
-    // 自助申请卡每次只对应一个 target，取第一个即可。
+    // Preserve the original self-service request for replay after access is granted.
+    // A self-service request card always represents one target.
     const pendingMessage = getPendingMessage(larkAppId, grantChatId, targets[0]);
     const granted: string[] = [];
     const failed: Array<{ openId: string; reason: string }> = [];
@@ -1080,25 +1080,35 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
       if (res.ok) { clearPending(larkAppId, grantChatId, tt); granted.push(tt); }
       else { failed.push({ openId: tt, reason: res.reason }); logger.warn(`Grant action "${value.action}" store failed for ${tt}: ${res.reason}`); }
     }
-    // 全部失败：保留 pending + 不撤卡（owner 可点原卡重试），toast 报错。
+    // Keep pending state when every write fails so the owner can retry the same card.
     if (granted.length === 0) {
       return { toast: { type: 'error', content: t('card.grant.toast_failed', { reason: failed[0]?.reason ?? 'unknown' }, loc) } };
     }
-    // 部分成功：失败 target 的 pending 必须立刻清掉——卡马上要撤回（owner 无法再点原卡重试），
-    // 而 pending 无 TTL，isThrottled 会永久挡住失败 target 后续的自助申请直到 daemon 重启。
-    // 清掉后失败 target 可重新走 /grant 或自助申请；失败清单下面在原线程明确告知 owner，
-    // 不做「撤卡 + 静默失败 + pending 永久卡住」。
+    // Clear failed targets after a partial write. The result card becomes
+    // terminal, so retaining pending state would suppress future requests with
+    // no remaining UI retry path.
     for (const f of failed) clearPending(larkAppId, grantChatId, f.openId);
-    // 一次查通讯录判定哪些 grantee 是真人（vs bot），结果同时供下面两处复用：
-    //   1. observed 花名册自动登记（只收 bot，剔真人）；
-    //   2. 通知卡 @ 渲染（只 @ 真人，bot 用纯文本名字 —— 见下方注释）。
-    // 缺 contact 读权限/查询瞬时失败 → 一律按 bot 处理（false）：登记侧沿用历史「全部登记」回退，
-    // 通知侧则把对方当 bot 不 @（宁可少 @ 一次真人，也不误唤醒 bot 拉空会话）。
-    const humanFlags = await Promise.all(granted.map(id => isHumanOpenId(larkAppId, id).catch(() => false)));
-    // /grant @bot 成功后顺带把「bot」目标登记进 observed 花名册（等价内部跑一次 /introduce），
-    // 授权 + 可点名一步到位。写的是 observed-bots-store（让本 daemon 能 @ 回对方），不影响
-    // isKnownPeerBot 接收闸（那查的是 cross-ref，两套独立存储），零额外路由权。best-effort。
-    // 真人**不**登记：查通讯录确认是真人就剔除，避免污染 <available_bots> 误导模型。
+    // Self-service grants carry the original Lark event in pending state. Its
+    // sender_type is authoritative and remains usable when Contact returns
+    // not_visible. Owner-initiated grants have no source event and keep the
+    // existing best-effort Contact classification.
+    const pendingSenderOpenId = pendingMessage?.sender?.sender_id?.open_id
+      ?? pendingMessage?.sender?.sender_id?.app_id;
+    const pendingSenderType = pendingMessage?.sender?.sender_type;
+    const pendingSenderIsHuman = pendingSenderType === 'user'
+      ? true
+      : pendingSenderType === 'app' || pendingSenderType === 'bot'
+        ? false
+        : undefined;
+    const humanFlags = await Promise.all(granted.map(id => {
+      if (id === pendingSenderOpenId && pendingSenderIsHuman !== undefined) {
+        return pendingSenderIsHuman;
+      }
+      return isHumanOpenId(larkAppId, id).catch(() => false);
+    }));
+    // Register granted bots in the observed roster so the daemon can mention
+    // them later. This does not affect the separate known-peer routing gate.
+    // Never register a confirmed human in the bot roster.
     try {
       const botEntries = granted
         .map((id, i) => ({ id, human: humanFlags[i] }))
@@ -1112,12 +1122,13 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
     } catch (err) {
       logger.warn(`grant auto-introduce (observed) failed (grant still applied): ${err}`);
     }
-    // 通知卡的 grantee 渲染参数：bot 只用纯文本名字（不 <at>，否则唤醒对方 bot 误拉空会话），真人 @ 点名。
+    // Render humans as native mentions. Keep named bots as plain text so a
+    // successful grant does not wake the grantee bot and start an empty turn.
     const notifyTargets = granted.map((id, i) => ({ openId: id, name: idToName.get(id) || undefined, isBot: !humanFlags[i] }));
-    // 授权成功后：**就地 patch 原卡**为终态（正文直接 @ 被授权人 + 额度/有效期），这一张卡既是
-    // 「已授权」结果态、又 ping 到被授权人——无需再单独发通知卡、也无需撤回原卡（申晗 2026-07-31
-    // 反馈：直接在原卡更新即可）。同步返回该 body 即完成 in-place patch，避免 deleteMessage 与
-    // callback 响应竞态导致客户端 300000。仅「部分失败」仍走后台补一条文字告知。
+    // Patch the request card into its terminal result in place. The result
+    // includes the grantee mention and limits, avoiding a separate notification
+    // card and delete-versus-callback races. Partial failures still get a
+    // background text notice.
     const resultCardBody = JSON.parse(buildGrantResultCard(
       kind,
       loc,
