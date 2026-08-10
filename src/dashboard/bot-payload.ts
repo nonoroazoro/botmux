@@ -76,6 +76,11 @@ export function botDefaultsPayload(bot: DashboardBotDescriptor, j?: any, error?:
     autoboundChatCount: j?.autoboundChatCount ?? 0,
     brandLabel: j?.brandLabel ?? null,
     sandbox: j?.sandbox === true,
+    multiUserIsolation: j?.multiUserIsolation && typeof j.multiUserIsolation === 'object'
+      ? j.multiUserIsolation
+      : null,
+    groupOpen: j?.groupOpen === true,
+    p2pOpen: j?.p2pOpen === true,
     sandboxPaths: (j?.sandboxPaths && typeof j.sandboxPaths === 'object' && !Array.isArray(j.sandboxPaths))
       ? {
           readWrite: Array.isArray(j.sandboxPaths.readWrite) ? j.sandboxPaths.readWrite.filter((x: unknown) => typeof x === 'string') : [],

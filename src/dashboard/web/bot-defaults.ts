@@ -64,6 +64,15 @@ export type BotDefaultsRow = {
   autoboundChatCount?: number;
   brandLabel?: string | null;
   sandbox?: boolean;
+  multiUserIsolation?: {
+    enabled: true;
+    root: string;
+    ownerOnlyTopics: boolean;
+    sharedCodexHome?: string;
+    defaultGitIdentity?: { name: string; email: string };
+  } | null;
+  groupOpen?: boolean;
+  p2pOpen?: boolean;
   /** Three-tier sandbox path whitelist (highest-precedence FsPolicy layer).
    *  null/absent = none configured (pure deny-by-default baseline). */
   sandboxPaths?: { readWrite: string[]; readOnly: string[]; deny: string[] } | null;

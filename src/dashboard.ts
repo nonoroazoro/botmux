@@ -4797,6 +4797,23 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    // PUT /api/bots/:appId/multi-user-isolation proxies the bot-level isolation policy.
+    let mBotMultiUserIsolation: RegExpMatchArray | null;
+    if (req.method === 'PUT' && (mBotMultiUserIsolation = url.pathname.match(/^\/api\/bots\/([^/]+)\/multi-user-isolation$/))) {
+      const appId = decodeURIComponent(mBotMultiUserIsolation[1]);
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      const raw = Buffer.concat(chunks).toString('utf8') || '{}';
+      const upstream = await proxyToDaemon(appId, `/api/bot-multi-user-isolation`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: raw,
+      });
+      res.writeHead(upstream.status, { 'content-type': 'application/json' });
+      res.end(await upstream.text());
+      return;
+    }
+
     // PUT /api/bots/:appId/sandbox — proxy to that bot's daemon. Body `{ enabled: boolean }`.
     let mBotSandbox: RegExpMatchArray | null;
     if (req.method === 'PUT' && (mBotSandbox = url.pathname.match(/^\/api\/bots\/([^/]+)\/sandbox$/))) {
@@ -5457,8 +5474,8 @@ void (async () => {
 // 中心化平台隧道（已绑定才启动；每台机器一个，跑在 dashboard 进程里）
 let platformTunnel: { stop(): void } | null = null;
 function readBotmuxVersion(): string {
-  // 与本地 dashboard「版本与更新」卡同源：源码 checkout 的 package.json 是占位的 0.0.0，
-  // resolveCurrentVersion() 会用 git describe 推出真实版本（如 2.91.1），npm 安装则用 package.json。
+  // 与本地 dashboard「版本与更新」卡同源：源码构建和 npm 安装均使用 package.json。
+  // resolveCurrentVersion() 仅为历史 0.0.0 checkout 保留 git describe 兼容。
   try {
     return resolveCurrentVersion();
   } catch {

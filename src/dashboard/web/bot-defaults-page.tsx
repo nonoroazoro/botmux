@@ -805,6 +805,7 @@ function BotDefaultsCard(props: {
           hidden={props.activeTab !== 'security'}
         >
           <BdTabGrid>
+            <section className="bd-tile"><MultiUserIsolationSection bot={bot} patchBot={patchBot} /></section>
             {/* riff 在远端沙箱执行、本地无 CLI 进程，文件沙盒对它无意义（worker 侧已旁路）。 */}
             {bot.cliId !== 'riff' ? (
               <section className="bd-tile"><SandboxSection bot={bot} patchBot={patchBot} /></section>
@@ -1911,6 +1912,89 @@ function AutoStartControls(props: { bot: BotDefaultsRow; putCardPref(patch: Card
         <StatusSpan status={status} attr={{ 'data-auto-start-status': '' }} />
       </div>
     </div>
+  );
+}
+
+function MultiUserIsolationSection(props: { bot: BotDefaultsRow; patchBot: PatchBot }) {
+  const tr = useT();
+  const { bot, patchBot } = props;
+  const configured = bot.multiUserIsolation;
+  const defaultRoot = `~/BotmuxUsers/${bot.larkAppId}`;
+  const [enabled, setEnabled] = useState(configured?.enabled === true);
+  const [root, setRoot] = useState(configured?.root ?? defaultRoot);
+  const [ownerOnlyTopics, setOwnerOnlyTopics] = useState(configured?.ownerOnlyTopics !== false);
+  const [shareCodex, setShareCodex] = useState(Boolean(configured?.sharedCodexHome));
+  const [groupOpen, setGroupOpen] = useState(bot.groupOpen === true);
+  const [p2pOpen, setP2pOpen] = useState(bot.p2pOpen === true);
+  const [gitName, setGitName] = useState(configured?.defaultGitIdentity?.name ?? 'Finder Master');
+  const [gitEmail, setGitEmail] = useState(configured?.defaultGitIdentity?.email ?? 'finder-master@botmux.local');
+  const [status, setStatus] = useState<StatusMessage>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const current = bot.multiUserIsolation;
+    setEnabled(current?.enabled === true);
+    setRoot(current?.root ?? defaultRoot);
+    setOwnerOnlyTopics(current?.ownerOnlyTopics !== false);
+    setShareCodex(Boolean(current?.sharedCodexHome));
+    setGroupOpen(bot.groupOpen === true);
+    setP2pOpen(bot.p2pOpen === true);
+    setGitName(current?.defaultGitIdentity?.name ?? 'Finder Master');
+    setGitEmail(current?.defaultGitIdentity?.email ?? 'finder-master@botmux.local');
+  }, [bot.multiUserIsolation, bot.groupOpen, bot.p2pOpen, defaultRoot]);
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const res = await sendJson('PUT', `/api/bots/${encodeURIComponent(bot.larkAppId)}/multi-user-isolation`, {
+        enabled,
+        root,
+        ownerOnlyTopics,
+        sharedCodexHome: shareCodex ? '~/.codex' : '',
+        defaultGitIdentity: { name: gitName, email: gitEmail },
+        groupOpen,
+        p2pOpen,
+      });
+      if (!res.ok || !res.body.ok) {
+        setStatus({ text: `✗ ${responseErrorText(res)}` });
+        return;
+      }
+      patchBot(bot.larkAppId, {
+        multiUserIsolation: res.body.multiUserIsolation,
+        groupOpen: res.body.groupOpen === true,
+        p2pOpen: res.body.p2pOpen === true,
+      });
+      setStatus({ text: `✓ ${tr('botDefaults.multiUserSaved')}`, ok: true });
+    } catch (error: unknown) {
+      setStatus({ text: `✗ ${caughtErrorText(error)}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="bd-section">
+      <h3 className="bd-section-title">{tr('botDefaults.sectionMultiUser')}</h3>
+      <ToggleRow checked={enabled} disabled={busy} dataAction="toggle-multi-user" title={tr('botDefaults.multiUserToggle')} help={tr('botDefaults.multiUserHelp')} onChange={setEnabled} />
+      <ToggleRow checked={groupOpen} disabled={busy} dataAction="toggle-group-open" title={tr('botDefaults.groupOpenToggle')} help={tr('botDefaults.groupOpenHelp')} onChange={setGroupOpen} />
+      <ToggleRow checked={p2pOpen} disabled={busy} dataAction="toggle-p2p-open" title={tr('botDefaults.p2pOpenToggle')} help={tr('botDefaults.p2pOpenHelp')} onChange={setP2pOpen} />
+      <ToggleRow checked={ownerOnlyTopics} disabled={busy || !enabled} dataAction="toggle-owner-topics" title={tr('botDefaults.ownerTopicsToggle')} help={tr('botDefaults.ownerTopicsHelp')} onChange={setOwnerOnlyTopics} />
+      <ToggleRow checked={shareCodex} disabled={busy || !enabled} dataAction="toggle-shared-codex" title={tr('botDefaults.sharedCodexToggle')} help={tr('botDefaults.sharedCodexHelp')} onChange={setShareCodex} />
+      <div className="bd-row">
+        <label><span>{tr('botDefaults.multiUserRoot')}</span><input value={root} disabled={busy || !enabled} onChange={event => setRoot(event.currentTarget.value)} /></label>
+      </div>
+      <div className="bd-row">
+        <label><span>{tr('botDefaults.gitIdentityName')}</span><input value={gitName} disabled={busy || !enabled} onChange={event => setGitName(event.currentTarget.value)} /></label>
+      </div>
+      <div className="bd-row">
+        <label><span>{tr('botDefaults.gitIdentityEmail')}</span><input value={gitEmail} disabled={busy || !enabled} onChange={event => setGitEmail(event.currentTarget.value)} /></label>
+      </div>
+      <div className="actions">
+        <button type="button" className="primary" disabled={busy} onClick={() => void save()}>{tr('botDefaults.save')}</button>
+        <StatusSpan status={status} attr={{ 'data-multi-user-status': '' }} />
+      </div>
+    </section>
   );
 }
 
