@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } f
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveCommand } from '../adapters/cli/registry.js';
+import { botmuxVersion } from '../utils/install-info.js';
 
 type JsonObject = Record<string, any>;
 
@@ -202,7 +203,7 @@ class CodexAppServerProbe {
 
   async initialize(timeoutMs: number): Promise<void> {
     await this.withTimeout(this.request('initialize', {
-      clientInfo: { name: 'botmux-codex-app-thread-picker', version: '0.0.0' },
+      clientInfo: { name: 'botmux-codex-app-thread-picker', version: botmuxVersion() },
       capabilities: {
         experimentalApi: true,
         suppressNotifications: ['thread/started', 'thread/status/changed'],

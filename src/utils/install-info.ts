@@ -25,9 +25,8 @@ export function isLocalDevInstall(): boolean {
   return cached;
 }
 
-/** The running botmux version (from the install's package.json). For an
- *  npm-global install this is the real published version; in a source checkout
- *  it's the unbuilt '0.0.0' (CI injects the real version at publish). */
+/** The running botmux version from the install's package.json. Source builds
+ *  and npm installs both carry a concrete version starting at 1.0.0. */
 export function botmuxVersionAt(rootDir: string): string {
   try {
     const pkg = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf-8'));
@@ -52,9 +51,7 @@ export function botmuxCliEntry(): string {
   return botmuxCliEntryAt(packageRoot());
 }
 
-/** Absolute path to this install's root (the dir holding package.json). For a
- *  source checkout this is the git working tree — used to derive a real version
- *  via `git describe` when package.json is the unbuilt 0.0.0. */
+/** Absolute path to this install's root, the directory holding package.json. */
 export function botmuxInstallRoot(): string {
   return packageRoot();
 }

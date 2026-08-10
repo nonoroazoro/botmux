@@ -39,11 +39,8 @@ export function checkNode(version: string = process.version, required = MIN_NODE
 
 /**
  * The version to show in the update card. For an npm install this is the real
- * published version from package.json. A source checkout ships the unbuilt
- * `0.0.0` (CI injects the real version only at publish), so we derive a real
- * baseline from the latest git tag (`git describe --tags --abbrev=0` → the clean
- * tag, e.g. "v2.86.0", stripped of the leading v). That makes the version
- * display, "behind" comparison, and changelog range correct in dev mode too.
+ * published version from package.json. Legacy source checkouts may still carry
+ * `0.0.0`; for those checkouts only, derive a baseline from the latest git tag.
  * Falls back to the raw package.json version if git is unavailable.
  */
 export function resolveCurrentVersion(): string {

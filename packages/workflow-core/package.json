@@ -1,6 +1,6 @@
 {
   "name": "botmux-workflow-core",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Daemon-independent Workflow v3 schema, scheduler, control policy, and host contracts",
   "type": "module",
   "sideEffects": false,

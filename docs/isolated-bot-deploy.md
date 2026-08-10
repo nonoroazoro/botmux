@@ -35,7 +35,7 @@ claude /login                         # 写 keychain / ~/.claude/.credentials.js
 pnpm switch:here && botmux restart
 ```
 
-> 源码部署时 `package.json` 的 `version` 是 `0.0.0`，正常——版本号只有 CI 打 tag 发版时才写入，不影响功能。
+> 源码部署和本地打包使用 `package.json` 中的版本号，版本序列从 `1.0.0` 开始。CI 发版时会再用 git tag 同步目标版本。
 >
 > ⚠️ **同一个飞书 app 不能被两台机器的 daemon 同时监听**——两个 daemon 会争抢同一批飞书事件。新机器要么用**另一批飞书 app**，要么是**迁移**（起新的、停旧的）。
 

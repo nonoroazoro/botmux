@@ -62,7 +62,7 @@ Desktop project with an exact dependency:
 
 ```bash
 cd /path/to/botmux-clients/desktop
-pnpm add --save-exact /absolute/path/to/botmux/packages/workflow-core/.packs/botmux-workflow-core-0.0.0.tgz
+pnpm add --save-exact /absolute/path/to/botmux/packages/workflow-core/.packs/botmux-workflow-core-1.0.0.tgz
 ```
 
 CI can install this package directly from a pinned Botmux commit and package

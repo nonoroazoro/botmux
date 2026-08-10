@@ -28,6 +28,7 @@ import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from 'node
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { WebSocket } from 'ws';
+import { botmuxVersion } from './utils/install-info.js';
 
 type Json = Record<string, any>;
 type LogFn = (msg: string) => void;
@@ -160,7 +161,7 @@ export class CodexRpcEngine {
     await this.waitReady(15_000);
     await this.connect(8_000);
     await this.request('initialize', {
-      clientInfo: { name: 'botmux', version: '0.0.0', title: 'botmux' },
+      clientInfo: { name: 'botmux', version: botmuxVersion(), title: 'botmux' },
       capabilities: { experimentalApi: true },
     });
     this.notify('initialized');

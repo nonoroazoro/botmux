@@ -24,6 +24,7 @@ import {
   TurnTokenUsageAccumulator,
   parseTokenUsagePair,
 } from './services/codex-app-token-usage.js';
+import { botmuxVersion } from './utils/install-info.js';
 
 type JsonObject = Record<string, any>;
 
@@ -161,7 +162,7 @@ class AppServerClient {
 
   async initialize(): Promise<void> {
     await this.request('initialize', {
-      clientInfo: { name: 'botmux-codex-app', version: '0.0.0' },
+      clientInfo: { name: 'botmux-codex-app', version: botmuxVersion() },
       capabilities: { experimentalApi: true },
     });
     this.notify('initialized');

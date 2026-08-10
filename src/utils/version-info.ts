@@ -9,7 +9,7 @@ type GitDescribe = (
 export interface EffectiveBotmuxVersionOptions {
   /** Desktop can pass a runtimeVersion query override from the native shell. */
   versionOverride?: string | null;
-  /** Raw package.json version. Linked local checkouts commonly expose 0.0.0. */
+  /** Raw package.json version. Legacy linked checkouts may expose 0.0.0. */
   rawVersion?: string | null;
   /** Install root used as the cwd for git describe fallback. */
   rootDir?: string;
@@ -21,8 +21,8 @@ const gitTagVersionCache = new Map<string, string | null>();
 
 /**
  * User-facing botmux version. Published installs use package.json; linked
- * local checkouts can carry placeholder 0.0.0, so derive the nearest release
- * tag instead.
+ * legacy local checkouts can carry placeholder 0.0.0, so derive the nearest
+ * release tag for those checkouts.
  */
 export function resolveEffectiveBotmuxVersion(options: EffectiveBotmuxVersionOptions): string {
   const override = normalizeBotmuxVersion(options.versionOverride);

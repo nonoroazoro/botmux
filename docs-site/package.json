@@ -1,7 +1,7 @@
 {
   "name": "botmux-docs",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "scripts": {
     "predev": "node scripts/prepare-assets.mjs",
     "dev": "rspress dev",
