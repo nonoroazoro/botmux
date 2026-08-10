@@ -229,6 +229,38 @@ describe('buildNewTopicPrompt', () => {
     expect(prompt).toContain('open_id="ou_alice"');
   });
 
+  it('omits the receiving bot from Codex mention metadata', () => {
+    const prompt = buildNewTopicPrompt(
+      'hello',
+      SESSION_ID,
+      'codex',
+      undefined,
+      undefined,
+      [{ name: 'Finder Master', openId: 'ou_finder' }],
+      undefined,
+      undefined,
+      { name: 'Finder Master', openId: 'ou_finder' },
+    );
+
+    expect(prompt).not.toContain('<mentions>');
+  });
+
+  it('keeps the Codex opening prompt compact instead of inlining the bot roster', () => {
+    const prompt = buildNewTopicPrompt(
+      'hello',
+      SESSION_ID,
+      'codex',
+      undefined,
+      undefined,
+      undefined,
+      [{ name: 'peer', displayName: 'Peer Bot', openId: 'ou_peer' }],
+    );
+
+    expect(prompt).not.toContain('<available_bots');
+    expect(prompt).not.toContain('ou_peer');
+    expect(prompt).toContain('botmux bots list');
+  });
+
   it('puts stable routing and bot identity before the first user message for non-injecting CLIs', () => {
     const prompt = buildNewTopicPrompt(
       'hello',

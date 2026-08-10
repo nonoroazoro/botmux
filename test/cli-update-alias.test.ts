@@ -38,9 +38,11 @@ describe('botmux update alias', () => {
     const upgrade = runCli('upgrade');
     const update = runCli('update');
 
-    expect(upgrade.status).toBe(1);
-    expect(upgrade.stderr).toContain('无法安全识别当前安装方式');
-    expect(update).toEqual(upgrade);
+    expect(upgrade.status).toBe(2);
+    expect(upgrade.stderr).toContain('Update is disabled for this managed custom build');
+    expect(update.status).toBe(upgrade.status);
+    expect(update.stdout).toBe(upgrade.stdout);
+    expect(update.stderr).toContain('Update is disabled for this managed custom build');
   });
 
   it('documents the alias in help', () => {

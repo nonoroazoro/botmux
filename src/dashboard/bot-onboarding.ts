@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { readBotsJsonOrEmpty, writeBotsJsonAtomic } from '../setup/bots-store.js';
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
 import { logger } from '../utils/logger.js';
+import { createDefaultMultiUserIsolationConfig } from '../core/multi-user-isolation-defaults.js';
 import { normalizeBotConfig, findInvalidAllowedUserEntries, hasOwnerEntry, isMobileEntry, normalizeMobileEntry } from '../setup/bot-config-editor.js';
 import { tryRegisterApp, type RegisterAppOptions, type RegisterAppResult } from '../setup/register-app.js';
 import {
@@ -1667,8 +1668,9 @@ export class BotOnboardingManager {
       return;
     }
 
-    // CLI / 工作目录 / model 来自前端表单 (dashboard 已用 resolveCliId +
-    // invalidWorkingDirs 校验过). 留空回退到 setup 同款默认: claude-code / '~'.
+    // CLI / model come from the dashboard form. The working directory remains
+    // available to setup automation, but is not persisted as a shared runtime
+    // directory because new bots use per-user isolation by default.
     const cliId: CliId = input.cliId ?? 'claude-code';
     const workingDir = input.workingDir?.trim() || '~';
     const bot: Record<string, any> = {
@@ -1677,9 +1679,7 @@ export class BotOnboardingManager {
       cliId,
       // aiden × claude/codex 等启动前缀；普通 CLI 不写此字段。
       ...(input.wrapperCli ? { wrapperCli: input.wrapperCli } : {}),
-      // 'fixed' → defaultWorkingDir（新话题直接启动、不弹卡片，扫描根回退 ~）；
-      // 'card'/缺省 → workingDir（仓库选择卡片扫描根，兼容旧调用方语义）。
-      ...(input.dirMode === 'fixed' ? { defaultWorkingDir: workingDir } : { workingDir }),
+      multiUserIsolation: createDefaultMultiUserIsolationConfig(result.appId),
     };
     if (input.model && input.model.trim()) bot.model = input.model.trim();
     // brand 落盘：只在国际版写字段，feishu 留空（向后兼容，见 normalizeBrand）。

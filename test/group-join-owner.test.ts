@@ -1,5 +1,5 @@
 /**
- * autoInviteOwnerOnGroupJoin：bot 进群自动把 owner 拉进群（默认 ON，显式 false 关）。
+ * autoInviteOwnerOnGroupJoin defaults OFF and requires explicit opt-in.
  * Run: pnpm vitest run test/group-join-owner.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -35,8 +35,15 @@ function reg(cfg: Record<string, unknown> = {}) {
 }
 
 describe('autoInviteOwnerOnGroupJoin', () => {
-  it('default ON: pulls owner with open_id + addMembers.create when not yet in chat', async () => {
+  it('defaults to skipped for a regular bot', async () => {
     reg();
+    expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, 'ou_someone_else')).toBe('skipped');
+    expect(requestMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('explicit true pulls owner with open_id + addMembers.create', async () => {
+    reg({ autoInviteOwnerOnGroupAdd: true });
     expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, 'ou_someone_else')).toBe('added');
     expect(createMock).toHaveBeenCalledTimes(1);
     const arg = createMock.mock.calls[0][0] as any;
@@ -46,7 +53,7 @@ describe('autoInviteOwnerOnGroupJoin', () => {
   });
 
   it('owner already in chat (member pre-check) → already, no create call', async () => {
-    reg();
+    reg({ autoInviteOwnerOnGroupAdd: true });
     requestMock.mockImplementation(async (arg: any) => {
       if (String(arg?.url ?? '').includes('/members')) {
         return { code: 0, data: { items: [{ member_id: OWNER }], has_more: false } };
@@ -58,7 +65,7 @@ describe('autoInviteOwnerOnGroupJoin', () => {
   });
 
   it('member pre-check fails → still tries to add (API is the authority)', async () => {
-    reg();
+    reg({ autoInviteOwnerOnGroupAdd: true });
     requestMock.mockRejectedValue(new Error('members boom'));
     expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, 'ou_someone_else')).toBe('added');
     expect(createMock).toHaveBeenCalledTimes(1);
@@ -71,8 +78,32 @@ describe('autoInviteOwnerOnGroupJoin', () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it('multi-user bot defaults to skipped, nothing called', async () => {
+    reg({
+      multiUserIsolation: {
+        enabled: true,
+        root: '/tmp/botmux-users',
+      },
+    });
+    expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, 'ou_someone_else')).toBe('skipped');
+    expect(requestMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('multi-user bot can explicitly enable owner invite', async () => {
+    reg({
+      autoInviteOwnerOnGroupAdd: true,
+      multiUserIsolation: {
+        enabled: true,
+        root: '/tmp/botmux-users',
+      },
+    });
+    expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, 'ou_someone_else')).toBe('added');
+    expect(createMock).toHaveBeenCalledTimes(1);
+  });
+
   it('operator IS the owner → already, nothing called', async () => {
-    reg();
+    reg({ autoInviteOwnerOnGroupAdd: true });
     expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, OWNER)).toBe('already');
     expect(createMock).not.toHaveBeenCalled();
   });
@@ -84,19 +115,19 @@ describe('autoInviteOwnerOnGroupJoin', () => {
   });
 
   it('Lark rejects the add (code != 0) → failed, never throws', async () => {
-    reg();
+    reg({ autoInviteOwnerOnGroupAdd: true });
     createMock.mockImplementation(async () => ({ code: 232024, msg: 'no permission' }));
     expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, 'ou_someone_else')).toBe('failed');
   });
 
   it('Lark throws on the add → failed, never throws', async () => {
-    reg();
+    reg({ autoInviteOwnerOnGroupAdd: true });
     createMock.mockRejectedValue(new Error('http 500'));
     expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, 'ou_someone_else')).toBe('failed');
   });
 
   it('invalid_id_list containing owner → failed', async () => {
-    reg();
+    reg({ autoInviteOwnerOnGroupAdd: true });
     createMock.mockImplementation(async () => ({ code: 0, data: { invalid_id_list: [OWNER] } }));
     expect(await autoInviteOwnerOnGroupJoin('b1', CHAT, 'ou_someone_else')).toBe('failed');
   });

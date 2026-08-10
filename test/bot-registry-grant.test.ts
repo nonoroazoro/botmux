@@ -58,7 +58,7 @@ describe('bot-registry grant additions', () => {
       { larkAppId: 'b_custom', larkAppSecret: 's', brandLabel: '[Acme](https://acme.test)' },
       { larkAppId: 'b_nonstring', larkAppSecret: 's', brandLabel: 42 },
     ]));
-    expect(cfgs[0].brandLabel).toBeUndefined();         // unset → default at render time
+    expect(cfgs[0].brandLabel).toBeUndefined();         // unset → bot name at render time
     expect(cfgs[1].brandLabel).toBe('');                // '' preserved → off
     expect(cfgs[2].brandLabel).toBe('[Acme](https://acme.test)');
     expect(cfgs[3].brandLabel).toBeUndefined();         // non-string ignored

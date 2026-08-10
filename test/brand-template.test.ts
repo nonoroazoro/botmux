@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { renderBrandTemplate } from '../src/im/lark/brand-template.js';
+import { renderBrandTemplate, renderPlainBrandLabel } from '../src/im/lark/brand-template.js';
 
 // 镜像 brand-template.ts 的 safeText：脚注里显示的文本会走 escapeLarkMd（& < > * _ ~ `）
 // + 剥离链接结构 [ ] ( )。路径派生的显示值也过它，所以下面用它算期望。
@@ -11,6 +11,17 @@ const escText = (s: string) =>
     .replace(/\\/g, '\\\\')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/([*_~`])/g, '\\$1').replace(/[[\]()]/g, '');
+
+describe('renderPlainBrandLabel', () => {
+  it('renders the bot name as plain text without a link', () => {
+    expect(renderPlainBrandLabel('Finder Master')).toBe('Finder Master');
+  });
+
+  it('neutralizes markdown, tags, and cwd template syntax in bot names', () => {
+    expect(renderPlainBrandLabel('[Bot](https://example.com) <at id=ou_x></at> {cwd}'))
+      .toBe('\\[Bot\\]\\(https://example.com\\) &lt;at id=ou\\_x&gt;&lt;/at&gt; &#123;cwd&#125;');
+  });
+});
 
 describe('renderBrandTemplate', () => {
   it('不含 { 的模板原样返回（含 undefined/空串/默认值）', () => {

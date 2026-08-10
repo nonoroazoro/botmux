@@ -529,11 +529,30 @@ export function drainCodexRollout(path: string, fromOffset: number): CodexDrainR
       && p.type === 'task_complete'
       && typeof p.turn_id === 'string'
       && p.turn_id.length > 0) {
+      const taskError = p.error && typeof p.error === 'object'
+        ? p.error as Record<string, unknown>
+        : undefined;
+      const taskErrorMessage = typeof taskError?.message === 'string'
+        ? taskError.message.trim()
+        : '';
+      const taskErrorInfo = typeof taskError?.codex_error_info === 'string'
+        ? taskError.codex_error_info.trim().replace(/[^A-Za-z0-9._-]+/gu, '_')
+        : '';
       events.push({
         uuid: `${path}:${lineStart}`,
         timestampMs,
         kind: 'assistant_final',
-        text: typeof p.last_agent_message === 'string' ? p.last_agent_message : '',
+        text: typeof p.last_agent_message === 'string' && p.last_agent_message.trim()
+          ? p.last_agent_message
+          : taskErrorMessage,
+        ...(taskErrorMessage
+          ? {
+              terminalStatus: 'failed' as const,
+              terminalErrorCode: taskErrorInfo
+                ? `codex_task_error:${taskErrorInfo}`
+                : 'codex_task_error',
+            }
+          : {}),
       });
       continue;
     }

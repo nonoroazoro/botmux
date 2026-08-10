@@ -186,6 +186,7 @@ import {
   ensureSessionWhiteboard,
 } from './core/session-manager.js';
 import { triggerSessionTurn } from './core/trigger-session.js';
+import { resolveSessionPrincipal } from './core/session-principal.js';
 import { claimInitialUserTurn, isInitialUserTurnPending, releaseInitialUserTurn } from './core/initial-user-turn.js';
 import { applyQueuedCodexAppLegacyFallback, mergeQueuedCodexAppTurn } from './core/session-create.js';
 import { findOnlineDaemon, listOnlineDaemons } from './utils/daemon-discovery.js';
@@ -16128,7 +16129,8 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
   // 话题 hint 同样前置到 codex-app 结构化 sidecar lane（与 quote hint 一致双 lane
   // 下发），否则 codex-app（clean input）bot 走 sidecar 时会静默丢掉该 hint。
   const codexAppMessageContext = topicThreadContext + codexAppQuoteContext + (workflowGrillPrompt ?? '');
-  const promptContent = topicThreadContext + codexAppQuoteContext + codexAppApplicationContext + content;
+  const userPromptContent = stripLeadingMentions(content, parsed.mentions);
+  const promptContent = topicThreadContext + codexAppQuoteContext + codexAppApplicationContext + userPromptContent;
 
   // Resolve sender identity for <sender> tag injection. The first call to
   // resolveSender for an unseen open_id may await contact.v3.user.get with a
@@ -16990,6 +16992,25 @@ async function handleThreadReply(
   // blocker. Do this before command, callback, workflow, and ask-custom early
   // returns so those paths cannot leave stale needs-you rows behind.
   clearAgentAttentionForHumanInbound();
+
+  const principalSession = activeSessions.get(sessionKey(anchor, larkAppId));
+  const multiUserIsolation = getBot(larkAppId).config.multiUserIsolation;
+  if (multiUserIsolation?.enabled && multiUserIsolation.ownerOnlyTopics && principalSession) {
+    const principalOpenId = resolveSessionPrincipal(principalSession.session);
+    if (!principalOpenId || !threadSenderOpenId || threadSenderOpenId !== principalOpenId) {
+      await sessionReply(
+        anchor,
+        tr('daemon.multi_user.topic_owner_only', undefined, localeForBot(larkAppId)),
+        'text',
+        larkAppId,
+      );
+      return;
+    }
+    if (principalSession.session.principalOpenId !== principalOpenId) {
+      principalSession.session.principalOpenId = principalOpenId;
+      sessionStore.updateSession(principalSession.session);
+    }
+  }
 
   // Intercept OAuth callback URLs (from /login flow). Feishu auto-prepends an
   // @<bot> mention to every reply inside a bot-created topic, so the raw

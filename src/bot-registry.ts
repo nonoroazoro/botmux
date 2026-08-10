@@ -21,6 +21,8 @@ import { sanitizePerBotEnv } from './core/per-bot-env.js';
 import { normalizeSubstituteMode } from './services/substitute-mode-normalize.js';
 import { normalizePluginIdList } from './core/plugins/ids.js';
 import { normalizeVcMeetingProfileInstructions } from './services/vc-meeting-profile-instructions.js';
+import { resolveBotmuxDataDir } from './core/data-dir.js';
+import { renderPlainBrandLabel } from './im/lark/brand-template.js';
 import type {
   VcMeetingConsumerAgentConfig,
   VcMeetingConsumerConfig,
@@ -59,6 +61,17 @@ export type ContentTriggerScope = 'topic' | 'regularGroup' | 'both';
 export type ContentTriggerMatchType = 'keyword' | 'regex';
 export type ContentTriggerActionType = 'start-or-wake-session';
 export type MessageListenerSenderType = 'user' | 'bot';
+
+export interface MultiUserIsolationConfig {
+  enabled: true;
+  root: string;
+  ownerOnlyTopics: boolean;
+  sharedCodexHome?: string;
+  defaultGitIdentity?: {
+    name: string;
+    email: string;
+  };
+}
 
 export interface MessageListenerConfig {
   enabled: boolean;
@@ -1118,6 +1131,12 @@ export interface BotConfig {
    */
   sandbox?: boolean;
   /**
+   * Run each Lark session inside a persistent filesystem namespace owned by
+   * the first sender. HOME, workspace, CLI credentials and local Git state are
+   * isolated by sender while selected Codex resources may be shared read-only.
+   */
+  multiUserIsolation?: MultiUserIsolationConfig;
+  /**
    * User增量 three-tier path lists layered ON TOP of the baseline preset
    * (never replacing it). Deepest matching rule wins, so nested black/white
    * lists work (readOnly a tree, deny a subdir inside it). Same semantics on
@@ -1267,6 +1286,12 @@ export interface BotConfig {
    */
   p2pOpen?: boolean;
   /**
+   * 群聊对话全开（默认关闭）。开启后任何群成员都可以 @ 本 bot 发起普通对话，
+   * 但不获得管理权限。`/restart`、`/cd`、配置修改和管理卡片仍只认
+   * `allowedUsers`。谁能把 bot 加入群以及 bot 的可用范围仍由飞书平台控制。
+   */
+  groupOpen?: boolean;
+  /**
    * 消息额度覆盖配置：
    *   • 未配置（undefined）→ 卡片使用产品默认 3 条；oncall 不自动计数。
    *   • 配置正整数 D    → 卡片默认 D 条，同时作为 oncall 默认额度。
@@ -1350,7 +1375,7 @@ export interface BotConfig {
   skills?: BotSkillPolicy;
   /**
    * Custom footer brand label for cards this bot sends. Three states:
-   *   • `undefined` (unset)  → default `[botmux](github)` link
+   *   • `undefined` (unset)  → the bot's current display name
    *   • `''` (empty)         → brand suppressed (footer shows only 发送给 if any)
    *   • any other string     → rendered verbatim (markdown allowed)
    * Resolved via {@link resolveBrandLabel}. Pure cosmetic — does not affect
@@ -1458,10 +1483,8 @@ export interface BotConfig {
    */
   autoStartOnGroupJoinPrompt?: string;
   /**
-   * 进群自动拉 owner。Default (undefined) = ON：本 bot 被加进任何群时，自动把
-   * 自己的 owner（resolvedAllowedUsers 首个 ou_ 用户）拉进群——bot 应始终处于
-   *  owner 可见的群里（不打黑工）。显式 false 关闭（如告警/oncall 类 bot 被
-   * 平台批量拉进大量事件群、不想打扰 owner 的场景）。仅 bots.json 文件配置。
+   * Invite the owner when this bot joins a chat. Disabled by default for all
+   * bots. Set true explicitly to enable it. Configured only in bots.json.
    */
   autoInviteOwnerOnGroupAdd?: boolean;
   /**
@@ -1586,6 +1609,7 @@ export function __testOnly_resetBotRegistry(): void {
   loadedConfigPath = undefined;
   oncallChatCache = null;
   brandLabelCache = null;
+  botNameCache = null;
   usageDisplayCache = null;
 }
 
@@ -1907,7 +1931,11 @@ export function isChatOncallBoundForAnyBot(chatId: string): boolean {
 
 // Per-bot brand label, mtime-cached for the disk fallback. Keyed by larkAppId →
 // the configured value (undefined when the bot has no brandLabel key).
-let brandLabelCache: { mtimeMs: number; map: Map<string, string | undefined> } | null = null;
+let brandLabelCache: {
+  mtimeMs: number;
+  map: Map<string, { brandLabel?: string; displayName?: string }>;
+} | null = null;
+let botNameCache: { path: string; mtimeMs: number; map: Map<string, string> } | null = null;
 let usageDisplayCache: { mtimeMs: number; map: Map<string, UsageDisplayMode> } | null = null;
 
 /** Normalize a raw bots.json entry's usage-display intent to the enum, applying
@@ -1937,13 +1965,13 @@ function botsConfigDiskPath(): string | null {
 }
 
 /**
- * The configured brand label for a bot, or `undefined` when unset (`''` = off
- * is preserved). Prefers the in-memory registry (daemon hot path); falls back
- * to a mtime-cached read of bots.json so the CLI process — which never loads
- * the registry — still resolves the sending bot's brand. Callers feed the
- * result into {@link brandFooterSegment} for the unset→default / ''→off rule.
+ * Resolve the reply-card brand for a bot. An explicit `brandLabel` wins and an
+ * empty string still disables the brand. When it is unset, use the bot's Lark
+ * name as plain text, with the optional local `displayName` as a fallback.
+ * The one-shot CLI falls back to bots-info.json because registering bots from
+ * bots.json does not populate the Lark-probed name.
  */
-export function resolveBrandLabel(larkAppId: string): string | undefined {
+export function resolveBrandLabel(larkAppId: string, fallbackBotName?: string): string | undefined {
   // A sandboxed one-shot `botmux send` can't read bots.json (deny-by-default),
   // so it has no in-memory registry and would fall through to a bots.json read
   // that EPERMs → role footer lost. The worker injects THIS bot's resolved
@@ -1954,27 +1982,68 @@ export function resolveBrandLabel(larkAppId: string): string | undefined {
     return process.env.BOTMUX_BRAND_LABEL;
   }
   const inMem = bots.get(larkAppId);
-  if (inMem) return inMem.config.brandLabel;
+  if (inMem?.config.brandLabel !== undefined) return inMem.config.brandLabel;
+  if (inMem) {
+    const label = renderPlainBrandLabel(inMem.botName ?? '');
+    if (label) return label;
+  }
   const path = loadedConfigPath ?? botsConfigDiskPath();
-  if (!path) return undefined;
+  let diskConfig: { brandLabel?: string; displayName?: string } | undefined;
+  if (path) {
+    try {
+      const stat = statSync(path);
+      if (!brandLabelCache || brandLabelCache.mtimeMs !== stat.mtimeMs) {
+        const raw = JSON.parse(readFileSync(path, 'utf-8'));
+        const map = new Map<string, { brandLabel?: string; displayName?: string }>();
+        if (Array.isArray(raw)) {
+          for (const e of raw) {
+            if (e && typeof e.larkAppId === 'string') {
+              map.set(e.larkAppId, {
+                ...(typeof e.brandLabel === 'string' ? { brandLabel: e.brandLabel } : {}),
+                ...(typeof e.displayName === 'string' && e.displayName.trim()
+                  ? { displayName: e.displayName.trim() }
+                  : {}),
+              });
+            }
+          }
+        }
+        brandLabelCache = { mtimeMs: stat.mtimeMs, map };
+      }
+      diskConfig = brandLabelCache.map.get(larkAppId);
+    } catch {
+      // The sandbox path receives the resolved value through env instead.
+    }
+  }
+  if (diskConfig?.brandLabel !== undefined) return diskConfig.brandLabel;
+
+  let botName: string | undefined;
+  const infoPath = resolve(resolveBotmuxDataDir(), 'bots-info.json');
   try {
-    const stat = statSync(path);
-    if (!brandLabelCache || brandLabelCache.mtimeMs !== stat.mtimeMs) {
-      const raw = JSON.parse(readFileSync(path, 'utf-8'));
-      const map = new Map<string, string | undefined>();
+    const stat = statSync(infoPath);
+    if (!botNameCache || botNameCache.path !== infoPath || botNameCache.mtimeMs !== stat.mtimeMs) {
+      const raw = JSON.parse(readFileSync(infoPath, 'utf-8'));
+      const map = new Map<string, string>();
       if (Array.isArray(raw)) {
-        for (const e of raw) {
-          if (e && typeof e.larkAppId === 'string') {
-            map.set(e.larkAppId, typeof e.brandLabel === 'string' ? e.brandLabel : undefined);
+        for (const entry of raw) {
+          if (
+            entry
+            && typeof entry.larkAppId === 'string'
+            && typeof entry.botName === 'string'
+            && entry.botName.trim()
+          ) {
+            map.set(entry.larkAppId, entry.botName.trim());
           }
         }
       }
-      brandLabelCache = { mtimeMs: stat.mtimeMs, map };
+      botNameCache = { path: infoPath, mtimeMs: stat.mtimeMs, map };
     }
-    return brandLabelCache.map.get(larkAppId);
+    botName = botNameCache.map.get(larkAppId);
   } catch {
-    return undefined;
+    // Missing or unreadable discovery state falls through to displayName.
   }
+  return renderPlainBrandLabel(
+    botName ?? fallbackBotName ?? inMem?.config.displayName ?? diskConfig?.displayName ?? '',
+  );
 }
 
 /**
@@ -2556,6 +2625,34 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       codexAppCleanInput: entry.codexAppCleanInput === true || undefined,
       codexRpcInput: entry.codexRpcInput === true,
       sandbox: entry.sandbox === true,
+      multiUserIsolation: entry.multiUserIsolation
+        && typeof entry.multiUserIsolation === 'object'
+        && !Array.isArray(entry.multiUserIsolation)
+        && entry.multiUserIsolation.enabled === true
+        && typeof entry.multiUserIsolation.root === 'string'
+        && entry.multiUserIsolation.root.trim()
+        ? {
+            enabled: true,
+            root: entry.multiUserIsolation.root.trim(),
+            ownerOnlyTopics: entry.multiUserIsolation.ownerOnlyTopics !== false,
+            sharedCodexHome: typeof entry.multiUserIsolation.sharedCodexHome === 'string'
+              && entry.multiUserIsolation.sharedCodexHome.trim()
+              ? entry.multiUserIsolation.sharedCodexHome.trim()
+              : undefined,
+            defaultGitIdentity: entry.multiUserIsolation.defaultGitIdentity
+              && typeof entry.multiUserIsolation.defaultGitIdentity === 'object'
+              && !Array.isArray(entry.multiUserIsolation.defaultGitIdentity)
+              && typeof entry.multiUserIsolation.defaultGitIdentity.name === 'string'
+              && entry.multiUserIsolation.defaultGitIdentity.name.trim()
+              && typeof entry.multiUserIsolation.defaultGitIdentity.email === 'string'
+              && entry.multiUserIsolation.defaultGitIdentity.email.trim()
+              ? {
+                  name: entry.multiUserIsolation.defaultGitIdentity.name.trim(),
+                  email: entry.multiUserIsolation.defaultGitIdentity.email.trim(),
+                }
+              : undefined,
+          }
+        : undefined,
       sandboxPaths: entry.sandboxPaths && typeof entry.sandboxPaths === 'object' && !Array.isArray(entry.sandboxPaths)
         ? {
             readWrite: normalizeStringList(entry.sandboxPaths.readWrite),
@@ -2602,6 +2699,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       globalGrants,
       // 只落显式 true（undefined = 关），与 restrictGrantCommands 同款，保持 bots.json 干净。
       p2pOpen: entry.p2pOpen === true || undefined,
+      groupOpen: entry.groupOpen === true || undefined,
       messageQuota,
       quotaState,
       grantExpiryState,
@@ -2619,7 +2717,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       skillInjection: entry.skillInjection === 'global' || entry.skillInjection === 'prompt' || entry.skillInjection === 'off'
         ? entry.skillInjection : undefined,
       // Preserve '' distinctly from undefined: '' means "brand off", undefined
-      // means "use default botmux brand". Don't trim-to-undefined here.
+      // means "use the bot name". Don't trim-to-undefined here.
       brandLabel: typeof entry.brandLabel === 'string' ? entry.brandLabel : undefined,
       // Persist only a non-default usage-display mode; 'streaming' (default) and
       // an absent key both mean streaming. Legacy showUsageInCardFooter:false is
@@ -2647,8 +2745,10 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       // 平台团队展示默认 ON：只有显式 false 有意义/落盘（undefined = 展示）。
       showInTeam: entry.showInTeam === false ? false : undefined,
       autoStartOnGroupJoin: entry.autoStartOnGroupJoin === true || undefined,
-      // Default ON: only an explicit false is meaningful/persisted (undefined = on).
-      autoInviteOwnerOnGroupAdd: entry.autoInviteOwnerOnGroupAdd === false ? false : undefined,
+      // Default OFF. Preserve explicit true so a bot can opt in deliberately.
+      autoInviteOwnerOnGroupAdd: typeof entry.autoInviteOwnerOnGroupAdd === 'boolean'
+        ? entry.autoInviteOwnerOnGroupAdd
+        : undefined,
       // Preserve the configured prompt verbatim; trim-to-undefined when blank
       // so an empty string doesn't linger in bots.json.
       autoStartOnGroupJoinPrompt: typeof entry.autoStartOnGroupJoinPrompt === 'string' && entry.autoStartOnGroupJoinPrompt.trim()

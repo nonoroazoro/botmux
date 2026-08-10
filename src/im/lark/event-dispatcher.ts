@@ -10,7 +10,7 @@ import { atomicWriteFileSync } from '../../utils/atomic-write.js';
 import { join } from 'node:path';
 import { getBot, getAllBots, findOncallChat, getOwnerOpenId, loadBotConfigs, type BotState } from '../../bot-registry.js';
 import { config, isVcMeetingAgentGloballyEnabled, vcMeetingAgentGlobalListenerBotAppId } from '../../config.js';
-import { getChatInfo, getChatMode, getCachedChatMode, getUserProfile, listChatMessagesUntil, resolveSiblingBotBySenderOpenId, replyMessage, sendMessage, sendUserMessage, isHumanOpenId, updateMessage } from './client.js';
+import { getChatInfo, getChatMode, getCachedChatMode, getChatName, getUserProfile, listChatMessagesUntil, resolveSiblingBotBySenderOpenId, replyMessage, sendMessage, sendUserMessage, isHumanOpenId, updateMessage } from './client.js';
 import { logger } from '../../utils/logger.js';
 import { BoundedMap } from '../../utils/bounded-map.js';
 import { serializeByAnchor } from '../../utils/anchor-serializer.js';
@@ -1265,6 +1265,7 @@ export const TALK_REASONS = [
   'chatGrant',
   'globalGrant',
   'p2pOpen',
+  'groupOpen',
   'none',
 ] as const;
 
@@ -1369,7 +1370,8 @@ function hasConfiguredAllowlist(bot: ReturnType<typeof getBot>): boolean {
     // 没配 allowedUsers」会 fall through 到 open 模式，把**群聊**和 **canOperate** 一起
     // 放开（陌生人能 /restart /cd），与 p2pOpen「只开私聊 talk」的语义正好相反。
     // 此时若没配 allowedUsers → 谁都不能 operate（fail-closed），bot-registry 会告警。
-    || bot.config.p2pOpen === true;
+    || bot.config.p2pOpen === true
+    || bot.config.groupOpen === true;
 }
 
 export function canTalk(
@@ -1442,6 +1444,7 @@ export function evaluateTalk(
   // canOperate 一行不读它（管理仍限 allowedUsers）。谁能私聊由飞书应用「可用范围」控制。
   // chatType 省略 → 该腿不生效（fail-closed），未接入 chatType 的调用点语义不变。
   if (chatType === 'p2p' && bot.config.p2pOpen === true) return { allowed: true, reason: 'p2pOpen' };
+  if (chatType === 'group' && bot.config.groupOpen === true) return { allowed: true, reason: 'groupOpen' };
 
   // globalGrants 与 allowedChatGroups 同样确立"有白名单"语义：只配 globalGrants 也算限制态，
   // 不能 fall through 到"全开放"。用原始配置判定（见 hasConfiguredAllowlist）：配了 owner
@@ -1609,7 +1612,7 @@ export function canRunDaemonCommand(
 }
 
 /**
- * 入口 A：无权限者 @bot 时弹授权申请卡（正文 @owner，由 owner 处置）。
+ * 入口 A：无权限者 @bot 或私聊 bot 时，向 owner 私聊发送授权申请卡。
  * 受 grant-pending 节流：pending 中 / deny 冷却期内静默不发。开放模式（无 owner）兜底不发。
  */
 async function maybeSendGrantRequestCard(
@@ -1631,6 +1634,10 @@ async function maybeSendGrantRequestCard(
     : (await getUserProfile(larkAppId, requesterOpenId).catch(() => null))?.name;
   const shortRequester = `${requesterOpenId.slice(0, 10)}…${requesterOpenId.slice(-4)}`;
   const name = mentionName ?? observedName ?? profileName ?? shortRequester;
+  const sourceChatType = message?.chat_type === 'p2p' ? 'p2p' : 'group';
+  const sourceChatName = sourceChatType === 'group'
+    ? (await getChatName(larkAppId, chatId).catch(() => null)) ?? chatId
+    : undefined;
   // 把原始消息事件挂在 pending 上：授权成功后可重放，用户无需再 @ 一遍。
   const quota = getBot(larkAppId).config.messageQuota?.defaultLimit ?? DEFAULT_GRANT_QUOTA;
   const nonce = openPending(
@@ -1650,10 +1657,12 @@ async function maybeSendGrantRequestCard(
       mode: 'request',
       quota,
       durationMs: DEFAULT_GRANT_DURATION_MS,
+      sourceChatType,
+      sourceChatName,
     },
     localeForBot(larkAppId),
   );
-  await replyMessage(larkAppId, message.message_id, card, 'interactive')
+  await sendUserMessage(larkAppId, owner, card, 'interactive')
     .catch(err => {
       // 发卡失败必须撤掉刚开的 pending，否则该发送方被节流压死、owner 永远看不到卡片，
       // 只能等 daemon 重启或别的 target 触发全表 prune 才恢复。清掉后下次 @ 会重试发卡。
@@ -1675,7 +1684,7 @@ export async function checkGroupMessageAccess(
 ): Promise<'allowed' | 'not_allowed' | 'ignore'> {
   const mentioned = isBotMentioned(larkAppId, message, senderOpenId);
   // 群消息访问检查只在人路径调用，union 走 memberUnionId 腿（不进 bot-trust）。
-  const isAllowed = canTalk(larkAppId, chatId, senderOpenId, undefined, memberUnionId);
+  const isAllowed = canTalk(larkAppId, chatId, senderOpenId, undefined, memberUnionId, 'group');
 
   logger.debug(`Check group message access: mentioned=${mentioned}, isAllowed=${isAllowed}`);
   if (mentioned) {
@@ -3450,7 +3459,7 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
         if (!relax) {
           const access = await checkGroupMessageAccess(larkAppId, message, chatId, senderOpenId, humanSenderUnionId);
           if (access === 'not_allowed') {
-            // 入口 A：无权限者 @bot → 弹授权申请卡（@owner），代替「无操作权限」。
+            // 入口 A：无权限者 @bot → 向 owner 私聊发送授权申请卡。
             // 覆盖 ownsSession 真假两种情况，但绝不把该消息喂进已有 session。
             await maybeSendGrantRequestCard(larkAppId, message, chatId, senderOpenId, data);
             logger.debug(`Ignoring group message from non-allowed user: ${senderOpenId} (grant request card path)`);
@@ -3477,10 +3486,8 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
           }
         }
       } else if (!isAllowed) {
-        // 私聊被挡目前是静默丢弃：owner 不在这个 p2p 会话里，把授权申请卡 reply 回来只会
-        // 发给陌生人自己（卡上的按钮又是 owner 专属），既不可用又泄露 owner —— 所以不发。
-        // 真正的修法是把申请发到 owner 自己的 DM 并加 owner 维度节流，单独一个 PR 做。
-        logger.debug(`Ignoring p2p message from non-allowed user: ${senderOpenId}`);
+        await maybeSendGrantRequestCard(larkAppId, message, chatId, senderOpenId, data);
+        logger.debug(`Ignoring p2p message from non-allowed user: ${senderOpenId} (grant request card path)`);
         return;
       }
 

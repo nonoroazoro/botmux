@@ -139,6 +139,27 @@ describe('InflightInputTracker', () => {
     expect(t.takeCarryOver()).toEqual([later]);
   });
 
+  it('returns the full ordered batch when the recovery turn is still in flight', () => {
+    const t = new InflightInputTracker();
+    const failed = { content: 'failed', turnId: 'a', dispatchAttempt: 2 };
+    const queued = { content: 'queued', turnId: 'b' };
+    t.onWrite(failed);
+    t.onWrite(queued);
+
+    expect(t.takeBatchForRecovery('a', 2)).toEqual([failed, queued]);
+    expect(t.onCliExit()).toBe(0);
+  });
+
+  it('does not release an unrelated in-flight batch for recovery', () => {
+    const t = new InflightInputTracker();
+    const active = item('active', 'a');
+    t.onWrite(active);
+
+    expect(t.takeBatchForRecovery('other')).toEqual([]);
+    expect(t.onCliExit()).toBe(1);
+    expect(t.takeCarryOver()).toEqual([active]);
+  });
+
   it('double exit before respawn keeps the earlier stash (appends, not replaces)', () => {
     const t = new InflightInputTracker();
     t.onWrite(item('first'));

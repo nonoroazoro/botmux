@@ -1334,6 +1334,10 @@ export interface GrantCardOpts {
   /** 当前卡片暂存的限制；缺省使用产品默认值。 */
   durationMs?: number;
   quota?: number;
+  /** 自助申请的来源会话类型，用于 owner 私聊卡片说明授权范围。 */
+  sourceChatType?: 'p2p' | 'group';
+  /** 群聊自助申请的来源群名，获取失败时可传 chatId。 */
+  sourceChatName?: string;
 }
 
 /** 授权卡片：有效期与消息额度并列展示，owner 一次提交两项限制。 */
@@ -1341,7 +1345,12 @@ export function buildGrantCard(o: GrantCardOpts, locale?: Locale): string {
   const names = o.targets.map(t => `**${escapeMd(t.name)}**`).join('、');
   const single = o.targets[0];
   const body = o.mode === 'request'
-    ? t('card.grant.body_request', { name: escapeMd(single?.name ?? ''), owner: o.ownerOpenId }, locale)
+    ? o.sourceChatType === 'p2p'
+      ? t('card.grant.body_request_p2p', { name: escapeMd(single?.name ?? '') }, locale)
+      : t('card.grant.body_request_group', {
+          name: escapeMd(single?.name ?? ''),
+          chat: escapeMd(o.sourceChatName ?? o.chatId),
+        }, locale)
     : o.targets.length > 1
       ? t('card.grant.body_owner_multi', { names, owner: o.ownerOpenId }, locale)
       : t('card.grant.body_owner', { name: escapeMd(single?.name ?? ''), owner: o.ownerOpenId }, locale);

@@ -264,20 +264,17 @@ export function normalizeLocalHomeLinks(
   return outputParts.join('');
 }
 
-/** Default footer brand when a bot has no custom `brandLabel` configured. */
-export const DEFAULT_BRAND_LABEL = '[botmux](https://github.com/deepcoldy/botmux)';
-
 /**
  * Resolve the brand segment to render in a card footer from a bot's configured
  * `brandLabel` (see {@link resolveBrandLabel}):
- *   • `undefined` (unset)  → the default botmux link
+ *   • `undefined` (unresolved) → no brand segment
  *   • `''` / whitespace    → `null` (brand suppressed)
  *   • any other string     → one trimmed line (markdown allowed)
  * Returning `null` lets callers drop the brand — and, when there's also no
  * recipient, the whole footer (HR included) — so an empty brand reads clean.
  */
 export function brandFooterSegment(brand: string | undefined): string | null {
-  if (brand === undefined) return DEFAULT_BRAND_LABEL;
+  if (brand === undefined) return null;
   const normalized = brand
     .trim()
     .replace(/[ \t]*(?:\r\n?|\n|\u2028|\u2029)+[ \t]*/g, ' ');
@@ -401,11 +398,9 @@ export function buildReplyCardFooter(opts: {
   // first separator. But a BRAND-ONLY footer (no usage, no recipient — the
   // common case now that usageDisplay defaults to the streaming card body and
   // the reply-card footer is context-only) needs no marker: appending it renders
-  // a dangling "botmux ·". The default/repository brand is plain link text with
-  // no `@`, so it cannot trigger bot-to-bot pollution and does not need the
-  // ownership marker (the parser already treats a bare repo link as ordinary
-  // content, matching the long-standing "brand-only is undecidable, keep it"
-  // contract). Any footer carrying usage or a recipient is still signed.
+  // a dangling separator. A brand-only footer has no `@`, so it cannot trigger
+  // bot-to-bot pollution and does not need the ownership marker. Any footer
+  // carrying usage or a recipient is still signed.
   const signMarker = hasUsage || hasRecipient;
   let signedContent: string;
   if (!signMarker) {
@@ -874,10 +869,10 @@ export function hasMarkdown(text: string): boolean {
  * footer — typically the session owner. Pass `undefined` to omit the
  * addressing line (e.g. top-level broadcasts have no specific recipient).
  *
- * `brand` is the sending bot's configured `brandLabel` (see
- * {@link brandFooterSegment}): unset → default botmux link, `''` → brand
- * suppressed, else custom. When brand, usage, and recipient are all absent the
- * whole footer (HR included) is omitted.
+ * `brand` is the sending bot's resolved footer label (see
+ * {@link brandFooterSegment}): the bot name by default, an explicit custom
+ * brand when configured, or `''` when suppressed. When brand, usage, and
+ * recipient are all absent the whole footer (HR included) is omitted.
  */
 export function buildMarkdownCard(
   md: string,

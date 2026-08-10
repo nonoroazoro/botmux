@@ -5,8 +5,8 @@
  *
  * 三个独立设置：
  *   • restrictGrantCommands     — owner 开关：被授权人只能纯对话，拦截一切 slash 命令
- *   • autoGrantRequestCards     — 未授权者/外部 bot @ 本 bot 但被权限闸挡住时，是否自动发
- *                                 /grant 申请卡给 owner（默认开启；false 显式关闭）
+ *   • autoGrantRequestCards     - 未授权者 @ 或私聊本 bot 但被权限闸挡住时，是否向
+ *                                 owner 私发 /grant 申请卡（默认开启；false 显式关闭）
  *   • messageQuota.defaultLimit — 消息额度默认值。字段「是否存在」本身就是额度机制
  *                                 总开关：缺省 = 关闭（无限）；正整数 = 不带数字的
  *                                 `/grant @x` 取此值。显式 `/grant @x N` 恒生效，与此无关。

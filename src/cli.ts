@@ -33,6 +33,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { validateWorkingDir } from './core/working-dir.js';
 import { resolveSessionContext } from './core/session-marker.js';
 import { resolveBotmuxDataDir } from './core/data-dir.js';
+import { createDefaultMultiUserIsolationConfig } from './core/multi-user-isolation-defaults.js';
 import { dashboardSecretPath } from './core/dashboard-secret.js';
 import { acceptedDispatchBotAppIds, activeConversationBotOpenIds, appendDispatchReportProtocol, appendLegacyDispatchReportProtocol, parseDispatchBotSpec, buildDispatchMessages, buildRepoPrimeText, buildReportContent, eligibleAutoMentionAliases, findDispatchRegistryEntry, foldableChatSessionAppIds, offTopicSubBotTopic, resolveReportPlacement, resolveReportRecipient, resolveReportTarget, resolveSendTarget, threadRootForReachability } from './core/dispatch.js';
 import { pickTurnReplyTarget, collectTurnWindowParticipants } from './core/reply-target.js';
@@ -104,6 +105,7 @@ import { pm2ManagedExitConfig } from './pm2-graceful-exit.js';
 import { callDashboard, type DashboardEndpoint, type DashboardResult } from './cli/dashboard-endpoint.js';
 import { globalInstallUpdateLockTargetIn, installLatestBotmuxSync } from './core/maintenance.js';
 import { withFileLockSync } from './utils/file-lock.js';
+import { isLocalDevInstall } from './utils/install-info.js';
 import {
   formatGlobalInstallCommand,
   resolveGlobalInstallPlan,
@@ -128,6 +130,7 @@ import {
   formatChatBotsForCli,
 } from './cli/bots-list-output.js';
 import { ensureBotChatGrantMatrix, requestExactChatGrant } from './cli/exact-chat-grant-client.js';
+import { requestSessionLarkProxy } from './cli/session-lark-proxy.js';
 import {
   buildFooterAddressing,
   hasKnownBotMention,
@@ -1268,53 +1271,13 @@ async function promptBotConfig(rl: ReturnType<typeof createInterface>): Promise<
     console.log(`\n⚠️  所选 Agent 当前无法启动：${cliAvailability.reason ?? '本地启动依赖不可用'}`);
     console.log('   配置仍可继续；请在 daemon 所在机器安装或修正 PATH / CLI 路径后再启动 Bot。\n');
   }
-  // 新话题工作目录：两种模式二选一。旧问法只问「默认工作目录」但写的是
-  // workingDir——那只是仓库选择卡片的扫描根，新话题照样弹卡，误导性强；
-  // 真正「直接进目录、不弹卡」的是 defaultWorkingDir，现在显式让用户选。
-  // 「固定默认目录」放首位当推荐默认：大量用户的真实诉求是"新话题直接进目录"，
-  // 弹卡模式作为多仓库场景的进阶选项。
-  const dirMode = await pickChoice(rl, {
-    title: '新话题工作目录',
-    items: [
-      { label: '固定默认目录（推荐）', hint: '新话题直接在指定目录启动、不弹卡片' },
-      { label: '仓库选择卡片', hint: '新话题先弹卡片，从扫描到的 git 仓库中选一个再启动' },
-    ],
-    defaultIndex: 0,
-    footer: 'Esc 取消 setup · 之后可用 /config 或 botmux setup edit 修改',
-  });
-  // Esc = 中止 setup，不静默套用推荐默认（非 TTY 留空走 defaultIndex，不受影响）。
-  if (dirMode === null) {
-    console.log('\n已取消（Esc），setup 中止，不写任何配置。');
-    return null;
-  }
-  let workingDir: string | undefined;
-  let defaultWorkingDir: string | undefined;
-  if (dirMode === 1) {
-    const raw = await ask(rl, '仓库扫描根目录（卡片会列出其下的 git 仓库，逗号分隔多个）[~]: ');
-    workingDir = raw.trim() || '~';
-  } else {
-    // 存在性校验循环——运行时 daemon 对无效 defaultWorkingDir 只会静默回退
-    // 弹卡，setup 阶段必须挡住。留空默认 ~（一定存在，回车即通过）。
-    for (;;) {
-      const dir = (await ask(rl, '默认工作目录（新话题直接在此目录启动）[~]: ')).trim() || '~';
-      if (ensureBotDefaultWorkingDirExists({ defaultWorkingDir: dir })) {
-        defaultWorkingDir = dir;
-        break;
-      }
-    }
-  }
-
   const bot: Record<string, any> = {
     larkAppId: creds.appId,
     larkAppSecret: creds.appSecret,
     cliId,
     // aiden × claude/codex 等启动前缀；普通 CLI 不写此字段。
     ...(wrapperCli ? { wrapperCli } : {}),
-    // 仓库选择模式总是写 workingDir（留空用 '~'），用户手动编辑 bots.json 时
-    // 一眼能看到字段在哪儿；固定默认目录模式只写 defaultWorkingDir，扫描根
-    // 回退默认 ~，bots.json 不留多余字段。
-    ...(workingDir ? { workingDir } : {}),
-    ...(defaultWorkingDir ? { defaultWorkingDir } : {}),
+    multiUserIsolation: createDefaultMultiUserIsolationConfig(creds.appId),
   };
   // brand 落盘：只在国际版 (lark) 时写字段，feishu 留空——保持旧 bots.json 干净，
   // 且 botBrand()/normalizeBrand() 读不到时 default 到 feishu，向后兼容。
@@ -3089,6 +3052,11 @@ function cmdStatus(): void {
 }
 
 function cmdUpgrade(): void {
+  if (isLocalDevInstall()) {
+    console.error('Update is disabled for this managed custom build. Deploy updates from its source checkout.');
+    process.exitCode = 2;
+    return;
+  }
   try {
     const plan = resolveGlobalInstallPlan();
     console.log(`🔄 升级中：${formatGlobalInstallCommand(plan)}`);
@@ -6247,9 +6215,6 @@ async function resolveSessionAppId(sessionIdArg: string | undefined): Promise<{ 
 async function cmdHistory(rest: string[]): Promise<void> {
   // No-transport turn has no Feishu chat history to read — central hard gate.
   assertTurnTransportOrExit('history');
-  // Read isolation: register this bot from its cred file so the Lark client is
-  // available without reading the denied bots.json (same as cmdSend).
-  await registerSelfFromCredFile();
   // Clamp to a positive count: the underlying list helpers treat pageSize <= 0
   // (and non-finite) as "unlimited / read the whole chat", which is reserved for
   // internal callers. A stray `--limit 0` or a typo like `--limit abc` (→ NaN)
@@ -6258,11 +6223,6 @@ async function cmdHistory(rest: string[]): Promise<void> {
   const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
   const scopeArg = argValue(rest, '--scope') ?? 'session';
   const sessionIdArg = argValue(rest, '--session-id');
-  const { sid, larkAppId: appId, session: s } = await resolveSessionAppId(sessionIdArg);
-  // Target-aware gate: a --session-id pointing at a virtual/apiOnly session must
-  // be refused even from a normal turn (env gate above can't see the argument).
-  assertSessionTransportOrExit({ chatId: s.chatId, larkAppId: appId }, 'history');
-
   const validScopes = new Set(['session', 'thread', 'chat', 'ambient']);
   if (!validScopes.has(scopeArg)) {
     console.error(`无效 --scope: ${scopeArg}。可用: session | thread | chat | ambient`);
@@ -6270,6 +6230,31 @@ async function cmdHistory(rest: string[]): Promise<void> {
   }
 
   const withCardJson = rest.includes('--with-card-json');
+  if (process.env.BOTMUX_READ_ISOLATION === '1') {
+    try {
+      const response = await requestSessionLarkProxy({
+        operation: 'lark-history',
+        sessionId: sessionIdArg,
+        body: { limit, scope: scopeArg, withCardJson },
+      });
+      const payload = { ...response };
+      delete payload.ok;
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    } catch (error) {
+      console.error(`获取消息失败: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
+
+  // Non-isolated host sessions retain the direct path. Read-isolated sessions
+  // above never receive or read bot credentials; their daemon proxy owns Lark.
+  await registerSelfFromCredFile();
+  const { sid, larkAppId: appId, session: s } = await resolveSessionAppId(sessionIdArg);
+  // Target-aware gate: a --session-id pointing at a virtual/apiOnly session must
+  // be refused even from a normal turn (env gate above can't see the argument).
+  assertSessionTransportOrExit({ chatId: s.chatId, larkAppId: appId }, 'history');
+
   const { getMessageDetail, listAmbientChatMessages, listThreadMessages, listChatMessages } = await import('./im/lark/client.js');
   const { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardContent, extractResources, createImgNumberer } = await import('./im/lark/message-parser.js');
   const { expandMergeForward } = await import('./im/lark/merge-forward.js');
@@ -6405,10 +6390,25 @@ async function cmdQuoted(rest: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Read isolation: register this bot from its own send-cred file so the Lark
-  // client (getMessageDetail below) is available WITHOUT reading the denied
-  // bots.json — same as cmdHistory / cmdSend. Missing this was why a sandboxed
-  // isolated bot's `botmux quoted` failed "Bot not registered".
+  if (process.env.BOTMUX_READ_ISOLATION === '1') {
+    try {
+      const response = await requestSessionLarkProxy({
+        operation: 'lark-quoted',
+        sessionId: sessionIdArg,
+        body: { messageId, raw: rawFlag },
+      });
+      const payload = { ...response };
+      delete payload.ok;
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    } catch (error) {
+      console.error(`获取被引用消息失败: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
+
+  // Non-isolated host path. Read-isolated sessions use the capability-bound
+  // daemon proxy above and never receive or read the bot credential.
   await registerSelfFromCredFile();
   const { larkAppId: appId, session: quotedSession } = await resolveSessionAppId(sessionIdArg);
   // Target-aware gate (see cmdHistory).
@@ -8192,9 +8192,9 @@ async function cmdSend(rest: string[]): Promise<void> {
       // Oncall groups usually address whoever triggered this turn (may not be
       // the session owner). Bot recipients are filtered out so footer chrome
       // cannot accidentally wake a sibling bot.
-      // Brand segment honours this bot's configured brandLabel (unset →
-      // default botmux, '' → suppressed, else custom). Same resolver/rule as
-      // the daemon's card builders so both send paths render identically.
+      // Brand segment honours this bot's configured brandLabel (unset → bot
+      // name, '' → suppressed, else custom). Same resolver/rule as the daemon's
+      // card builders so both send paths render identically.
       // All real mentions land on one footer line: human addressee first, then
       // explicit @ targets (incl. handoff bots), then cc. Ids already inlined in
       // the body prose are skipped. Top-level publish keeps sendTo empty.

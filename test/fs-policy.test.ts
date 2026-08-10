@@ -459,7 +459,7 @@ describe('resolveRedirectedAdapterAuthPaths (redirect authPath suppression)', ()
     // (a) survivors are realpath/existence-filtered AFTER the resolver, not before.
     expect(src).toMatch(/authPaths:\s*keepExisting\(resolveRedirectedAdapterAuthPaths\(\{/);
     // (b) declared authPaths reach the resolver via the LEXICAL expander, not keepExisting, not canonical expandTilde.
-    expect(src).toMatch(/declaredAuthPaths:\s*\[\.\.\.\(cliAdapter\.authPaths[\s\S]*?\)\]\.map\(expandTildeLexical\)/);
+    expect(src).toMatch(/declaredAuthPaths:\s*cfg\.multiUserHomeDir[\s\S]*?\?\s*\[\][\s\S]*?:\s*\[\.\.\.\(cliAdapter\.authPaths[\s\S]*?\)\]\.map\(expandTildeLexical\)/);
     // (c) the redirect flag is threaded in.
     expect(src).toMatch(/resolveRedirectedAdapterAuthPaths\(\{[\s\S]*?willRedirectCliData,/);
     // (d) rehomed roots = adapter host data dir + codex host root, LEXICAL home, lexically expanded.

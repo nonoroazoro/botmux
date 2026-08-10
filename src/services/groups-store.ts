@@ -435,10 +435,8 @@ export async function addUsersToChatByUnionId(
 }
 
 /**
- * 「进群自动拉 owner」：本 bot 被加进群（im.chat.member.bot.added_v1）时，把
- * 自己的 owner 拉进群——bot 应始终处于 owner 可见的群里（不打黑工；与
- * federated-group 的 owner-in-group 策略同源，这里是单点兜底，使任意来源的
- * 拉群动作（/invite、手动添加、平台批量添加）都收敛到同一行为）。
+ * Invite the owner when this bot joins a chat. Disabled by default for every
+ * bot and enabled only by explicit configuration.
  *
  * 与 handleBotAdded 的 autoStart 流程完全解耦：不受 autoStartOnGroupJoin 开关
  * 影响、不 spawn 会话、失败只记日志不打扰群（飞书自身会展示「xx 邀请 xx 入群」
@@ -463,8 +461,7 @@ export async function autoInviteOwnerOnGroupJoin(
     logger.warn(`[groups] autoInviteOwner: bot lookup failed for ${larkAppId}: ${e?.message ?? e}`);
     return 'failed';
   }
-  // 显式 false 关闭（告警/oncall 类 bot 被平台批量拉群、不想打扰 owner 的场景）。
-  if (bot.config.autoInviteOwnerOnGroupAdd === false) return 'skipped';
+  if (bot.config.autoInviteOwnerOnGroupAdd !== true) return 'skipped';
   if (!ownerOpenId) return 'skipped';
   // owner 自己把 bot 拉进来的 → 无需再拉。
   if (operatorOpenId && operatorOpenId === ownerOpenId) return 'already';

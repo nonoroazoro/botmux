@@ -16,7 +16,7 @@ export function getBotBrandLabel(larkAppId: string): string | undefined {
 
 /**
  * Persist a brandLabel change. `null` removes the key entirely (revert to the
- * default botmux brand); a string is stored verbatim — including `''`, which
+ * bot's display name); a string is stored verbatim, including `''`, which
  * means "brand off" and is deliberately preserved distinct from unset.
  */
 export async function updateBotBrandLabel(

@@ -4,6 +4,7 @@
  */
 export const messages: Record<string, string> = {
   'worker.steer_accepted': '收到，引导成功',
+  'daemon.multi_user.topic_owner_only': '这个话题属于其他用户。请回到群聊顶层 @机器人，创建你自己的隔离会话。',
   // ─── Card buttons ────────────────────────────────────────────────────────
   'card.btn.open_terminal': '🖥️ 打开 Web 终端',
   'card.btn.open_writable_terminal': '🖥️ 打开可操作 Web 终端',
@@ -84,9 +85,10 @@ export const messages: Record<string, string> = {
   // 平台团队大厅打卡（bot-only 群，仅 bot 可见）
   'platform.hall_announce': '🤖 团队登记打卡：本 bot 上线（登记身份 union_id 用，无需回复）',
 
-  // 群内授权卡片
+  // 对话授权卡片
   'card.grant.title': '🔑 使用授权',
-  'card.grant.body_request': '发送方 **{name}** 申请在本群使用我。<at id={owner}></at> 是否允许 ta 在本群与我对话？',
+  'card.grant.body_request_group': '用户 **{name}** 申请在群聊 **{chat}** 中使用我。是否授权 ta 在该群与我对话？',
+  'card.grant.body_request_p2p': '用户 **{name}** 申请私聊使用我。是否授权 ta 在这个私聊中与我对话？',
   'card.grant.body_owner': '是否授权 **{name}** 在本群与我对话？（<at id={owner}></at>）',
   'card.grant.body_owner_multi': '是否授权 {names} 在本群与我对话？（<at id={owner}></at>）',
   'card.grant.btn_chat': '授权本群对话',

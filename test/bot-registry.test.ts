@@ -1111,12 +1111,14 @@ describe('resolveBrandLabel — sandbox env-first (footer role name fix)', () =>
   const saved = {
     app: process.env.BOTMUX_LARK_APP_ID,
     brand: process.env.BOTMUX_BRAND_LABEL,
+    dataDir: process.env.SESSION_DATA_DIR,
     usageDisplay: process.env.BOTMUX_USAGE_DISPLAY,
   };
   beforeEach(async () => { mod = await freshImport(); });
   afterEach(() => {
     if (saved.app === undefined) delete process.env.BOTMUX_LARK_APP_ID; else process.env.BOTMUX_LARK_APP_ID = saved.app;
     if (saved.brand === undefined) delete process.env.BOTMUX_BRAND_LABEL; else process.env.BOTMUX_BRAND_LABEL = saved.brand;
+    if (saved.dataDir === undefined) delete process.env.SESSION_DATA_DIR; else process.env.SESSION_DATA_DIR = saved.dataDir;
     if (saved.usageDisplay === undefined) delete process.env.BOTMUX_USAGE_DISPLAY;
     else process.env.BOTMUX_USAGE_DISPLAY = saved.usageDisplay;
   });
@@ -1138,6 +1140,52 @@ describe('resolveBrandLabel — sandbox env-first (footer role name fix)', () =>
     process.env.BOTMUX_LARK_APP_ID = 'app_self';
     process.env.BOTMUX_BRAND_LABEL = '[self]()';
     expect(mod.resolveBrandLabel('app_other')).toBeUndefined();
+  });
+
+  it('uses the Lark bot name when brandLabel is unset', () => {
+    const state = mod.registerBot(makeCfg({ larkAppId: 'app_named' }));
+    state.botName = 'Finder Master';
+    expect(mod.resolveBrandLabel('app_named')).toBe('Finder Master');
+  });
+
+  it('keeps explicit custom and disabled brandLabel states above the bot name', () => {
+    const custom = mod.registerBot(makeCfg({
+      larkAppId: 'app_custom',
+      brandLabel: '[Acme](https://example.com)',
+    }));
+    custom.botName = 'Finder Master';
+    expect(mod.resolveBrandLabel('app_custom')).toBe('[Acme](https://example.com)');
+
+    const disabled = mod.registerBot(makeCfg({ larkAppId: 'app_disabled', brandLabel: '' }));
+    disabled.botName = 'Finder Master';
+    expect(mod.resolveBrandLabel('app_disabled')).toBe('');
+  });
+
+  it('uses the caller-provided bot name when discovery state is unavailable', () => {
+    mod.registerBot(makeCfg({ larkAppId: 'app_worker' }));
+    expect(mod.resolveBrandLabel('app_worker', 'Finder Master')).toBe('Finder Master');
+  });
+
+  it('uses bots-info.json for a one-shot CLI whose registry lacks the probed name', async () => {
+    const fs = await import('node:fs');
+    process.env.SESSION_DATA_DIR = '/tmp/botmux-brand-data';
+    vi.mocked(fs.existsSync).mockReturnValueOnce(true);
+    vi.mocked(fs.statSync)
+      .mockReturnValueOnce({ mtimeMs: 10 } as ReturnType<typeof fs.statSync>)
+      .mockReturnValueOnce({ mtimeMs: 20 } as ReturnType<typeof fs.statSync>);
+    vi.mocked(fs.readFileSync)
+      .mockReturnValueOnce(JSON.stringify([{
+        larkAppId: 'app_cli',
+        larkAppSecret: 'secret',
+        cliId: 'claude-code',
+      }]))
+      .mockReturnValueOnce(JSON.stringify([{
+        larkAppId: 'app_cli',
+        botName: 'Finder Master',
+      }]));
+
+    mod.registerBot(makeCfg({ larkAppId: 'app_cli' }));
+    expect(mod.resolveBrandLabel('app_cli')).toBe('Finder Master');
   });
 
   it('resolves the usage-display mode from registry or sandbox env (default streaming)', () => {

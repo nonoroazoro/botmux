@@ -137,6 +137,7 @@ describe('Riff worker session environment', () => {
         prompt: 'verify remote session environment',
         larkAppId: appId,
         larkAppSecret: 'secret',
+        botName: 'Finder Master',
       };
       child.send(init);
 
@@ -147,6 +148,7 @@ describe('Riff worker session environment', () => {
         }),
       ]);
       expect(request.config?.env?.BOTMUX_USAGE_DISPLAY).toBe('footer');
+      expect(request.config?.env?.BOTMUX_BRAND_LABEL).toBe('Finder Master');
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       for (const socket of sockets) socket.destroy();

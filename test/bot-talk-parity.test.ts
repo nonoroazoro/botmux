@@ -166,6 +166,15 @@ const CASES: Record<Exclude<TalkReason, 'none'>, ParityCase> = {
     human: true, bot: false,
     why: 'evaluateBotTalk 不传 chatType → p2pOpen 腿 fail-closed。飞书里 bot 之间不存在私聊，开着只是白扩边界。',
   },
+  groupOpen: {
+    arrange: () => {
+      restricted();
+      getBot(APP).config.groupOpen = true;
+    },
+    chatType: 'group',
+    human: true, bot: false,
+    why: 'groupOpen 只向群内真人开放普通对话。evaluateBotTalk 不传 chatType，外部 bot 仍需 peer、team 或 grant 授权。',
+  },
 };
 
 describe('bot talk parity — bot 闸门与人侧 evaluateTalk 同源', () => {
@@ -179,6 +188,7 @@ describe('bot talk parity — bot 闸门与人侧 evaluateTalk 同源', () => {
     bot.config.chatGrants = undefined;
     bot.config.globalGrants = undefined;
     bot.config.p2pOpen = undefined;
+    bot.config.groupOpen = undefined;
   });
   afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
 

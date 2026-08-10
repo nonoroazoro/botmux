@@ -65,7 +65,7 @@ import {
   managedHerdrAgentName,
 } from '../adapters/backend/session-backend-selector.js';
 import { isSuspendableBackendType, getSessionPersistentBackendType, persistentBackendTargetForSession, persistentSessionName, killPersistentBackendTarget, killPersistentSession, probePersistentBackendTarget, resolvePairedSpawnBackendType, resolvePersistentBackendTarget } from './persistent-backend.js';
-import { getBot, getAllBots, loadBotConfigs, resolveBrandLabel, getLoadedConfigPath, resolveUsageDisplay } from '../bot-registry.js';
+import { effectiveDefaultWorkingDir, getBot, getAllBots, loadBotConfigs, resolveBrandLabel, getLoadedConfigPath, resolveUsageDisplay } from '../bot-registry.js';
 import { RestartCoordinator, type RestartObserver } from './restart-coordinator.js';
 import { runtimeBuildIdentity } from '../utils/runtime-build-id.js';
 
@@ -264,6 +264,8 @@ import {
 import { acknowledgeSessionReady } from './session-ready-handshake.js';
 import { recordDispatchInputCommit } from './dispatch.js';
 import { sendWorkerIpc } from './worker-ipc.js';
+import { resolveMultiUserSessionPaths, type MultiUserSessionPaths } from './multi-user-isolation.js';
+import { resolveSessionPrincipal } from './session-principal.js';
 
 type WindowsForkOptions = ForkOptions & { windowsHide?: boolean };
 
@@ -3905,6 +3907,7 @@ export async function forkSession(
   childSession.cliId = ds.session.cliId;
   childSession.workingDir = ds.workingDir ?? ds.session.workingDir;
   childSession.ownerOpenId = ds.session.ownerOpenId;
+  childSession.principalOpenId = resolveSessionPrincipal(ds.session);
   childSession.backendType = ds.session.backendType;
   // Bot identity on the PERSISTED row. Every other createSession caller sets
   // this immediately after minting (trigger-session / session-manager /
@@ -4232,7 +4235,34 @@ export function forkWorker(
   // A fork() whose cwd no longer exists emits an unhandled 'error' (spawn
   // ENOENT) that crashes the WHOLE daemon (→ pm2 crash-loop). Fall back to
   // home so a stale session workingDir can never take the daemon down.
-  const rawCwd = cb.getSessionWorkingDir(ds);
+  let rawCwd = cb.getSessionWorkingDir(ds);
+  let multiUserPaths: MultiUserSessionPaths | undefined;
+  if (botCfg.multiUserIsolation?.enabled) {
+    const principalOpenId = resolveSessionPrincipal(ds.session);
+    if (!principalOpenId) {
+      const reason = 'multi-user isolation requires a stable session principal';
+      logger.error(`[${t}] ${reason}`);
+      void cb.sessionReply(sessionAnchorId(ds), reason, 'text', ds.larkAppId);
+      return;
+    }
+    try {
+      multiUserPaths = resolveMultiUserSessionPaths({
+        config: botCfg.multiUserIsolation,
+        principalOpenId,
+        requestedWorkingDir: rawCwd,
+        defaultWorkingDir: effectiveDefaultWorkingDir(botCfg) ?? botCfg.workingDir,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      logger.error(`[${t}] Multi-user isolation refused session: ${reason}`);
+      void cb.sessionReply(sessionAnchorId(ds), reason, 'text', ds.larkAppId);
+      return;
+    }
+    ds.session.principalOpenId = principalOpenId;
+    rawCwd = multiUserPaths.workingDir;
+    ds.session.workingDir = rawCwd;
+    sessionStore.updateSession(ds.session);
+  }
   const cwd = rawCwd && existsSync(rawCwd) ? rawCwd : homedir();
   if (cwd !== rawCwd) logger.warn(`[${t}] workingDir "${rawCwd}" does not exist — falling back to ${cwd}`);
 
@@ -4272,17 +4302,25 @@ export function forkWorker(
   // decision predates the sandbox feature → stays NOT sandboxed.
   if (ds.session.sandbox === undefined) {
     if (!resume) {
-      ds.session.sandbox = botCfg.sandbox === true;
+      ds.session.sandbox = botCfg.sandbox === true || botCfg.multiUserIsolation?.enabled === true;
       ds.session.sandboxPaths = botCfg.sandboxPaths;
       ds.session.sandboxHidePaths = botCfg.sandboxHidePaths ?? [];
       ds.session.sandboxReadonlyPaths = botCfg.sandboxReadonlyPaths ?? [];
       ds.session.sandboxNetwork = botCfg.sandboxNetwork !== false;
     } else {
-      ds.session.sandbox = false;
+      ds.session.sandbox = botCfg.multiUserIsolation?.enabled === true;
       ds.session.sandboxHidePaths = [];
       ds.session.sandboxReadonlyPaths = [];
       ds.session.sandboxNetwork = true;
     }
+    sessionStore.updateSession(ds.session);
+  }
+  if (botCfg.multiUserIsolation?.enabled && ds.session.sandbox !== true) {
+    ds.session.sandbox = true;
+    ds.session.sandboxPaths = botCfg.sandboxPaths;
+    ds.session.sandboxHidePaths = botCfg.sandboxHidePaths ?? [];
+    ds.session.sandboxReadonlyPaths = botCfg.sandboxReadonlyPaths ?? [];
+    ds.session.sandboxNetwork = botCfg.sandboxNetwork !== false;
     sessionStore.updateSession(ds.session);
   }
 
@@ -4499,6 +4537,8 @@ export function forkWorker(
     sandboxHidePaths: ds.session.sandboxHidePaths ?? [],
     sandboxReadonlyPaths: ds.session.sandboxReadonlyPaths ?? [],
     sandboxNetwork: ds.session.sandboxNetwork !== false,
+    multiUserHomeDir: multiUserPaths?.homeDir,
+    sharedCodexHome: multiUserPaths?.sharedCodexHome,
     // Per-bot local read isolation (enforced worker-side; the worker gates it).
     // Sibling data needs no app-id enumeration: per-bot dirs are denied wholesale
     // and per-bot session files by filename pattern (see buildV2DenyPaths).
@@ -6809,7 +6849,7 @@ function deliverFinalOutput(
       }
 
       // Wrap the model's reply in the same card chrome `botmux send` uses
-      // (schema 2.0 + footer with botmux link + 发送给 owner) so a turn
+      // (schema 2.0 + resolved bot/custom brand + 发送给 owner) so a turn
       // delivered via this fallback path looks identical in the Lark thread
       // to one the model sent itself. Markdown rendering, tables, code
       // blocks all flow through the shared `buildCardBodyElements`.
@@ -7148,10 +7188,16 @@ function reserveWorkerGeneration(ds: DaemonSession): number {
  * a fresh CLI, which the sandbox wraps normally.
  */
 export function adoptSandboxBlocked(
-  botCfg: { sandbox?: boolean; readIsolation?: boolean; apiOnly?: boolean },
+  botCfg: {
+    sandbox?: boolean;
+    readIsolation?: boolean;
+    apiOnly?: boolean;
+    multiUserIsolation?: { enabled: true };
+  },
   session?: { sandbox?: boolean; chatId?: string },
 ): boolean {
   return botCfg.sandbox === true
+    || botCfg.multiUserIsolation?.enabled === true
     || botCfg.readIsolation === true
     // A core-only (apiOnly) bot — or a session on a synthetic HTTP virtual chat —
     // must NOT adopt-observe a pre-existing external CLI: that CLI runs fully

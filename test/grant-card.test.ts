@@ -18,15 +18,24 @@ function callbackValue(node: any): any {
 }
 
 describe('buildGrantCard', () => {
-  it('embeds @owner, requester name, and nonce-bearing actions', () => {
+  it('embeds requester context and nonce-bearing actions without mentioning the owner', () => {
     const json = buildGrantCard(
-      { ownerOpenId: 'ou_owner', targets: [{ openId: 'ou_g', name: '张三' }], chatId: 'oc_1', nonce: 'n1', mode: 'request' },
+      {
+        ownerOpenId: 'ou_owner',
+        targets: [{ openId: 'ou_g', name: '张三' }],
+        chatId: 'oc_1',
+        nonce: 'n1',
+        mode: 'request',
+        sourceChatType: 'group',
+        sourceChatName: '值班群',
+      },
       'zh',
     );
     const card = JSON.parse(json);
     const flat = JSON.stringify(card);
-    expect(flat).toContain('<at id=ou_owner></at>');
+    expect(flat).not.toContain('<at id=ou_owner></at>');
     expect(flat).toContain('张三');
+    expect(flat).toContain('值班群');
     expect(card.schema).toBe('2.0');
     const actions = deepFind(card, value => value?.tag === 'button');
     const byAction = Object.fromEntries(actions.map((a: any) => [callbackValue(a).action, callbackValue(a)]));
@@ -35,6 +44,39 @@ describe('buildGrantCard', () => {
     // request mode (member self-application) offers chat-only — no global button,
     // so a member can't self-request global. (global is owner-initiated, talk-only.)
     expect(byAction.grant_global).toBeUndefined();
+  });
+
+  it('describes the source group in an owner DM request without mentioning the owner', () => {
+    const card = buildGrantCard({
+      ownerOpenId: 'ou_owner',
+      targets: [{ openId: 'ou_requester', name: 'Alice' }],
+      chatId: 'oc_source',
+      nonce: 'n-group',
+      mode: 'request',
+      sourceChatType: 'group',
+      sourceChatName: 'Oncall Room',
+    }, 'zh');
+
+    expect(card).toContain('Alice');
+    expect(card).toContain('Oncall Room');
+    expect(card).not.toContain('<at id=ou_owner></at>');
+  });
+
+  it('describes a direct-message request without exposing the source chat id', () => {
+    const card = JSON.parse(buildGrantCard({
+      ownerOpenId: 'ou_owner',
+      targets: [{ openId: 'ou_requester', name: 'Alice' }],
+      chatId: 'oc_private_source',
+      nonce: 'n-p2p',
+      mode: 'request',
+      sourceChatType: 'p2p',
+    }, 'en'));
+    const visibleText = deepFind(card, value => value?.tag === 'markdown')
+      .map(value => value.content)
+      .join('\n');
+
+    expect(visibleText).toContain('direct message');
+    expect(visibleText).not.toContain('oc_private_source');
   });
 
   it('owner mode carries chat + global (talk-only) + deny actions', () => {

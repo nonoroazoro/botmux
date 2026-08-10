@@ -40,7 +40,8 @@ describe('Codex worker structured-bridge wiring', () => {
     expect(gate).toBeGreaterThan(0);
     expect(gate).toBeLessThan(resolveNext);
     expect(gate).toBeLessThan(detach);
-    expect(codex).toContain('refusing history-only re-attach');
+    expect(codex).toContain('codexBridgePendingSessionId = cliSessionId;');
+    expect(codex).toContain('while waiting to verify');
 
     // The ownership helper must use the fd-SET accessor (not the ambiguity-
     // collapsing single one, which returns undefined for the parent+sibling
@@ -52,6 +53,49 @@ describe('Codex worker structured-bridge wiring', () => {
     expect(helper).toContain('findCodexRolloutSetByPid(');
     expect(helper).toContain('codexHistorySidIsOwned(');
     expect(helper).not.toContain('findCodexRolloutByPid(');
+  });
+
+  it('retries a pending native-fork rotation without changing Lark routing', () => {
+    const timerStart = workerSource.indexOf('function codexBridgeStartTimer');
+    const timerEnd = workerSource.indexOf('function hermesBridgeAttach', timerStart);
+    const timer = workerSource.slice(timerStart, timerEnd);
+
+    expect(timer).toContain('codexBridgeRolloutPath');
+    expect(timer).toContain('codexBridgePendingSessionId');
+    expect(timer).toContain('codexBridgeNotifyCliSessionId(codexBridgePendingSessionId)');
+    expect(timer).not.toContain('rootMessageId =');
+    expect(timer).not.toContain('chatId =');
+  });
+
+  it('limits transparent cyber-policy recovery to three forks per turn', () => {
+    expect(workerSource).toContain('MAX_CODEX_CYBER_POLICY_RECOVERIES_PER_TURN = 3');
+    expect(workerSource).toContain('surfacing the policy error');
+    expect(workerSource).toContain('terminalErrorCode !== \'codex_task_error:cyber_policy\'');
+  });
+
+  it('continues the fork without replaying the policy-flagged prompt', () => {
+    expect(workerSource).toContain('CODEX_CYBER_POLICY_CONTINUATION_PROMPT');
+    expect(workerSource).toContain('Continue processing the most recent user request');
+    expect(workerSource).toContain('logicalContent: undefined');
+  });
+
+  it('installs the MCP gateway into the active isolated Codex home', () => {
+    expect(workerSource).toContain("else isolatedCodexHome = join(isolationBotHome, cfg.multiUserHomeDir ? '.codex' : 'codex');");
+    expect(workerSource).toContain("join(isolatedCodexHome ?? isolationBotHome, 'config.toml')");
+    expect(workerSource).not.toContain("join(isolationBotHome, 'codex', 'config.toml')");
+  });
+
+  it('resolves the real Codex rollout owner below a sandbox supervisor', () => {
+    const resolverStart = workerSource.indexOf('function resolveCodexOwnershipPid');
+    const resolverEnd = workerSource.indexOf('\n}', resolverStart);
+    const resolver = workerSource.slice(resolverStart, resolverEnd);
+    const currentStart = workerSource.indexOf('function currentCodexObservedPid');
+    const currentEnd = workerSource.indexOf('\n}', currentStart);
+    const current = workerSource.slice(currentStart, currentEnd);
+
+    expect(resolver).toContain("findLaunchedCliPid(candidatePid, 'codex')");
+    expect(current).toContain('resolveCodexOwnershipPid');
+    expect(workerSource).toContain("cfg.cliId === 'codex'");
   });
 
   it('also gates the INITIAL attach (unattached multi-fd adopt), not just re-attach', () => {

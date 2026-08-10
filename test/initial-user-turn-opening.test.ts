@@ -309,7 +309,7 @@ describe('empty-started session — first real business turn must use the new-to
     expect(followUp).not.toContain('<identity>');
   });
 
-  it('live worker: opening carries sender, mentions, available bots and attachments', async () => {
+  it('live worker: Codex opening carries turn metadata without the redundant bot roster', async () => {
     const anchor = 'om_live_meta_root';
     seedEmptyStarted(anchor);
     mocks.listChatBotMembers.mockResolvedValue([
@@ -333,8 +333,9 @@ describe('empty-started session — first real business turn must use the new-to
     expect(opening).toContain('<sender type="user" open_id="ou_owner"');
     expect(opening).toContain('<mentions>');
     expect(opening).toContain('ou_peer');
-    expect(opening).toContain('<available_bots');
-    expect(opening).toContain('ou_peer_bot');
+    expect(opening).not.toContain('<available_bots');
+    expect(opening).not.toContain('ou_peer_bot');
+    expect(opening).toContain('botmux bots list');
     expect(opening).toContain('/tmp/shot.png');
   });
 

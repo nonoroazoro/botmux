@@ -1,6 +1,7 @@
 /** English translations — mirrors the keys defined in `zh.ts`. */
 export const messages: Record<string, string> = {
   'worker.steer_accepted': 'Got it — guidance accepted',
+  'daemon.multi_user.topic_owner_only': 'This topic belongs to another user. Mention the bot in the group root to start your own isolated session.',
   // ─── Card buttons ────────────────────────────────────────────────────────
   'card.btn.open_terminal': '🖥️ Open Web Terminal',
   'card.btn.open_writable_terminal': '🖥️ Open Writable Web Terminal',
@@ -81,9 +82,10 @@ export const messages: Record<string, string> = {
   // Platform team hall check-in (bot-only group, visible to bots only)
   'platform.hall_announce': '🤖 Team check-in: this bot is online (registers its union_id, no reply needed)',
 
-  // In-group authorization card
+  // Conversation authorization card
   'card.grant.title': '🔑 Access Request',
-  'card.grant.body_request': 'Sender **{name}** is requesting to use me in this chat. <at id={owner}></at> allow them to talk to me here?',
+  'card.grant.body_request_group': 'User **{name}** is requesting to use me in group chat **{chat}**. Grant them permission to talk to me in that group?',
+  'card.grant.body_request_p2p': 'User **{name}** is requesting to use me in a direct message. Grant them permission to talk to me in this conversation?',
   'card.grant.body_owner': 'Grant **{name}** permission to talk to me in this chat? (<at id={owner}></at>)',
   'card.grant.body_owner_multi': 'Grant {names} permission to talk to me in this chat? (<at id={owner}></at>)',
   'card.grant.btn_chat': 'Grant talk in this chat',

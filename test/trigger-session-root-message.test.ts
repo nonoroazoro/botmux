@@ -171,6 +171,24 @@ describe('triggerSessionTurn rootMessageId target', () => {
     expect(mockForkWorker).toHaveBeenCalledWith(ds, { content: expect.stringContaining('new:') });
   });
 
+  it('uses the bot owner as the principal for an external session', async () => {
+    mockGetBot.mockReturnValue({
+      config: {
+        larkAppId: APP,
+        cliId: 'codex',
+        workingDir: '/tmp',
+        ownerOpenId: 'ou_bot_owner',
+      },
+      botName: 'Bot',
+      botOpenId: 'ou_bot',
+    });
+    const activeSessions = new Map<string, DaemonSession>();
+
+    await triggerSessionTurn(request(), { larkAppId: APP, activeSessions });
+
+    expect(activeSessions.get(sessionKey(ROOT, APP))?.session.ownerOpenId).toBe('ou_bot_owner');
+  });
+
   it('keeps the localized topic seed by default', () => {
     expect(buildExternalEventTopicMessage(request(), APP)).toBe('外部事件触发：alerts');
   });

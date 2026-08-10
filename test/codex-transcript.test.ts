@@ -351,6 +351,32 @@ describe('drainCodexRollout', () => {
     expect(r.events[1].text).toBe('');
   });
 
+  it('surfaces task_complete errors as failed assistant finals', () => {
+    writeFileSync(path,
+      ev(userResponseItem('inspect the environment')) +
+      ev({
+        timestamp: '2026-04-29T07:00:02.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'task_complete',
+          turn_id: 't1',
+          last_agent_message: null,
+          error: {
+            message: 'This content was flagged for possible cybersecurity risk.',
+            codex_error_info: 'cyber_policy',
+          },
+        },
+      }));
+    const r = drainCodexRollout(path, 0);
+    expect(r.events).toHaveLength(2);
+    expect(r.events[1]).toMatchObject({
+      kind: 'assistant_final',
+      text: 'This content was flagged for possible cybersecurity risk.',
+      terminalStatus: 'failed',
+      terminalErrorCode: 'codex_task_error:cyber_policy',
+    });
+  });
+
   // task_complete without a turn_id is a malformed/partial record — ignored
   // (belt-and-suspenders on top of the newline-completeness guard).
   it('task_complete without turn_id is ignored', () => {

@@ -77,6 +77,25 @@ function safeText(s: string): string {
 }
 
 /**
+ * Render a plain bot name safely inside the reply-card markdown footer.
+ * Unlike a configured {@link renderBrandTemplate} value, a bot name is never
+ * interpreted as markdown, a link, or a cwd template.
+ */
+export function renderPlainBrandLabel(value: string): string | undefined {
+  const truncated = Array.from(value).slice(0, 64).join('').trim();
+  if (!truncated) return undefined;
+  return truncated
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\\/g, '\\\\')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/([*_~`\[\]()])/g, '\\$1')
+    .replace(/\{/g, '&#123;')
+    .replace(/\}/g, '&#125;');
+}
+
+/**
  * URL 位：只放行 http/https，且禁掉一串会破坏链接或钓鱼的字符：
  *   - 空白 / `(` `)` / `[` `]` / `<` `>` / 引号反引号 → 闭合链接或注入文本位
  *   - `\` → 在 markdown 里转义掉模板的闭合 `)`

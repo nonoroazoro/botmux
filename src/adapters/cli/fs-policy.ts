@@ -66,6 +66,8 @@ export interface FsPolicyContext {
   platform: 'darwin' | 'linux';
   /** All paths below must be CANONICAL (realpath'd by the worker). */
   homeDir: string;
+  /** The home is a dedicated per-principal directory with no host credentials. */
+  isolatedUserHome?: boolean;
   botmuxHome: string;
   sessionDataDir: string;
   workingDir: string;
@@ -292,7 +294,7 @@ export function accessForPath(rules: readonly FsRule[], path: string): { access:
 
 /** Home-relative entries shared by both platforms. Existence-filtered by the
  *  worker before compiling (a missing path has nothing to protect or expose). */
-function commonHomeBaseline(h: string): FsRule[] {
+function commonHomeBaseline(h: string, isolatedUserHome = false): FsRule[] {
   const ro = (p: string): FsRule => ({ path: p, access: 'readOnly', source: 'baseline' });
   const rw = (p: string): FsRule => ({ path: p, access: 'readWrite', source: 'baseline' });
   const deny = (p: string): FsRule => ({ path: p, access: 'deny', source: 'baseline' });
@@ -319,12 +321,6 @@ function commonHomeBaseline(h: string): FsRule[] {
     ro(`${h}/.asdf`), ro(`${h}/.mise`), ro(`${h}/.plenv`),
     ro(`${h}/.opam`), ro(`${h}/.ghcup`), ro(`${h}/.stack`), ro(`${h}/.nimble`), ro(`${h}/.pub-cache`),
     ro(`${h}/.local/share`), ro(`${h}/.local/bin`),
-    // Toolchain credential files sitting inside the read-allowed dirs above —
-    // re-denied deeper (registry/publish tokens, maven server passwords).
-    deny(`${h}/.cargo/credentials`), deny(`${h}/.cargo/credentials.toml`),
-    deny(`${h}/.gem/credentials`),
-    deny(`${h}/.m2/settings.xml`), deny(`${h}/.m2/settings-security.xml`),
-    deny(`${h}/.gradle/gradle.properties`),
     // Scratch/caches every CLI + spawned tool needs.
     rw(`${h}/.cache`), rw(`${h}/.npm`), rw(`${h}/.local/state`),
     // The daemon-written botmux wrapper (head of PATH) + skill plugin dir.
@@ -332,21 +328,28 @@ function commonHomeBaseline(h: string): FsRule[] {
     // Crown jewels — most are already unreachable via deny-by-default; these
     // explicit denies guard the ones that could fall under an allowed tree
     // (workingDir = $HOME, a broad user readOnly, …). Defence-in-depth.
-    deny(`${h}/.ssh`), deny(`${h}/.aws`), deny(`${h}/.azure`), deny(`${h}/.gnupg`),
-    deny(`${h}/.netrc`), deny(`${h}/.config/gh`), deny(`${h}/.config/glab-cli`),
-    deny(`${h}/.config/gcloud`), deny(`${h}/.config/op`), deny(`${h}/.config/1Password`),
-    deny(`${h}/.1password`), deny(`${h}/.password-store`), deny(`${h}/.git-credentials`),
-    deny(`${h}/.npmrc`), deny(`${h}/.pypirc`), deny(`${h}/.docker/config.json`), deny(`${h}/.kube`),
-    deny(`${h}/.lark-cli`),
+    ...(!isolatedUserHome ? [
+      // Toolchain credential files sitting inside read-allowed directories.
+      deny(`${h}/.cargo/credentials`), deny(`${h}/.cargo/credentials.toml`),
+      deny(`${h}/.gem/credentials`),
+      deny(`${h}/.m2/settings.xml`), deny(`${h}/.m2/settings-security.xml`),
+      deny(`${h}/.gradle/gradle.properties`),
+      deny(`${h}/.ssh`), deny(`${h}/.aws`), deny(`${h}/.azure`), deny(`${h}/.gnupg`),
+      deny(`${h}/.netrc`), deny(`${h}/.config/gh`), deny(`${h}/.config/glab-cli`),
+      deny(`${h}/.config/gcloud`), deny(`${h}/.config/op`), deny(`${h}/.config/1Password`),
+      deny(`${h}/.1password`), deny(`${h}/.password-store`), deny(`${h}/.git-credentials`),
+      deny(`${h}/.npmrc`), deny(`${h}/.pypirc`), deny(`${h}/.docker/config.json`), deny(`${h}/.kube`),
+      deny(`${h}/.lark-cli`),
+    ] : []),
   ];
 }
 
-function darwinBaseline(h: string): FsRule[] {
+function darwinBaseline(h: string, isolatedUserHome = false): FsRule[] {
   const ro = (p: string): FsRule => ({ path: p, access: 'readOnly', source: 'baseline' });
   const rw = (p: string): FsRule => ({ path: p, access: 'readWrite', source: 'baseline' });
   const deny = (p: string): FsRule => ({ path: p, access: 'deny', source: 'baseline' });
   return [
-    ...commonHomeBaseline(h),
+    ...commonHomeBaseline(h, isolatedUserHome),
     // System: dyld/frameworks/toolchain — broad readOnly + surgical deny holes.
     ro('/System'), ro('/usr'), ro('/bin'), ro('/sbin'), ro('/Library'), ro('/opt'),
     ro('/private/etc'),
@@ -371,11 +374,11 @@ function darwinBaseline(h: string): FsRule[] {
   ];
 }
 
-function linuxBaseline(h: string): FsRule[] {
+function linuxBaseline(h: string, isolatedUserHome = false): FsRule[] {
   const ro = (p: string): FsRule => ({ path: p, access: 'readOnly', source: 'baseline' });
   const rw = (p: string): FsRule => ({ path: p, access: 'readWrite', source: 'baseline' });
   return [
-    ...commonHomeBaseline(h),
+    ...commonHomeBaseline(h, isolatedUserHome),
     // Toolchain + config. /bin,/lib*… on usrmerge distros are symlinks — the
     // bwrap compiler replicates them (see CompileBwrapOpts.symlinks); on
     // non-usrmerge hosts the worker passes them as existing dirs instead.
@@ -520,7 +523,9 @@ export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
 
   // Hoisted into a named const (vs the upstream inline `candidates.push(...)`)
   // because roleLibAccess() below inspects baseline's DENY entries.
-  const baseline = ctx.platform === 'darwin' ? darwinBaseline(ctx.homeDir) : linuxBaseline(ctx.homeDir);
+  const baseline = ctx.platform === 'darwin'
+    ? darwinBaseline(ctx.homeDir, ctx.isolatedUserHome)
+    : linuxBaseline(ctx.homeDir, ctx.isolatedUserHome);
   candidates.push(...baseline);
 
   // Adapter-declared surfaces.
@@ -536,7 +541,11 @@ export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
   // botmux internals. workingDir/extraWrite/readonlyRoots are FAIL-CLOSED against
   // the authority roots for a no-transport turn (dropAuthority is identity when
   // larkTransport). botHome is always kept — it's the sanctioned carve-out.
-  push([...dropAuthority([ctx.workingDir]), ctx.botHome], 'readWrite', 'internal');
+  push([
+    ...dropAuthority([ctx.workingDir]),
+    ...(!ctx.isolatedUserHome ? [ctx.botHome] : []),
+    ...(ctx.isolatedUserHome ? [ctx.homeDir] : []),
+  ], 'readWrite', 'internal');
   // Own role-library subtree (`~/botmux-roles/<self>`). workingDir alone covers
   // only the ACTIVE role dir, which silently disables the whole role system
   // under sandbox: 「切换角色/有哪些角色」enumerates the sibling role dirs and
@@ -608,12 +617,16 @@ export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
   push(dropAuthority(ctx.extraWritePaths), 'readWrite', 'internal');
   push(dropAuthority(ctx.readonlyRoots), 'readOnly', 'internal');
   // Own routing metadata (`botmux send` reply routing) — read-only.
-  push([`${ctx.sessionDataDir}/sessions-${ctx.currentAppId}.json`], 'readOnly', 'internal');
+  if (!ctx.isolatedUserHome) {
+    push([`${ctx.sessionDataDir}/sessions-${ctx.currentAppId}.json`], 'readOnly', 'internal');
+  }
   // Own upload bucket — readWRITE: `botmux quoted` / downloadResources writes the
   // downloaded attachment under attachments/<self>/<messageId>/… (not just reads
   // pre-uploaded files). The worker mkdirs it pre-spawn so it survives the
   // existence-filter and gets bound rw. Siblings' buckets stay uncovered.
-  push([`${ctx.sessionDataDir}/attachments/${ctx.currentAppId}`], 'readWrite', 'internal');
+  if (!ctx.isolatedUserHome) {
+    push([`${ctx.sessionDataDir}/attachments/${ctx.currentAppId}`], 'readWrite', 'internal');
+  }
   // Own per-bot lark-cli config (agent-facing lark-cli identity). Withheld from
   // a no-transport turn — it IS this bot's Feishu credential surface.
   if (larkTransport) push([`${ctx.homeDir}/.lark-cli-bots/${ctx.currentAppId}`], 'readWrite', 'internal');

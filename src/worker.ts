@@ -13,7 +13,7 @@
  *   7. On 'restart', kills CLI and re-spawns with --resume
  */
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync, unlinkSync, rmdirSync, existsSync, statSync, lstatSync, readdirSync, readlinkSync, readFileSync, realpathSync, copyFileSync, watch as fsWatch, createWriteStream, openSync, closeSync, fstatSync, constants as fsConstants, type FSWatcher, type WriteStream } from 'node:fs';
+import { mkdirSync, writeFileSync, unlinkSync, rmdirSync, existsSync, statSync, lstatSync, readdirSync, readlinkSync, readFileSync, realpathSync, copyFileSync, symlinkSync, watch as fsWatch, createWriteStream, openSync, closeSync, fstatSync, constants as fsConstants, type FSWatcher, type WriteStream } from 'node:fs';
 import { atomicWriteFileSync } from './utils/atomic-write.js';
 import { join, basename, dirname, delimiter } from 'node:path';
 import { resolveBotmuxWrapperBinDir, prependBotmuxBin } from './core/botmux-wrapper.js';
@@ -123,7 +123,7 @@ import {
   SESSION_ID_FILENAME_RE,
   type PidFollowResult,
 } from './services/bridge-rotation-policy.js';
-import { CodexBridgeQueue } from './services/codex-bridge-queue.js';
+import { CodexBridgeQueue, type CodexPendingTurn } from './services/codex-bridge-queue.js';
 import { detectCodexComposerState } from './services/codex-composer-state.js';
 import {
   generateCodexAppThreadTitle,
@@ -1012,10 +1012,11 @@ function provisionIsolatedBotHome(
   cliId: string,
   hookInstall: HookInstallConfig | undefined,
   log: (m: string) => void,
+  multiUser?: { sharedCodexHome?: string },
 ): void {
   try {
     if (isClaude) {
-      const cdir = join(botHome, 'claude');
+      const cdir = join(botHome, multiUser ? '.claude' : 'claude');
       mkdirSync(cdir, { recursive: true });
       // Settings: read-isolated Claude uses a fresh CLAUDE_CONFIG_DIR, so it
       // otherwise loses provider auth/model/proxy values held in the shared
@@ -1028,7 +1029,7 @@ function provisionIsolatedBotHome(
           installHook(cliId, {
             ...hookInstall,
             configPath: isolatedSettingsPath,
-            inheritClaudeEnvFrom: join(homedir(), '.claude', 'settings.json'),
+            inheritClaudeEnvFrom: multiUser ? undefined : join(homedir(), '.claude', 'settings.json'),
           }, hookCommandFor(cliId));
         } catch (e) {
           log(`[read-isolation] WARN per-bot settings/hook install failed: ${(e as Error).message}`);
@@ -1039,9 +1040,9 @@ function provisionIsolatedBotHome(
       // on EVERY spawn (verified: Claude logs in from that file). Refreshing here (not
       // just seeding once) means a re-login elsewhere self-heals on the next cold
       // spawn — no separate sync step needed. Same shared account for every bot.
-      const fresh = freshestClaudeCred();
+      const fresh = multiUser ? null : freshestClaudeCred();
       if (fresh) writeCredIfChanged(join(cdir, '.credentials.json'), fresh);
-      else if (
+      else if (!multiUser &&
         !existsSync(join(cdir, '.credentials.json'))
         && !claudeSettingsHasProviderAuth(isolatedSettingsPath)
       ) {
@@ -1052,16 +1053,24 @@ function provisionIsolatedBotHome(
       // other projects' data), then trust this bot's cwd. Merge-safe on resume.
       seedAndTrustClaudeState(join(cdir, '.claude.json'), workingDir, log);
     } else {
-      const cdir = join(botHome, 'codex');
+      const cdir = join(botHome, multiUser ? '.codex' : 'codex');
       mkdirSync(cdir, { recursive: true });
       // auth.json: keep synced to the shared account's copy on EVERY spawn (a re-login
       // elsewhere rotates the refresh token, which would strand a stale per-bot copy).
-      const authSrc = join(homedir(), '.codex', 'auth.json');
+      const sharedHome = multiUser?.sharedCodexHome ?? join(homedir(), '.codex');
+      const authSrc = join(sharedHome, 'auth.json');
       if (existsSync(authSrc)) writeCredIfChanged(join(cdir, 'auth.json'), readFileSync(authSrc, 'utf-8'));
       // config.toml: seed ONCE (it may carry per-bot customizations afterwards).
       const cfgDst = join(cdir, 'config.toml');
-      const cfgSrc = join(homedir(), '.codex', 'config.toml');
+      const cfgSrc = join(sharedHome, 'config.toml');
       if (!existsSync(cfgDst) && existsSync(cfgSrc)) copyFileSync(cfgSrc, cfgDst);
+      if (multiUser) {
+        for (const name of ['AGENTS.md', 'skills']) {
+          const source = join(sharedHome, name);
+          const target = join(cdir, name);
+          if (!existsSync(target) && existsSync(source)) symlinkSync(source, target);
+        }
+      }
     }
   } catch (e) {
     log(`[read-isolation] WARN provisioning bot home failed: ${(e as Error).message}`);
@@ -3664,6 +3673,22 @@ function codexBridgeStartTimer(): void {
       // fd is process-scoped, so following that fd cannot select a sibling
       // TRAE process merely because it shares the working directory.
       maybeFollowTraexSessionRotationViaPid();
+      // Native `codex fork` can publish the new cliSessionId a few milliseconds
+      // before the rollout file is opened by the replacement process. The
+      // immediate ownership gate must fail closed, but the candidate remains
+      // available for retries behind the same pid ownership check. Once owned,
+      // the bridge rotates in fresh-empty mode while preserving the pending
+      // Lark turn queue and its original topic routing.
+      if (structuredBridgeIsCodex()
+        && codexBridgeRolloutPath
+        && codexBridgePendingSessionId) {
+        const currentSid = codexSessionIdFromRolloutPath(codexBridgeRolloutPath);
+        if (currentSid?.toLowerCase() === codexBridgePendingSessionId.toLowerCase()) {
+          codexBridgePendingSessionId = undefined;
+        } else {
+          codexBridgeNotifyCliSessionId(codexBridgePendingSessionId);
+        }
+      }
       if (!codexBridgeRolloutPath) {
         // Late-attach: cliSessionId (writeInput / daemon probe) then adopt
         // pid. Path lookup is centralized in resolveFileBridgePath so
@@ -3921,12 +3946,20 @@ function codexBridgeDetachFile(): void {
   codexBridgeBaselineDone = false;
 }
 
+/** Resolve a Codex rollout owner underneath a sandbox supervisor. */
+function resolveCodexOwnershipPid(candidatePid: number, sandbox: boolean): number {
+  if (!sandbox || !candidatePid) return candidatePid;
+  return findLaunchedCliPid(candidatePid, 'codex') ?? candidatePid;
+}
+
 /** Resolve the pid of the Codex process this worker observes (spawned child or
  *  adopted pane), mirroring the grok/traex pid-follow resolution order. */
 function currentCodexObservedPid(): number | undefined {
-  return (backend as { cliPid?: number } | null)?.cliPid
-    ?? backend?.getChildPid?.()
-    ?? codexAdoptPendingPid;
+  const wired = (backend as { cliPid?: number } | null)?.cliPid;
+  if (wired) return resolveCodexOwnershipPid(wired, lastSpawnOuterBwrapActive);
+  const child = backend?.getChildPid?.();
+  if (child) return resolveCodexOwnershipPid(child, lastSpawnOuterBwrapActive);
+  return codexAdoptPendingPid;
 }
 
 /** Ownership gate for binding a Codex bridge to a session id that came from the
@@ -4032,9 +4065,13 @@ function codexBridgeNotifyCliSessionId(cliSessionId: string): void {
       // Ownership gate: only re-attach to a session id THIS pid actually holds
       // open (admits the real parent+sibling multi-rollout case, rejects a
       // foreign id from another pane's identical-text history line). Fail
-      // closed: keep the current binding when unowned/unknown.
+      // closed: keep the current binding when unowned/unknown. Preserve the
+      // candidate for the bridge poller because a native `codex fork` reports
+      // its new session id before the replacement process opens the rollout.
       if (!codexHistorySidOwnedByCurrentPid(cliSessionId)) {
-        log(`Keeping current Codex bridge ${currentSid ?? '?'} — refusing history-only re-attach to ${cliSessionId}`);
+        codexBridgePendingSessionId = cliSessionId;
+        codexBridgeStartTimer();
+        log(`Keeping current Codex bridge ${currentSid ?? '?'} while waiting to verify ${cliSessionId}`);
         return;
       }
       const pid = currentCodexObservedPid();
@@ -4321,6 +4358,78 @@ function drainReliableTerminalBeforeInterrupt(): void {
   }
 }
 
+const codexCyberPolicyRecoveryCounts = new Map<string, number>();
+const MAX_CODEX_CYBER_POLICY_RECOVERIES_PER_TURN = 3;
+const MAX_TRACKED_CODEX_CYBER_POLICY_TURNS = 256;
+const CODEX_CYBER_POLICY_CONTINUATION_PROMPT =
+  'Continue processing the most recent user request from this conversation. Do not repeat the request. Return the result normally.';
+
+/**
+ * Retire a failed Codex conversation and continue the turn in a fork.
+ * The botmux session and Lark topic remain unchanged. Only the CLI-native
+ * conversation id rotates.
+ *
+ * @param turn The failed transcript turn.
+ */
+function recoverCodexCyberPolicyTurn(turn: CodexPendingTurn): boolean {
+  if (lastInitConfig?.cliId !== 'codex'
+    || lastInitConfig.adoptMode
+    || turn.terminalErrorCode !== 'codex_task_error:cyber_policy') return false;
+
+  const recoveryKey = `${turn.turnId}:${turn.dispatchAttempt ?? '-'}`;
+  const recoveryCount = codexCyberPolicyRecoveryCounts.get(recoveryKey) ?? 0;
+  if (recoveryCount >= MAX_CODEX_CYBER_POLICY_RECOVERIES_PER_TURN) {
+    log(
+      `Codex cyber-policy recovery exhausted for ${turn.turnId.slice(0, 12)} `
+      + `after ${recoveryCount} fork attempts; surfacing the policy error`,
+    );
+    return false;
+  }
+  const sourceConversationId = lastInitConfig.cliSessionId;
+  if (!sourceConversationId) {
+    log(`Codex cyber-policy recovery skipped for ${turn.turnId.slice(0, 12)}: conversation id unavailable`);
+    return false;
+  }
+
+  const recoverySourceBatch = inflightInputs.takeBatchForRecovery(turn.turnId, turn.dispatchAttempt);
+  if (recoverySourceBatch.length === 0) {
+    log(`Codex cyber-policy recovery skipped for ${turn.turnId.slice(0, 12)}: input unavailable`);
+    return false;
+  }
+
+  const nextRecoveryCount = recoveryCount + 1;
+  codexCyberPolicyRecoveryCounts.delete(recoveryKey);
+  codexCyberPolicyRecoveryCounts.set(recoveryKey, nextRecoveryCount);
+  while (codexCyberPolicyRecoveryCounts.size > MAX_TRACKED_CODEX_CYBER_POLICY_TURNS) {
+    const oldest = codexCyberPolicyRecoveryCounts.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    codexCyberPolicyRecoveryCounts.delete(oldest);
+  }
+  const recoveryBatch = recoverySourceBatch.map(item =>
+    item.turnId === turn.turnId && item.dispatchAttempt === turn.dispatchAttempt
+      ? {
+          ...item,
+          content: CODEX_CYBER_POLICY_CONTINUATION_PROMPT,
+          logicalContent: undefined,
+          codexAppInput: undefined,
+        }
+      : item,
+  );
+  pendingMessages.unshift(...recoveryBatch);
+  log(
+    `Codex cyber-policy recovery: forking conversation ${sourceConversationId} `
+    + `and continuing ${recoveryBatch.length} input(s) for turn ${turn.turnId.slice(0, 12)} `
+    + `(attempt ${nextRecoveryCount}/${MAX_CODEX_CYBER_POLICY_RECOVERIES_PER_TURN})`,
+  );
+  void restartCliProcess('Codex cyber-policy conversation recovery', {
+    immediate: true,
+    preservePending: true,
+    skipRestartBudget: true,
+    forkSession: true,
+  });
+  return true;
+}
+
 function emitReadyCodexTurns(): void {
   const ready = codexBridgeQueue.drainEmittable();
   if (ready.length === 0) return;
@@ -4343,6 +4452,7 @@ function emitReadyCodexTurns(): void {
     : undefined;
   for (let i = 0; i < ready.length; i++) {
     const turn = ready[i];
+    if (recoverCodexCyberPolicyTurn(turn)) return;
     const sourceHermesSessionId = structuredBridgeIsHermes() ? turn.sourceSessionId : undefined;
     const nextBoundaryMs = (i + 1 < ready.length ? ready[i + 1].markTimeMs : nextPendingMarkTimeMs);
     const gateInput = {
@@ -6391,7 +6501,10 @@ function markPromptReady(): void {
 
 function persistCliSessionId(cliSessionId: string): void {
   if (!cliSessionId || !sessionId) return;
-  if (lastInitConfig) lastInitConfig.cliSessionId = cliSessionId;
+  if (lastInitConfig) {
+    lastInitConfig.cliSessionId = cliSessionId;
+    lastInitConfig.forkSession = false;
+  }
   send({
     type: 'cli_session_id',
     cliSessionId,
@@ -7963,6 +8076,10 @@ async function spawnCli(
       BOTMUX_LARK_APP_ID: cfg.larkAppId,
       BOTMUX_USAGE_DISPLAY: resolveUsageDisplay(cfg.larkAppId),
     };
+    const resolvedBrandLabel = resolveBrandLabel(cfg.larkAppId, cfg.botName);
+    if (typeof resolvedBrandLabel === 'string') {
+      sessionEnv.BOTMUX_BRAND_LABEL = resolvedBrandLabel;
+    }
     // Core-only capability must survive into the sandboxed CLI: riffModeSession
     // rebuilds a synthetic BotConfig from env (no bots.json), and would otherwise
     // drop apiOnly → getBotClient would not throw → `botmux send` could reach
@@ -8188,12 +8305,24 @@ async function spawnCli(
   let isolationBotHome: string | undefined;
   let isolatedCodexHome: string | undefined;
   if (willRedirectCliData) {
-    isolationBotHome = ownBotHome!;
+    isolationBotHome = cfg.multiUserHomeDir ?? ownBotHome;
+    if (!isolationBotHome) {
+      throw new Error('CLI data isolation requires a writable home directory');
+    }
     const isClaudeFam = !!claudeDataDir;
-    if (isClaudeFam) claudeDataDir = join(isolationBotHome, 'claude');
+    if (isClaudeFam) claudeDataDir = join(isolationBotHome, cfg.multiUserHomeDir ? '.claude' : 'claude');
+    else isolatedCodexHome = join(isolationBotHome, cfg.multiUserHomeDir ? '.codex' : 'codex');
     // Provision the per-bot config dir (auth + onboarding/trust seed + hooks for claude;
     // auth/config copy for codex) so the CLI starts fully set up under the Seatbelt wrapper.
-    provisionIsolatedBotHome(isolationBotHome, cfg.workingDir, isClaudeFam, cfg.cliId, cliAdapter.hookInstall, log);
+    provisionIsolatedBotHome(
+      isolationBotHome,
+      cfg.workingDir,
+      isClaudeFam,
+      cfg.cliId,
+      cliAdapter.hookInstall,
+      log,
+      cfg.multiUserHomeDir ? { sharedCodexHome: cfg.sharedCodexHome } : undefined,
+    );
     if (isClaudeFam && effectiveReadyHookInstall) {
       effectiveReadyHookInstall = {
         ...effectiveReadyHookInstall,
@@ -8203,7 +8332,7 @@ async function spawnCli(
     if (cliAdapter.mcpGateway) {
       const isolatedConfigPath = isClaudeFam
         ? join(claudeDataDir!, '.claude.json')
-        : join(isolationBotHome, 'codex', 'config.toml');
+        : join(isolatedCodexHome ?? isolationBotHome, 'config.toml');
       const report = ensureGatewayEntry({
         id: cliAdapter.id,
         mcpGateway: { ...cliAdapter.mcpGateway, configPath: isolatedConfigPath },
@@ -8211,7 +8340,6 @@ async function spawnCli(
       if (report.warning) log(`[mcp-gateway] WARN ${report.warning}`);
     }
     if (!isClaudeFam) {
-      isolatedCodexHome = join(isolationBotHome, 'codex');
       // The CLI child and its dedicated worker must resolve the same Codex data
       // root. Adapter submit confirmation, resume fallback, and transcript bridge
       // discovery all run in the worker and consult process.env.CODEX_HOME
@@ -8840,16 +8968,14 @@ async function spawnCli(
   if (cfg.apiOnly) childEnv.BOTMUX_API_ONLY = '1';
   else delete childEnv.BOTMUX_API_ONLY;
   childEnv.BOTMUX_ROOT_MESSAGE_ID = cfg.rootMessageId;
-  // This bot's resolved brandLabel template, injected so a SANDBOXED `botmux
-  // send` renders the role-name footer without reading bots.json (deny-by-
-  // default → EPERM → role footer would silently fall back to the default
-  // [botmux] label). resolveBrandLabel honours this env first (gated on the
-  // own appId). Only set the key when a brandLabel is configured (present-but-
-  // empty '' = suppress is preserved; unset key → the CLI falls through). It is
-  // a cosmetic markdown template, not a credential, so env-passing is safe.
+  // Inject this bot's resolved footer label so a sandboxed `botmux send` does
+  // not need bots.json or bots-info.json. This is either an explicit
+  // brandLabel, an empty string that suppresses the brand, or the bot name.
+  // It is cosmetic text, not a credential, so env-passing is safe.
   {
-    const bl = resolveBrandLabel(cfg.larkAppId);
+    const bl = resolveBrandLabel(cfg.larkAppId, cfg.botName);
     if (typeof bl === 'string') childEnv.BOTMUX_BRAND_LABEL = bl;
+    else delete childEnv.BOTMUX_BRAND_LABEL;
   }
   childEnv.BOTMUX_USAGE_DISPLAY = resolveUsageDisplay(cfg.larkAppId);
   // NOTE: under read isolation `botmux send` gets this bot's secret from the worker-
@@ -8961,7 +9087,7 @@ async function spawnCli(
     // resolves mount sources) — realpath everything, or a symlinked prefix
     // (the /tmp→/private/tmp class) silently fail-opens.
     const canonical = (p: string) => { try { return realpathSync(p); } catch { return p; } };
-    const sandboxHome = canonical(homedir());
+    const sandboxHome = canonical(cfg.multiUserHomeDir ?? homedir());
     const expandTilde = (raw: string) => raw.replace(/^~(?=\/|$)/, sandboxHome);
     // LEXICAL `~` expansion — uses the raw (NON-canonicalized) homedir(). Used ONLY
     // for the redirect authPath CONTAINMENT decision below, where both sides of the
@@ -9017,8 +9143,8 @@ async function spawnCli(
     const resolveDeny = (paths?: readonly string[]) =>
       (paths ?? []).filter((p): p is string => typeof p === 'string' && !!p).map(p => canonical(expandTilde(p)));
     const userPaths = {
-      readWrite: resolveUser(userLists?.readWrite),
-      readOnly: resolveUser(userLists?.readOnly),
+      readWrite: cfg.multiUserHomeDir ? [] : resolveUser(userLists?.readWrite),
+      readOnly: cfg.multiUserHomeDir ? [] : resolveUser(userLists?.readOnly),
       deny: resolveDeny(userLists?.deny),
     };
     if (droppedUser.length) log(`[sandbox] sandboxPaths entries dropped (path not found): ${droppedUser.join(', ')}`);
@@ -9092,6 +9218,13 @@ async function spawnCli(
     if (process.platform === 'linux') {
       mandatoryDenyPaths.push(join(canonical(dataDir), 'sandboxes', cfg.sessionId));
     }
+    if (cfg.multiUserHomeDir) {
+      mandatoryDenyPaths.push(
+        canonical(ownBotHome ?? join(dirname(dataDir), 'bots', cfg.larkAppId)),
+        canonical(join(dataDir, `sessions-${cfg.larkAppId}.json`)),
+        canonical(join(dataDir, 'attachments', cfg.larkAppId)),
+      );
+    }
     readIsolationOriginCapabilityFile = process.platform === 'darwin'
       ? managedOriginCapabilityPath(dataDir, cfg.sessionId)
       : null;
@@ -9152,7 +9285,7 @@ async function spawnCli(
     // pre-2026-07 runbooks used) gets no rule, and "the role system EPERMs" is
     // indistinguishable from "sandbox working as intended". Say so out loud instead
     // — the session still runs, only role switching/creation is unavailable.
-    const roleLibSubtree = larkTransportEnabled
+    const roleLibSubtree = larkTransportEnabled && !cfg.multiUserHomeDir
       ? (roleLibrarySubtree(cfg.larkAppId) ?? undefined)
       : undefined;
     if (larkTransportEnabled && !roleLibSubtree) {
@@ -9172,6 +9305,7 @@ async function spawnCli(
     const fsPolicyCtx = {
       platform: process.platform as 'darwin' | 'linux',
       homeDir: sandboxHome,
+      isolatedUserHome: !!cfg.multiUserHomeDir,
       botmuxHome: canonical(dirname(dataDir)),
       sessionDataDir: canonical(dataDir),
       workingDir: canonical(cfg.workingDir),
@@ -9237,7 +9371,9 @@ async function spawnCli(
       // itself regresses under a symlinked home. Filter lexically first, THEN
       // keepExisting (realpath + existence-filter) only the survivors for bwrap.
       authPaths: keepExisting(resolveRedirectedAdapterAuthPaths({
-        declaredAuthPaths: [...(cliAdapter.authPaths ?? [])].map(expandTildeLexical),
+        declaredAuthPaths: cfg.multiUserHomeDir
+          ? []
+          : [...(cliAdapter.authPaths ?? [])].map(expandTildeLexical),
         willRedirectCliData,
         rehomedHostRoots: [cliAdapter.claudeDataDir, isolatedCodexHome ? `${lexicalHome}/.codex` : undefined]
           .filter((r): r is string => !!r)
@@ -9246,6 +9382,9 @@ async function spawnCli(
       execPaths: keepExisting([...execDirs, ...execCarve]),
       readonlyRoots: keepExisting([
         ...(cfg.skillReadonlyRoots ?? []),
+        ...(cfg.sharedCodexHome && cfg.cliId === 'codex'
+          ? [join(cfg.sharedCodexHome, 'AGENTS.md'), join(cfg.sharedCodexHome, 'skills')]
+          : []),
         ...piInitialPromptReadonlyRoots,
         // Adapter-declared read-only host paths (e.g. traex/coco first-run
         // migration done-markers at ~/.trae root). Exposed read-only so the CLI
@@ -9255,7 +9394,7 @@ async function spawnCli(
       ]),
       botmuxInstallRoot,
       outbox,
-      extraWritePaths: keepExisting([process.env.TMPDIR]),
+      extraWritePaths: cfg.multiUserHomeDir ? [] : keepExisting([process.env.TMPDIR]),
       userPaths,
       mandatoryDenyPaths,
       mandatoryDenyRegexes,
@@ -9728,7 +9867,11 @@ async function spawnCli(
   if (cliPid && (claudeDataDir || cfg.cliId === 'grok' || cfg.cliId === 'traex' || cfg.cliId === 'reasonix')) {
     // TRAE under outer bwrap: best-effort immediate resolve (leaf may already be
     // forked), then a bounded retry below covers the not-yet-forked case.
-    const wiredPid = cfg.cliId === 'traex' ? resolveTraexOwnershipPid(cliPid, outerBwrapActive) : cliPid;
+    const wiredPid = cfg.cliId === 'traex'
+      ? resolveTraexOwnershipPid(cliPid, outerBwrapActive)
+      : cfg.cliId === 'codex'
+        ? resolveCodexOwnershipPid(cliPid, outerBwrapActive)
+        : cliPid;
     (backend as TmuxBackend | PtyBackend | ZellijBackend | ZmxBackend).cliPid = wiredPid;
     (backend as TmuxBackend | PtyBackend | ZellijBackend | ZmxBackend).cliCwd = cfg.workingDir;
     if (cfg.cliId === 'traex' && outerBwrapActive) startTraexSandboxPidResolve(cliPid);
@@ -9760,7 +9903,11 @@ async function spawnCli(
           }
         }
         if (claudeDataDir || cfg.cliId === 'grok' || cfg.cliId === 'traex' || cfg.cliId === 'reasonix') {
-          const wiredPid = cfg.cliId === 'traex' ? resolveTraexOwnershipPid(pid, outerBwrapActive) : pid;
+          const wiredPid = cfg.cliId === 'traex'
+            ? resolveTraexOwnershipPid(pid, outerBwrapActive)
+            : cfg.cliId === 'codex'
+              ? resolveCodexOwnershipPid(pid, outerBwrapActive)
+              : pid;
           (backend as TmuxBackend | PtyBackend | ZellijBackend | ZmxBackend).cliPid = wiredPid;
           (backend as TmuxBackend | PtyBackend | ZellijBackend | ZmxBackend).cliCwd = cfg.workingDir;
           if (cfg.cliId === 'traex' && outerBwrapActive) startTraexSandboxPidResolve(pid);
@@ -10328,7 +10475,12 @@ function killCli(opts: {
 
 async function restartCliProcess(
   reason: string,
-  opts: { immediate?: boolean; preservePending?: boolean; skipRestartBudget?: boolean } = {},
+  opts: {
+    immediate?: boolean;
+    preservePending?: boolean;
+    skipRestartBudget?: boolean;
+    forkSession?: boolean;
+  } = {},
 ): Promise<void> {
   if (lastInitConfig?.adoptMode) {
     log(`Restart ignored in adopt mode (${reason})`);
@@ -10388,13 +10540,20 @@ async function restartCliProcess(
           startScreenUpdates();
           startStuckDetector();
           try {
-            const restartCfg = { ...lastInitConfig, resume: true, prompt: '', cliSessionId: rpcThreadId ?? lastInitConfig.cliSessionId };
+            const restartCfg = {
+              ...lastInitConfig,
+              resume: true,
+              prompt: '',
+              cliSessionId: rpcThreadId ?? lastInitConfig.cliSessionId,
+              forkSession: opts.forkSession === true,
+            };
             spawnedWorkingDir = restartCfg.workingDir;
             // Re-engage RPC so the new --remote pane binds to the CURRENT app-server
             // (a fresh port), not the dead prior one. engageCodexRpc only sets
             // remote* on success, else spawnCli falls back to paste.
             let rpcPluginGenerationPrepared = false;
-            if (codexRpcEligible(restartCfg, { sandboxForced: sandboxEnabled() })) {
+            if (!restartCfg.forkSession
+              && codexRpcEligible(restartCfg, { sandboxForced: sandboxEnabled() })) {
               const adapter = createCliAdapterSync(restartCfg.cliId as CliId, restartCfg.cliPathOverride);
               await prepareCliPluginGenerationAndGateway(restartCfg, adapter);
               rpcPluginGenerationPrepared = true;

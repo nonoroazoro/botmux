@@ -603,6 +603,7 @@ export async function triggerSessionTurn(
   session.lastMessageAt = new Date(now).toISOString();
   session.workingDir = wd.workingDir;
   session.cliId = bot.config.cliId;
+  session.ownerOpenId = bot.config.ownerOpenId;
   // Per-turn model / reasoning-effort override — scoped to codex-family bots
   // (the documented B-mode target) and to a freshly-created trigger session.
   // Gating on cliId keeps the contract honest and bounded: it never silently

@@ -20,6 +20,7 @@ import { createGroupWithBots, transferGroupOwner } from '../services/group-creat
 import * as oncallStore from '../services/oncall-store.js';
 import * as brandStore from '../services/brand-store.js';
 import * as sandboxStore from '../services/sandbox-store.js';
+import * as multiUserIsolationStore from '../services/multi-user-isolation-store.js';
 import * as backendTypeStore from '../services/backend-type-store.js';
 import { isValidRiffBaseUrl, isValidRiffSandboxCluster } from '../adapters/backend/riff-backend.js';
 import { ensureBackendAvailable } from '../services/backend-availability.js';
@@ -73,9 +74,11 @@ import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessi
 import { listOnlineDaemons } from '../utils/daemon-discovery.js';
 import { isSessionStopped } from './session-liveness.js';
 import { isSuspendableBackendType } from './persistent-backend.js';
-import { getChatMode, replyMessage, sendMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listChatMessagesUntil, listChatBotMembers, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
-import { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardContent, messageMentionsBot } from '../im/lark/message-parser.js';
-import { resumeSession, spawnDashboardSession, activateQueuedSession, closeCliMismatchedSessionsForBot, suspendActiveSessionsForBot } from './session-manager.js';
+import { getChatMode, replyMessage, sendMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listAmbientChatMessages, listChatMessagesUntil, listChatBotMembers, getMessageDetail, getMessageChatId, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
+import { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardContent, extractResources, createImgNumberer, messageMentionsBot } from '../im/lark/message-parser.js';
+import { expandMergeForward } from '../im/lark/merge-forward.js';
+import { renderQuotedMessage } from '../cli/quoted-render.js';
+import { resumeSession, spawnDashboardSession, activateQueuedSession, closeCliMismatchedSessionsForBot, suspendActiveSessionsForBot, downloadResources } from './session-manager.js';
 import { parseSpawnRequest } from './session-create.js';
 import { cleanupMaterializedDashboardImages, materializeDashboardImages } from './dashboard-images.js';
 import { getCliDisplayName } from '../im/lark/card-builder.js';
@@ -451,6 +454,10 @@ function routeHasNarrowUntrustedAuth(method: string, pathname: string): boolean 
   // capability 并绑定到 URL 里的 sessionId（同 /api/asks 姿势）——capability 只
   // 证明「我是这个会话当前这一轮的 CLI」，选不了别的会话。
   if (method === 'POST' && /^\/api\/sessions\/[^/]+\/(?:slash|cd|close|chat-rename)$/.test(pathname)) return true;
+  // Session-scoped Lark reads are available to read-isolated CLIs without
+  // exposing bot credentials or the shared session store. The handlers bind
+  // every query to the URL session and verify its current rotating capability.
+  if (method === 'POST' && /^\/api\/sessions\/[^/]+\/(?:lark-history|lark-quoted)$/.test(pathname)) return true;
   if (method === 'POST' && pathname === '/api/hooks/emit') return true;
   if (method === 'POST' && pathname === '/api/attention') return true;
   // Workflow v3 mutations carry their own domain-separated full-envelope
@@ -1257,6 +1264,190 @@ ipcRoute('POST', '/api/chat-reply-mode', async (req, res) => {
   const result = await setChatReplyMode(cachedLarkAppId, chatId, mode);
   if (!result.ok) return jsonRes(res, 500, { ok: false, reason: result.reason });
   jsonRes(res, 200, { ok: true, mode: result.mode });
+});
+
+// Session-scoped Lark history for read-isolated CLIs. The model process gets
+// only the response data; bot credentials and shared session metadata stay in
+// the daemon. Scope is derived from the authenticated URL session, never from
+// a caller-supplied chat id or app id.
+ipcRoute('POST', '/api/sessions/:sessionId/lark-history', async (req, res, params) => {
+  const body = await readJsonBody<Record<string, unknown>>(req)
+    .catch(() => ({} as Record<string, unknown>));
+  const ds = findActiveBySessionId(params.sessionId);
+  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
+  if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
+
+  const session = ds.session;
+  const appId = session.larkAppId || ds.larkAppId || cachedLarkAppId;
+  if (!appId) return jsonRes(res, 422, { ok: false, error: 'no_lark_app' });
+  if (sessionTransportDisabled(session)) {
+    return jsonRes(res, 403, { ok: false, error: 'no_feishu_transport' });
+  }
+
+  const parsedLimit = typeof body.limit === 'number' ? body.limit : Number(body.limit);
+  const limit = Math.min(
+    Math.max(Number.isFinite(parsedLimit) ? Math.floor(parsedLimit) : 50, 1),
+    200,
+  );
+  const requestedScope = typeof body.scope === 'string' ? body.scope : 'session';
+  if (!['session', 'thread', 'chat', 'ambient'].includes(requestedScope)) {
+    return jsonRes(res, 400, { ok: false, error: 'invalid_scope' });
+  }
+  const isChatScope = session.scope === 'chat';
+  const effectiveScope = requestedScope === 'session'
+    ? (isChatScope ? 'chat' : 'thread')
+    : requestedScope;
+  if (effectiveScope === 'thread' && isChatScope) {
+    return jsonRes(res, 400, { ok: false, error: 'chat_scope_has_no_thread' });
+  }
+  if (effectiveScope === 'ambient' && isChatScope) {
+    return jsonRes(res, 400, { ok: false, error: 'chat_scope_has_no_ambient_boundary' });
+  }
+
+  try {
+    let ambientBeforeCreateTime: string | undefined;
+    if (effectiveScope === 'ambient') {
+      const root = await getMessageDetail(appId, session.rootMessageId, { userCardContent: false })
+        .catch(() => null);
+      ambientBeforeCreateTime = root?.items?.[0]?.create_time;
+    }
+    const raw = effectiveScope === 'chat'
+      ? await listChatMessages(appId, session.chatId, limit)
+      : effectiveScope === 'ambient'
+        ? await listAmbientChatMessages(appId, session.chatId, limit, {
+            beforeCreateTime: ambientBeforeCreateTime,
+            excludeRootMessageId: session.rootMessageId,
+          })
+        : await listThreadMessages(appId, session.chatId, session.rootMessageId, limit);
+    const withCardJson = body.withCardJson === true;
+    const messages = await Promise.all(raw.map(async (message: any) => {
+      const numberer = createImgNumberer();
+      let resources = extractResources(message.msg_type ?? 'text', message.body?.content ?? '', numberer);
+      const parsed = parseApiMessage(message, numberer);
+      let cardJson: unknown;
+      if (parsed.msgType === 'interactive' && (withCardJson || cardContentHasUpgradeFallback(parsed.content))) {
+        const cardNumberer = createImgNumberer();
+        const merged = await resolveMergedCardContent(appId, parsed.messageId, cardNumberer).catch(() => null);
+        if (merged) {
+          parsed.content = merged.text;
+          resources = merged.resources;
+          if (withCardJson) {
+            try { cardJson = JSON.parse(merged.structuredContent); }
+            catch { cardJson = merged.structuredContent; }
+          }
+        }
+      }
+      if (parsed.msgType === 'merge_forward') {
+        const { extraResources } = await expandMergeForward(appId, parsed.messageId, parsed, numberer);
+        if (extraResources.length) resources = [...resources, ...extraResources];
+      }
+      return {
+        ...parsed,
+        ...(resources.length ? { resources } : {}),
+        ...(cardJson !== undefined ? { cardJson } : {}),
+      };
+    }));
+    return jsonRes(res, 200, {
+      ok: true,
+      sessionId: session.sessionId,
+      chatId: session.chatId,
+      scope: effectiveScope,
+      sessionScope: isChatScope ? 'chat' : 'thread',
+      ...(isChatScope ? {} : { rootMessageId: session.rootMessageId }),
+      ...(effectiveScope === 'ambient' ? {
+        ambient: {
+          source: 'chat',
+          beforeCreateTime: ambientBeforeCreateTime,
+          excludeRootMessageId: session.rootMessageId,
+        },
+      } : {}),
+      messages,
+      total: messages.length,
+      ...(messages.some(message => (message as any).resources?.length || message.msgType === 'interactive') ? {
+        hint: '查看某条消息的附件图片/文件或卡片全文：botmux quoted <messageId>；需要原始卡片 JSON：botmux quoted <messageId> --raw 或本命令加 --with-card-json',
+      } : {}),
+    });
+  } catch (error) {
+    return jsonRes(res, 502, {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Fetch one message only after proving that it belongs to the authenticated
+// session's chat. This prevents a caller that knows another message id from
+// turning the daemon into a cross-chat read oracle.
+ipcRoute('POST', '/api/sessions/:sessionId/lark-quoted', async (req, res, params) => {
+  const body = await readJsonBody<Record<string, unknown>>(req)
+    .catch(() => ({} as Record<string, unknown>));
+  const ds = findActiveBySessionId(params.sessionId);
+  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
+  if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
+
+  const messageId = typeof body.messageId === 'string' ? body.messageId.trim() : '';
+  if (!/^om_[A-Za-z0-9_-]+$/u.test(messageId) || messageId.length > 256) {
+    return jsonRes(res, 400, { ok: false, error: 'invalid_message_id' });
+  }
+  const session = ds.session;
+  const appId = session.larkAppId || ds.larkAppId || cachedLarkAppId;
+  if (!appId) return jsonRes(res, 422, { ok: false, error: 'no_lark_app' });
+  if (sessionTransportDisabled(session)) {
+    return jsonRes(res, 403, { ok: false, error: 'no_feishu_transport' });
+  }
+
+  try {
+    const messageChatId = await getMessageChatId(appId, messageId);
+    if (!messageChatId || messageChatId !== session.chatId) {
+      return jsonRes(res, 403, { ok: false, error: 'message_outside_session_chat' });
+    }
+    const detail = await getMessageDetail(appId, messageId);
+    const message = detail?.items?.[0];
+    if (!message) return jsonRes(res, 404, { ok: false, error: 'message_not_found' });
+
+    const rendered = await renderQuotedMessage(
+      appId,
+      message,
+      expandMergeForward,
+      resolveMergedCardContent,
+    );
+    if (body.raw === true) {
+      if (rendered.mergedStructuredContent !== undefined) {
+        try { (rendered as { cardJson?: unknown }).cardJson = JSON.parse(rendered.mergedStructuredContent); }
+        catch { (rendered as { cardJson?: unknown }).cardJson = rendered.mergedStructuredContent; }
+      } else {
+        (rendered as { rawContent?: string }).rawContent = message.body?.content ?? '';
+      }
+    }
+    delete rendered.mergedStructuredContent;
+    if (rendered.resources?.length) {
+      const isolatedAttachmentDir = ds.initConfig?.multiUserHomeDir
+        ? join(
+            ds.initConfig.multiUserHomeDir,
+            '.botmux',
+            'attachments',
+            session.sessionId,
+            messageId,
+          )
+        : undefined;
+      const downloaded = await downloadResources(
+        appId,
+        messageId,
+        rendered.resources,
+        isolatedAttachmentDir,
+      );
+      (rendered as { attachments?: unknown }).attachments = downloaded.attachments;
+      if (downloaded.needLogin) (rendered as { needLogin?: boolean }).needLogin = true;
+    }
+    return jsonRes(res, 200, { ok: true, ...rendered });
+  } catch (error) {
+    return jsonRes(res, 502, {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 });
 
 // 会话历史：实时拉取该会话所在话题/群的飞书消息（与 botmux history 同链路，
@@ -2986,6 +3177,9 @@ ipcRoute('GET', '/api/bot-default-oncall', async (_req, res) => {
     brandLabel: brandStore.getBotBrandLabel(cachedLarkAppId) ?? null,
     sandbox: sandboxStore.getBotSandbox(cachedLarkAppId),
     sandboxPaths: sandboxStore.getBotSandboxPaths(cachedLarkAppId) ?? null,
+    multiUserIsolation: getBot(cachedLarkAppId).config.multiUserIsolation ?? null,
+    groupOpen: getBot(cachedLarkAppId).config.groupOpen === true,
+    p2pOpen: getBot(cachedLarkAppId).config.p2pOpen === true,
     readIsolation: sandboxStore.getBotReadIsolation(cachedLarkAppId),
     // Full enforceability (adapter support + no wrapperCli + macOS) — the UI
     // disables the toggle wherever the worker would fail-close on it.
@@ -3168,7 +3362,7 @@ ipcRoute('PUT', '/api/bot-summary-trigger', async (req, res) => {
 
 // Per-bot 授权偏好。Body 任意子集：
 //   • restrictGrantCommands: boolean       — 限制被授权人只能纯对话
-//   • autoGrantRequestCards: boolean       — 未授权 @ 被挡住时是否发 grant 申请卡
+//   • autoGrantRequestCards: boolean       - 未授权 @ 或私聊被挡住时是否向 owner 私发 grant 申请卡
 //   • messageQuotaDefaultLimit: number|null — 卡片默认额度覆盖（null = 产品默认 3 条）
 ipcRoute('PUT', '/api/bot-grant-prefs', async (req, res) => {
   if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
@@ -3196,7 +3390,7 @@ ipcRoute('PUT', '/api/bot-grant-prefs', async (req, res) => {
 
 // Per-bot card footer brand label. Body `{ brandLabel: string | null }`:
 //   • string (incl. '')  → store verbatim ('' = brand off)
-//   • null / absent      → clear the key (revert to default botmux brand)
+//   • null / absent      → clear the key (revert to the bot name)
 ipcRoute('PUT', '/api/bot-brand-label', async (req, res) => {
   if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
   let body: { brandLabel?: unknown };
@@ -3770,6 +3964,36 @@ ipcRoute('PUT', '/api/bot-sandbox', async (req, res) => {
   const r = await sandboxStore.updateBotSandbox(cachedLarkAppId, body.enabled === true);
   if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
   jsonRes(res, 200, { ok: true, sandbox: r.sandbox });
+});
+
+ipcRoute('PUT', '/api/bot-multi-user-isolation', async (req, res) => {
+  if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
+  let body: Record<string, unknown>;
+  try { body = await readJsonBody<Record<string, unknown>>(req); }
+  catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
+  const defaultGitIdentity = body.defaultGitIdentity && typeof body.defaultGitIdentity === 'object'
+    ? body.defaultGitIdentity as Record<string, unknown>
+    : undefined;
+  const result = await multiUserIsolationStore.updateBotMultiUserIsolation(cachedLarkAppId, {
+    enabled: body.enabled === true,
+    root: typeof body.root === 'string' ? body.root : '',
+    ownerOnlyTopics: body.ownerOnlyTopics !== false,
+    sharedCodexHome: typeof body.sharedCodexHome === 'string' ? body.sharedCodexHome : undefined,
+    defaultGitIdentity: defaultGitIdentity
+      && typeof defaultGitIdentity.name === 'string'
+      && typeof defaultGitIdentity.email === 'string'
+      ? { name: defaultGitIdentity.name, email: defaultGitIdentity.email }
+      : undefined,
+    groupOpen: body.groupOpen === true,
+    p2pOpen: body.p2pOpen === true,
+  });
+  if (!result.ok) return jsonRes(res, 400, { ok: false, error: result.reason });
+  jsonRes(res, 200, {
+    ok: true,
+    multiUserIsolation: result.config ?? null,
+    groupOpen: result.groupOpen,
+    p2pOpen: result.p2pOpen,
+  });
 });
 
 // Per-bot sandboxPaths (three-tier whitelist: readWrite / readOnly / deny).
