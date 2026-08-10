@@ -1344,6 +1344,7 @@ export interface GrantCardOpts {
 export function buildGrantCard(o: GrantCardOpts, locale?: Locale): string {
   const names = o.targets.map(t => `**${escapeMd(t.name)}**`).join('、');
   const single = o.targets[0];
+  const sourceChatName = o.sourceChatName ?? o.chatId;
   const body = o.mode === 'request'
     ? o.sourceChatType === 'p2p'
       ? t('card.grant.body_request_p2p', { name: escapeMd(single?.name ?? '') }, locale)
@@ -1365,6 +1366,8 @@ export function buildGrantCard(o: GrantCardOpts, locale?: Locale): string {
     chat_id: o.chatId,
     nonce: o.nonce,
     mode: o.mode,
+    ...(o.sourceChatType ? { source_chat_type: o.sourceChatType } : {}),
+    ...(o.sourceChatName ? { source_chat_name: o.sourceChatName } : {}),
   };
   const button = (action: string, text: string, type: string): Record<string, unknown> => ({
     tag: 'button',
@@ -1378,7 +1381,19 @@ export function buildGrantCard(o: GrantCardOpts, locale?: Locale): string {
     value: { action, ...v },
   });
   const grantButtons: Array<Record<string, unknown>> = [
-    button('grant_chat', t('card.grant.btn_chat', undefined, locale), 'primary'),
+    button(
+      'grant_chat',
+      t(
+        o.sourceChatType === 'p2p'
+          ? 'card.grant.btn_p2p'
+          : o.sourceChatType === 'group'
+            ? 'card.grant.btn_group'
+            : 'card.grant.btn_chat',
+        undefined,
+        locale,
+      ),
+      'primary',
+    ),
   ];
   if (o.mode === 'owner') {
     grantButtons.push(button('grant_global', t('card.grant.btn_global', undefined, locale), 'default'));
@@ -1473,7 +1488,15 @@ export function buildGrantCard(o: GrantCardOpts, locale?: Locale): string {
         {
           tag: 'markdown',
           text_size: 'notation',
-          content: `<font color="grey">${t('card.grant.note', undefined, locale)}</font>`,
+          content: `<font color="grey">${t(
+            o.sourceChatType === 'p2p'
+              ? 'card.grant.note_p2p'
+              : o.sourceChatType === 'group'
+                ? 'card.grant.note_group'
+                : 'card.grant.note',
+            o.sourceChatType === 'group' ? { chat: escapeMd(sourceChatName) } : undefined,
+            locale,
+          )}</font>`,
         },
       ],
     },
@@ -1496,11 +1519,24 @@ export function buildGrantNotifyCard(
   locale?: Locale,
   quota?: number,
   expiresAt?: number,
+  source?: Pick<GrantCardOpts, 'sourceChatType' | 'sourceChatName'>,
 ): string {
   const entries = (Array.isArray(target) ? target : [target]).map(tt =>
     typeof tt === 'string' ? { openId: tt, name: undefined as string | undefined, isBot: false } : tt);
   const at = renderGrantAtMentions(entries);
-  let content = t(kind === 'chat' ? 'card.grant.notify_chat' : 'card.grant.notify_global', { at }, locale);
+  const chatKey = source?.sourceChatType === 'p2p'
+    ? 'card.grant.notify_p2p'
+    : source?.sourceChatType === 'group'
+      ? 'card.grant.notify_group'
+      : 'card.grant.notify_chat';
+  let content = t(
+    kind === 'chat' ? chatKey : 'card.grant.notify_global',
+    {
+      at,
+      chat: escapeMd(source?.sourceChatName ?? ''),
+    },
+    locale,
+  );
   if (quota !== undefined && quota > 0) content += t('card.grant.notify_quota_suffix', { n: quota }, locale);
   if (expiresAt !== undefined) {
     content += t('card.grant.notify_expiry_suffix', { time: formatGrantExpiry(expiresAt, locale) }, locale);
@@ -1586,19 +1622,43 @@ export function buildGrantResultCard(
   quota?: number,
   expiresAt?: number,
   targets?: string | string[] | GrantTargetEntry[],
+  source?: Pick<GrantCardOpts, 'sourceChatType' | 'sourceChatName'>,
 ): string {
   let content: string;
   const at = targets !== undefined ? renderGrantAtMentions(targets) : '';
   if (kind !== 'deny' && at) {
     // 授权成功且有被授权人：复用 notify 文案（{at} 已获授权，发消息 @ 我即可 + 额度/有效期后缀），
     // 让就地 patch 的原卡直接把授权成功通知 + @ping 合为一张。
-    content = t(kind === 'chat' ? 'card.grant.notify_chat' : 'card.grant.notify_global', { at }, locale);
+    const chatKey = source?.sourceChatType === 'p2p'
+      ? 'card.grant.notify_p2p'
+      : source?.sourceChatType === 'group'
+        ? 'card.grant.notify_group'
+        : 'card.grant.notify_chat';
+    content = t(
+      kind === 'chat' ? chatKey : 'card.grant.notify_global',
+      { at, chat: escapeMd(source?.sourceChatName ?? '') },
+      locale,
+    );
     if (quota !== undefined && quota > 0) content += t('card.grant.notify_quota_suffix', { n: quota }, locale);
     if (expiresAt !== undefined) content += t('card.grant.notify_expiry_suffix', { time: formatGrantExpiry(expiresAt, locale) }, locale);
   } else {
     // deny / 无 targets 回落：简单状态态（无 @）。
-    const key = kind === 'chat' ? 'card.grant.result_chat' : kind === 'global' ? 'card.grant.result_global' : 'card.grant.result_deny';
-    content = t(key, undefined, locale);
+    const key = kind === 'chat'
+      ? source?.sourceChatType === 'p2p'
+        ? 'card.grant.result_p2p'
+        : source?.sourceChatType === 'group'
+          ? 'card.grant.result_group'
+          : 'card.grant.result_chat'
+      : kind === 'global'
+        ? 'card.grant.result_global'
+        : 'card.grant.result_deny';
+    content = t(
+      key,
+      source?.sourceChatType === 'group'
+        ? { chat: escapeMd(source.sourceChatName ?? '') }
+        : undefined,
+      locale,
+    );
     if (kind !== 'deny') {
       if (expiresAt !== undefined) content += `\n${t('card.grant.result_expiry', { time: formatGrantExpiry(expiresAt, locale) }, locale)}`;
       if (quota !== undefined) content += `\n${t('card.grant.result_quota', { n: quota }, locale)}`;

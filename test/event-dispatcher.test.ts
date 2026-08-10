@@ -2086,6 +2086,10 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
       expect.stringContaining(OTHER_BOT_OPEN_ID),
       'interactive',
     );
+    const groupCard = mockSendUserMessage.mock.calls.at(-1)?.[2] as string;
+    expect(groupCard).toContain('chat-001');
+    expect(groupCard).toContain('授权上述群聊');
+    expect(groupCard).toContain('本次授权仅适用于群聊');
     expect(mockReplyMessage).not.toHaveBeenCalled();
   });
 
@@ -2117,6 +2121,11 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
       expect.stringMatching(/Alice.*Oncall Room/s),
       'interactive',
     );
+    const groupCard = mockSendUserMessage.mock.calls.at(-1)?.[2] as string;
+    expect(groupCard).toContain('Oncall Room');
+    expect(groupCard).toContain('授权上述群聊');
+    expect(groupCard).toContain('本次授权仅适用于群聊');
+    expect(groupCard).not.toContain('授权本群对话');
     expect(mockReplyMessage).not.toHaveBeenCalled();
   });
 
@@ -5059,6 +5068,10 @@ describe('im.message.receive_v1 — p2p chat-mode topic reply anchoring', () => 
       expect.stringMatching(/Alice.*\u79c1\u804a/s),
       'interactive',
     );
+    const p2pCard = mockSendUserMessage.mock.calls.at(-1)?.[2] as string;
+    expect(p2pCard).toContain('授权该私聊');
+    expect(p2pCard).toContain('仅适用于该用户与我的私聊');
+    expect(p2pCard).not.toContain('授权本群对话');
     expect(mockReplyMessage).not.toHaveBeenCalled();
   });
 

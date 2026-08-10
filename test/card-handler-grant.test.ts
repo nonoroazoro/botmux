@@ -159,6 +159,17 @@ describe('card-handler grant actions', () => {
     expect(registry.getBot('h1').config.chatGrants).toEqual({ oc_1: ['ou_g'] });
   });
 
+  it('preserves direct-message scope wording in the terminal result card', async () => {
+    const { pending, handler } = await fresh();
+    const nonce = pending.openPending('h1', 'oc_1', 'ou_g');
+    const submitted: any = action('grant_chat', { nonce });
+    submitted.action.value.source_chat_type = 'p2p';
+    const res = await handler.handleCardAction(submitted, deps, 'h1');
+    const flat = JSON.stringify(res);
+    expect(flat).toContain('与我的私聊中对话');
+    expect(flat).not.toContain('本群');
+  });
+
   it('deny → in-place result patch + cooldown, never touches grant-store', async () => {
     const { registry, pending, handler } = await fresh();
     const nonce = pending.openPending('h1', 'oc_1', 'ou_g');

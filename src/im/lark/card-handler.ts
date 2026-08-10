@@ -995,6 +995,14 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
       : (value.target_open_id ? [value.target_open_id] : []);
     const grantChatId = value.chat_id;
     const nonce = value.nonce;
+    const grantSource = {
+      ...(value.source_chat_type === 'p2p' || value.source_chat_type === 'group'
+        ? { sourceChatType: value.source_chat_type as 'p2p' | 'group' }
+        : {}),
+      ...(typeof value.source_chat_name === 'string' && value.source_chat_name.trim()
+        ? { sourceChatName: Array.from(value.source_chat_name.trim()).slice(0, 128).join('') }
+        : {}),
+    };
     // 全部 target 都得仍 pending 且 nonce 匹配，否则视为整卡失效。
     if (!targets.length || !grantChatId || !nonce || !targets.every(tt => checkNonce(larkAppId, grantChatId, tt, nonce))) {
       return { toast: { type: 'error', content: t('card.grant.toast_expired', undefined, loc) } };
@@ -1110,7 +1118,14 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
     // 「已授权」结果态、又 ping 到被授权人——无需再单独发通知卡、也无需撤回原卡（申晗 2026-07-31
     // 反馈：直接在原卡更新即可）。同步返回该 body 即完成 in-place patch，避免 deleteMessage 与
     // callback 响应竞态导致客户端 300000。仅「部分失败」仍走后台补一条文字告知。
-    const resultCardBody = JSON.parse(buildGrantResultCard(kind, loc, quota, expiresAt, notifyTargets));
+    const resultCardBody = JSON.parse(buildGrantResultCard(
+      kind,
+      loc,
+      quota,
+      expiresAt,
+      notifyTargets,
+      grantSource,
+    ));
     if (cardMessageId && failed.length > 0) {
       let replyInThread = true;
       try {

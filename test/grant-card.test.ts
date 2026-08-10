@@ -39,7 +39,13 @@ describe('buildGrantCard', () => {
     expect(card.schema).toBe('2.0');
     const actions = deepFind(card, value => value?.tag === 'button');
     const byAction = Object.fromEntries(actions.map((a: any) => [callbackValue(a).action, callbackValue(a)]));
-    expect(byAction.grant_chat).toMatchObject({ target_open_ids: ['ou_g'], chat_id: 'oc_1', nonce: 'n1' });
+    expect(byAction.grant_chat).toMatchObject({
+      target_open_ids: ['ou_g'],
+      chat_id: 'oc_1',
+      nonce: 'n1',
+      source_chat_type: 'group',
+      source_chat_name: '值班群',
+    });
     expect(byAction.grant_deny).toMatchObject({ target_open_ids: ['ou_g'], chat_id: 'oc_1', nonce: 'n1' });
     // request mode (member self-application) offers chat-only — no global button,
     // so a member can't self-request global. (global is owner-initiated, talk-only.)
@@ -59,10 +65,12 @@ describe('buildGrantCard', () => {
 
     expect(card).toContain('Alice');
     expect(card).toContain('Oncall Room');
+    expect(card).toContain('授权上述群聊');
+    expect(card).toContain('本次授权仅适用于群聊');
     expect(card).not.toContain('<at id=ou_owner></at>');
   });
 
-  it('describes a direct-message request without exposing the source chat id', () => {
+  it('uses direct-message wording throughout without exposing the source chat id', () => {
     const card = JSON.parse(buildGrantCard({
       ownerOpenId: 'ou_owner',
       targets: [{ openId: 'ou_requester', name: 'Alice' }],
@@ -70,13 +78,21 @@ describe('buildGrantCard', () => {
       nonce: 'n-p2p',
       mode: 'request',
       sourceChatType: 'p2p',
-    }, 'en'));
+    }, 'zh'));
     const visibleText = deepFind(card, value => value?.tag === 'markdown')
       .map(value => value.content)
       .join('\n');
+    const actions = deepFind(card, value => value?.tag === 'button');
+    const byAction = Object.fromEntries(actions.map((a: any) => [callbackValue(a).action, a]));
 
-    expect(visibleText).toContain('direct message');
+    expect(visibleText).toContain('申请私聊使用我');
+    expect(visibleText).toContain('仅适用于该用户与我的私聊');
     expect(visibleText).not.toContain('oc_private_source');
+    expect(byAction.grant_chat.text.content).toBe('授权该私聊');
+    expect(callbackValue(byAction.grant_chat)).toMatchObject({
+      source_chat_type: 'p2p',
+      chat_id: 'oc_private_source',
+    });
   });
 
   it('owner mode carries chat + global (talk-only) + deny actions', () => {
@@ -189,6 +205,30 @@ describe('buildGrantCard', () => {
   it('buildGrantResultCard has no buttons', () => {
     const card = JSON.parse(buildGrantResultCard('chat', 'zh'));
     expect(deepFind(card, value => value?.tag === 'button')).toHaveLength(0);
+  });
+
+  it('buildGrantResultCard distinguishes direct messages from named groups', () => {
+    const p2p = buildGrantResultCard(
+      'chat',
+      'zh',
+      undefined,
+      undefined,
+      [{ openId: 'ou_g', name: '张三', isBot: false }],
+      { sourceChatType: 'p2p' },
+    );
+    expect(p2p).toContain('与我的私聊中对话');
+    expect(p2p).not.toContain('本群');
+
+    const group = buildGrantResultCard(
+      'chat',
+      'zh',
+      undefined,
+      undefined,
+      [{ openId: 'ou_g', name: '张三', isBot: false }],
+      { sourceChatType: 'group', sourceChatName: '研发群' },
+    );
+    expect(group).toContain('群聊 **研发群**');
+    expect(group).not.toContain('本群');
   });
 
   it('buildGrantResultCard 带 targets 时正文 @ 被授权人 + 额度/有效期(就地 patch 即通知)', () => {
