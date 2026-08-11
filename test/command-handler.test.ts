@@ -241,6 +241,7 @@ vi.mock('../src/im/lark/client.js', () => ({
   },
   deleteMessage: vi.fn(async () => true),
   sendMessage: vi.fn(async () => 'card-msg-id'),
+  sendUserMessage: vi.fn(async () => 'dm-msg-id'),
   // /relay picker replies land anchored at the invocation message / 话题 via
   // replyMessage (reply-at-invocation), not sessionReply. Args mirror the
   // real signature: (appId, messageId, content, msgType, replyInThread).
@@ -1798,6 +1799,7 @@ describe('handleCommand', () => {
     });
 
     it('should send restart IPC when worker is alive', async () => {
+      const { sendEphemeralCard } = await import('../src/im/lark/client.js');
       const workerSend = vi.fn();
       const ds = makeDaemonSession({
         worker: { killed: false, send: workerSend } as any,
@@ -1807,13 +1809,13 @@ describe('handleCommand', () => {
       await handleCommand('/restart', ROOT_ID, makeLarkMessage('/restart'), deps, LARK_APP_ID);
 
       expect(requestSessionRestart).toHaveBeenCalledWith(ds, expect.objectContaining({ source: 'slash' }));
-      expect(deps.sessionReply).toHaveBeenCalledWith(
-        ROOT_ID,
-        expect.stringContaining('正在重启'),
-        undefined,
+      expect(vi.mocked(sendEphemeralCard)).toHaveBeenCalledWith(
         LARK_APP_ID,
-        'msg_001',
+        CHAT_ID,
+        'ou_sender',
+        expect.stringContaining('正在重启'),
       );
+      expect(deps.sessionReply).not.toHaveBeenCalled();
     });
 
     it('uses the frozen configured runtime name in restart feedback', async () => {
@@ -1822,7 +1824,7 @@ describe('handleCommand', () => {
           cliId: 'codex',
           agentFrozen: true,
           cliRuntime: {
-            id: 'vendor-codex', displayName: 'Vendor Codex', executable: 'vendor-codex',
+            id: 'configured-codex', displayName: 'Configured Codex', executable: 'configured-codex',
             source: 'configured', update: { provider: 'none' },
           },
         }),
@@ -1831,12 +1833,14 @@ describe('handleCommand', () => {
 
       await handleCommand('/restart', ROOT_ID, makeLarkMessage('/restart'), deps, LARK_APP_ID);
 
-      const reply = (deps.sessionReply as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
-      expect(reply).toContain('Vendor Codex');
-      expect(reply).not.toContain('Claude');
+      const { sendEphemeralCard } = await import('../src/im/lark/client.js');
+      const card = JSON.parse(vi.mocked(sendEphemeralCard).mock.calls[0][3] as string);
+      expect(card.elements[0].content).toContain('Configured Codex');
+      expect(card.elements[0].content).not.toContain('Claude');
     });
 
     it('should kill dead worker and reply recovery message when worker is already killed', async () => {
+      const { sendEphemeralCard } = await import('../src/im/lark/client.js');
       const ds = makeDaemonSession({
         worker: { killed: true, send: vi.fn() } as any,
       });
@@ -1845,29 +1849,38 @@ describe('handleCommand', () => {
       await handleCommand('/restart', ROOT_ID, makeLarkMessage('/restart'), deps, LARK_APP_ID);
 
       expect(requestSessionRestart).toHaveBeenCalledWith(ds, expect.objectContaining({ source: 'slash' }));
-      expect(deps.sessionReply).toHaveBeenCalledWith(
-        ROOT_ID,
-        expect.stringContaining('正在重启'),
-        undefined,
-        LARK_APP_ID,
-        'msg_001',
-      );
+      expect(vi.mocked(sendEphemeralCard)).toHaveBeenCalledTimes(1);
+      expect(deps.sessionReply).not.toHaveBeenCalled();
     });
 
     it('should kill null worker and reply recovery message when no worker', async () => {
+      const { sendEphemeralCard } = await import('../src/im/lark/client.js');
       const ds = makeDaemonSession({ worker: null });
       const deps = makeDeps(ds);
 
       await handleCommand('/restart', ROOT_ID, makeLarkMessage('/restart'), deps, LARK_APP_ID);
 
       expect(requestSessionRestart).toHaveBeenCalledWith(ds, expect.objectContaining({ source: 'slash' }));
-      expect(deps.sessionReply).toHaveBeenCalledWith(
-        ROOT_ID,
-        expect.stringContaining('正在重启'),
-        undefined,
+      expect(vi.mocked(sendEphemeralCard)).toHaveBeenCalledTimes(1);
+      expect(deps.sessionReply).not.toHaveBeenCalled();
+    });
+
+    it('privately DMs restart status for a thread-scoped session', async () => {
+      const { sendEphemeralCard, sendUserMessage } = await import('../src/im/lark/client.js');
+      const ds = makeDaemonSession({ scope: 'thread' });
+      const deps = makeDeps(ds);
+
+      await handleCommand('/restart', ROOT_ID, makeLarkMessage('/restart'), deps, LARK_APP_ID);
+
+      expect(requestSessionRestart).toHaveBeenCalledWith(ds, expect.objectContaining({ source: 'slash' }));
+      expect(vi.mocked(sendEphemeralCard)).not.toHaveBeenCalled();
+      expect(vi.mocked(sendUserMessage)).toHaveBeenCalledWith(
         LARK_APP_ID,
-        'msg_001',
+        'ou_sender',
+        expect.stringContaining('正在重启'),
+        'interactive',
       );
+      expect(deps.sessionReply).not.toHaveBeenCalled();
     });
 
     it('should reply no-session message when session does not exist', async () => {

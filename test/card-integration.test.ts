@@ -853,16 +853,10 @@ describe('Card integration: full event flow', () => {
     });
   });
 
-  // ── Scenario 4b: thread-scope confirmations stay in-thread (no leak) ───
-  //
-  // Regression guard: the ephemeral API has no thread anchor, so a 话题 (a
-  // thread-scope session inside a 普通群) must NOT use ephemeral — the
-  // restart/close/resume confirmation has to stay in the topic via the visible
-  // in-thread reply (sessionReply → reply_in_thread). Flat 普通群 (scope:'chat',
-  // tested in Scenario 4) keeps the ephemeral "visible-to-you" behaviour.
+  // ── Scenario 4b: thread-scope status delivery ──────────────────────────
 
-  describe('Scenario 4b: thread-scope status cards stay in the thread', () => {
-    it('restart confirmation in a thread-scope session is a visible in-thread reply, never ephemeral', async () => {
+  describe('Scenario 4b: thread-scope operational status stays private', () => {
+    it('restart confirmation in a thread-scope session is privately DMd to the operator', async () => {
       const clientMod = await import('../src/im/lark/client.js');
       const workerSend = vi.fn();
       const ds = makeDaemonSession({
@@ -877,9 +871,11 @@ describe('Card integration: full event flow', () => {
 
       expect(requestSessionRestart).toHaveBeenCalledWith(ds, expect.objectContaining({ source: 'card' }));
       expect(vi.mocked(clientMod.sendEphemeralCard)).not.toHaveBeenCalled();
-      expect(deps.sessionReply).toHaveBeenCalledWith(
-        ROOT_ID, expect.stringContaining('重启'), undefined, APP_ID,
-      );
+      expect(fakeLark.dms).toHaveLength(1);
+      expect(fakeLark.dms[0].args[0]).toBe(APP_ID);
+      expect(fakeLark.dms[0].args[1]).toBe('ou_user');
+      expect(fakeLark.dms[0].args[2]).toContain('重启');
+      expect(deps.sessionReply).not.toHaveBeenCalled();
     });
 
     it('close card in a thread-scope session is replied in-thread, never ephemeral', async () => {

@@ -102,11 +102,11 @@ export function resolvePairedSpawnBackendType(
 /**
  * How a session's worker is torn down at daemon shutdown, branched on the
  * session's FROZEN backend (via getSessionPersistentBackendType), NOT live config:
- *   'detach' — persistent backend (tmux/herdr/zellij): SIGTERM the worker only,
- *              leaving the multiplexer session alive for re-attach.
- *   'close'  — non-persistent (frozen pty, or unresolvable legacy): killWorker.
+ *   'detach' - persistent backend (tmux/herdr/zellij/zmx): acknowledged worker
+ *              detach, leaving the multiplexer session alive for re-attach.
+ *   'close' - non-persistent (frozen pty, or unresolvable legacy): killWorker.
  * Freezing here stops a live backendType edit from changing how a running session
- * tears down — e.g. detach-preserving a "herdr" session whose real pane is tmux.
+ * tears down, such as detach-preserving a "herdr" session whose real pane is tmux.
  */
 export function shutdownBackendDisposition(ds: DaemonSession): 'detach' | 'close' {
   return getSessionPersistentBackendType(ds) ? 'detach' : 'close';

@@ -73,15 +73,13 @@ import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessi
 import { listOnlineDaemons } from '../utils/daemon-discovery.js';
 import { isSessionStopped } from './session-liveness.js';
 import { isSuspendableBackendType } from './persistent-backend.js';
-import { getChatMode, replyMessage, sendMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listAmbientChatMessages, listChatMessagesUntil, listChatBotMembers, getMessageDetail, getMessageChatId, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
+import { replyMessage, sendMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listAmbientChatMessages, listChatMessagesUntil, listChatBotMembers, getMessageDetail, getMessageChatId, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
 import { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardContent, extractResources, createImgNumberer, messageMentionsBot } from '../im/lark/message-parser.js';
 import { expandMergeForward } from '../im/lark/merge-forward.js';
 import { renderQuotedMessage } from '../cli/quoted-render.js';
 import { resumeSession, spawnDashboardSession, activateQueuedSession, closeCliMismatchedSessionsForBot, suspendActiveSessionsForBot, downloadResources } from './session-manager.js';
 import { parseSpawnRequest } from './session-create.js';
 import { cleanupMaterializedDashboardImages, materializeDashboardImages } from './dashboard-images.js';
-import { getCliDisplayName } from '../im/lark/card-builder.js';
-import { sessionConfiguredRuntimeDisplayName } from './cli-runtime-display.js';
 import { locateLimiter } from './dashboard-locate.js';
 import { buildTerminalUrl } from './terminal-url.js';
 import { dashboardEventBus } from './dashboard-events.js';
@@ -675,38 +673,6 @@ ipcRoute('POST', '/api/sessions/:sessionId/close', async (req, res, params) => {
   jsonRes(res, 200, r);
 });
 
-/** Post a scope-aware "restarting" notice into the session's Lark thread/chat,
- *  mirroring the /resume route — so a Feishu-side observer sees why the CLI just
- *  restarted under them (the IM `/restart` command and the card button notify
- *  too; the dashboard was the lone silent path). `fresh` = the worker was gone
- *  and we re-forked it (revive) rather than doing an in-place CLI restart.
- *  Best-effort and fire-and-forget; never blocks the HTTP response. */
-function postRestartNotice(ds: DaemonSession, fresh: boolean): void {
-  if (!ds.larkAppId) return;
-  // No-transport session (apiOnly bot or HTTP virtual chat) has no Feishu chat
-  // to post a restart notice into — skip (the raw sendMessage/replyMessage below
-  // bypass sessionReply's gate). Best-effort path; a silent skip is correct.
-  if (!larkTransportEnabled({ chatId: ds.chatId, apiOnly: getBot(ds.larkAppId).config.apiOnly })) return;
-  const loc = localeForBot(ds.larkAppId);
-  const botCfg = getBot(ds.larkAppId).config;
-  const cliName = sessionConfiguredRuntimeDisplayName(ds.session, botCfg.cliRuntime)
-    ?? getCliDisplayName(ds.session.cliId ?? botCfg.cliId ?? 'claude-code');
-  const text = fresh
-    ? t('card.action.restarted_fresh', { cliName }, loc)
-    : t('cmd.restart.in_progress', { cliName }, loc);
-  const notice = JSON.stringify({ text });
-  if (ds.scope === 'chat' && ds.chatId) {
-    getChatMode(ds.larkAppId, ds.chatId, { forceRefresh: true })
-      .then((mode) => mode === 'topic' && ds.session.rootMessageId
-        ? replyMessage(ds.larkAppId, ds.session.rootMessageId, notice, 'text', true)
-        : sendMessage(ds.larkAppId, ds.chatId, notice, 'text'))
-      .catch(err => logger.debug(`[restart] failed to post chat-scope restart notice: ${err}`));
-  } else if (ds.session.rootMessageId) {
-    replyMessage(ds.larkAppId, ds.session.rootMessageId, notice, 'text', true)
-      .catch(err => logger.debug(`[restart] failed to post thread-scope restart notice: ${err}`));
-  }
-}
-
 ipcRoute('POST', '/api/sessions/:sessionId/restart', (_req, res, params) => {
   const ds = findActiveBySessionId(params.sessionId);
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
@@ -728,7 +694,6 @@ ipcRoute('POST', '/api/sessions/:sessionId/restart', (_req, res, params) => {
     } catch (err) {
       return jsonRes(res, 502, { ok: false, error: String(err) });
     }
-    postRestartNotice(ds, false);
     return jsonRes(res, 200, { ok: true, sessionId: params.sessionId, cliId, revived: false });
   }
   // Worker is gone but the session is still active — idle-suspended (over the
@@ -737,7 +702,6 @@ ipcRoute('POST', '/api/sessions/:sessionId/restart', (_req, res, params) => {
   // dashboard isn't a dead-end: a 409 here would leave NO working control to
   // bring the CLI back (the resume button only shows for closed sessions).
   forkWorker(ds, '', ds.hasHistory);
-  postRestartNotice(ds, true);
   jsonRes(res, 200, { ok: true, sessionId: params.sessionId, cliId, revived: true });
 });
 
@@ -1072,8 +1036,8 @@ function findSessionRecord(sessionId: string): Session | undefined {
 
 /** True when a session-bound IPC route must NOT touch Feishu: the owning bot is
  *  core-only (apiOnly) OR the session is an HTTP virtual chat. Central guard for
- *  every session-write route (chat-rename / write-link-card / resume-notice /
- *  locate / restart-notice …) — the daemon owns the authoritative bot config,
+ *  every session-write route that delivers to Feishu, such as chat rename,
+ *  write-link card, and locate. The daemon owns the authoritative bot config,
  *  so gating here catches the normal-bot-in-virtual-session case that
  *  getBotClient (which only throws for apiOnly) cannot. Accepts a live
  *  DaemonSession or a stored Session record. Never throws. */
@@ -1779,8 +1743,8 @@ function workingDirForSession(sessionId: string): string | undefined {
 /**
  * Reactivate a closed session — counterpart to `/close`. Used by both the
  * "▶️ 恢复会话" card button (via card-handler) and the `botmux resume <id>`
- * CLI command (via this HTTP route). The CLI route also drops a notice into
- * the original Lark thread so users see why the session is alive again.
+ * CLI command (via this HTTP route). Host-side recovery stays silent in the
+ * original chat. Its authenticated caller receives the result directly.
  */
 ipcRoute('POST', '/api/sessions/:sessionId/resume', async (req, res, params) => {
   const sessionId = params.sessionId;
@@ -1811,28 +1775,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/resume', async (req, res, params) => 
     },
   });
 
-  // Notify the original chat so humans see why the session is alive again.
-  // Routing follows session.scope — thread-scope replies into the thread root
-  // (reply_in_thread=true), chat-scope posts a plain message to the chat (any
-  // reply_in_thread call would silently get rejected or land on a stale root).
   const cliId = ds.session.cliId;
-  const botCfg = ds.larkAppId ? getBot(ds.larkAppId).config : undefined;
-  const cliName = sessionConfiguredRuntimeDisplayName(ds.session, botCfg?.cliRuntime)
-    ?? getCliDisplayName(cliId ?? botCfg?.cliId ?? 'claude-code');
-  const notice = JSON.stringify({ text: `🔄 会话已通过命令行恢复，发条消息继续与 ${cliName} 对话。` });
-  if (ds.larkAppId && !sessionTransportDisabled(ds)) {
-    if (ds.scope === 'chat' && ds.chatId) {
-      getChatMode(ds.larkAppId, ds.chatId, { forceRefresh: true })
-        .then((mode) => mode === 'topic' && ds.session.rootMessageId
-          ? replyMessage(ds.larkAppId, ds.session.rootMessageId, notice, 'text', true)
-          : sendMessage(ds.larkAppId, ds.chatId, notice, 'text'))
-        .catch(err => logger.debug(`[resume] failed to post chat-scope resume notice: ${err}`));
-    } else if (ds.session.rootMessageId) {
-      replyMessage(ds.larkAppId, ds.session.rootMessageId, notice, 'text', true)
-        .catch(err => logger.debug(`[resume] failed to post thread-scope resume notice: ${err}`));
-    }
-  }
-
   // Report the EFFECTIVE action, not the raw request flag: only fork when wake
   // was asked AND there's no live worker to clobber. (resumeSession always hands
   // back a worker:null ds today, so this matches `wake` in practice — but

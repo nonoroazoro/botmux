@@ -1092,36 +1092,24 @@ describe('POST /api/sessions/:sessionId/restart', () => {
     findSpy.mockRestore();
   });
 
-  it('uses the frozen compatible runtime name in the restart notice', async () => {
+  it('does not post host-side restart status into the session chat', async () => {
     registerBot({
-      larkAppId: 'runtime-app',
+      larkAppId: 'app_restart',
       larkAppSecret: 'secret',
       cliId: 'codex',
-      cliPathOverride: 'new-vendor-codex',
-      cliRuntime: {
-        id: 'new-vendor-codex',
-        displayName: 'New Live Name',
-        executable: 'new-vendor-codex',
-        update: { provider: 'none' },
-      },
     });
     const replySpy = vi.spyOn(larkClient, 'replyMessage').mockResolvedValue('om_notice');
+    const sendSpy = vi.spyOn(larkClient, 'sendMessage').mockResolvedValue('om_notice');
+    const ephemeralSpy = vi.spyOn(larkClient, 'sendEphemeralCard').mockResolvedValue('om_notice');
+    const dmSpy = vi.spyOn(larkClient, 'sendUserMessage').mockResolvedValue('om_notice');
     const findSpy = vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
-      larkAppId: 'runtime-app',
-      chatId: 'oc_runtime',
+      larkAppId: 'app_restart',
+      chatId: 'oc_restart',
       scope: 'thread',
       session: {
-        sessionId: 's-runtime-restart',
-        rootMessageId: 'om_runtime_root',
+        sessionId: 's-restart-silent',
+        rootMessageId: 'om_restart_root',
         cliId: 'codex',
-        cliPathOverride: 'vendor-codex',
-        cliRuntime: {
-          id: 'vendor-codex',
-          displayName: 'Frozen Vendor Codex',
-          executable: 'vendor-codex',
-          source: 'configured',
-          update: { provider: 'auto' },
-        },
       },
       worker: { send: vi.fn(), killed: false },
       adoptedFrom: undefined,
@@ -1129,17 +1117,20 @@ describe('POST /api/sessions/:sessionId/restart', () => {
     try {
       handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
       const res = await fetch(
-        `http://127.0.0.1:${handle.port}/api/sessions/s-runtime-restart/restart`,
+        `http://127.0.0.1:${handle.port}/api/sessions/s-restart-silent/restart`,
         { method: 'POST' },
       );
 
       expect(res.status).toBe(200);
-      await vi.waitFor(() => expect(replySpy).toHaveBeenCalled());
-      const notice = JSON.parse(replySpy.mock.calls[0]![2]);
-      expect(notice.text).toContain('Frozen Vendor Codex');
-      expect(notice.text).not.toContain('New Live Name');
+      expect(replySpy).not.toHaveBeenCalled();
+      expect(sendSpy).not.toHaveBeenCalled();
+      expect(ephemeralSpy).not.toHaveBeenCalled();
+      expect(dmSpy).not.toHaveBeenCalled();
     } finally {
       replySpy.mockRestore();
+      sendSpy.mockRestore();
+      ephemeralSpy.mockRestore();
+      dmSpy.mockRestore();
       findSpy.mockRestore();
     }
   });
@@ -1300,6 +1291,55 @@ describe('POST /api/sessions/:sessionId/suspend', () => {
 });
 
 describe('POST /api/sessions/:sessionId/resume', () => {
+  it('does not post host-side resume status into the session chat', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-resume-silent-'));
+    const prevConfigDataDir = config.session.dataDir;
+    const registry = new Map<string, any>();
+    const replySpy = vi.spyOn(larkClient, 'replyMessage').mockResolvedValue('om_notice');
+    const sendSpy = vi.spyOn(larkClient, 'sendMessage').mockResolvedValue('om_notice');
+    const ephemeralSpy = vi.spyOn(larkClient, 'sendEphemeralCard').mockResolvedValue('om_notice');
+    const dmSpy = vi.spyOn(larkClient, 'sendUserMessage').mockResolvedValue('om_notice');
+    try {
+      config.session.dataDir = dataDir;
+      sessionStore.init();
+      workerPool.setActiveSessionsRegistry(registry);
+      registerBot({
+        larkAppId: 'app_resume',
+        larkAppSecret: 'secret',
+        cliId: 'codex',
+      });
+
+      const session = sessionStore.createSession('oc_resume', 'om_resume', 'resume topic', 'group');
+      session.larkAppId = 'app_resume';
+      session.scope = 'thread';
+      session.cliId = 'codex' as any;
+      session.workingDir = process.cwd();
+      sessionStore.updateSession(session);
+      sessionStore.closeSession(session.sessionId);
+
+      handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
+      const res = await fetch(
+        `http://127.0.0.1:${handle.port}/api/sessions/${session.sessionId}/resume`,
+        { method: 'POST' },
+      );
+
+      expect(res.status).toBe(200);
+      expect(replySpy).not.toHaveBeenCalled();
+      expect(sendSpy).not.toHaveBeenCalled();
+      expect(ephemeralSpy).not.toHaveBeenCalled();
+      expect(dmSpy).not.toHaveBeenCalled();
+    } finally {
+      replySpy.mockRestore();
+      sendSpy.mockRestore();
+      ephemeralSpy.mockRestore();
+      dmSpy.mockRestore();
+      workerPool.setActiveSessionsRegistry(new Map());
+      sessionStore.init();
+      config.session.dataDir = prevConfigDataDir;
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a managed VC receiver without reactivating or waking it', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-resume-'));
     const prevConfigDataDir = config.session.dataDir;

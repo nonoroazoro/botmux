@@ -9,6 +9,7 @@ import { config } from '../../config.js';
 import { getBot, getAllBots, getOwnerOpenId } from '../../bot-registry.js';
 import { canOperate, canTalk } from './event-dispatcher.js';
 import { updateMessage, deleteMessage, replyMessage, sendMessage, sendUserMessage, sendEphemeralCard, getMessageDetail, isHumanOpenId, resolveUserUnionId as defaultResolveUserUnionId } from './client.js';
+import { deliverPrivateStatusToOperator } from '../../core/private-status-delivery.js';
 import { buildSessionCard, buildStreamingCard, buildTuiPromptCard, buildTuiPromptProcessingCard, buildGrantResultCard, getCliDisplayName, truncateContent, buildConfigCard, buildConfigTextCard, CONFIG_UNSET, buildRepoSelectCard } from './card-builder.js';
 import { codexServiceTierBadge } from '../../services/codex-service-tier.js';
 import {
@@ -2167,15 +2168,9 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
       logger.info(`[${tag(ds)}] Correlated restart via card button`);
       requestSessionRestart(ds, {
         source: 'card',
-        notify: status => {
+        notify: async status => {
           const content = t(`cmd.restart.${status}`, { cliName }, locDs);
-          return deliverEphemeralOrReply(
-            ds,
-            operatorOpenId,
-            content,
-            'text',
-            () => sessionReply(rootId, content),
-          );
+          await deliverPrivateStatusToOperator(ds, operatorOpenId, content);
         },
       });
     }

@@ -93,6 +93,7 @@ import { runSkillsImCommand } from './skills/im-command.js';
 import { fetchDaemonIpc } from './daemon-ipc-auth.js';
 import { updateSessionTitle } from './session-title.js';
 import { requestAgentSessionRename } from './session-rename.js';
+import { deliverPrivateStatusToOperator } from './private-status-delivery.js';
 import {
   configuredRuntimeDisplayName,
   sessionConfiguredRuntimeDisplayName,
@@ -1377,7 +1378,11 @@ export async function handleCommand(
           requestSessionRestart(ds, {
             source: 'slash',
             notify: async status => {
-              await sessionReply(rootId, t(`cmd.restart.${status}`, { cliName }, loc));
+              await deliverPrivateStatusToOperator(
+                ds,
+                message.senderId,
+                t(`cmd.restart.${status}`, { cliName }, loc),
+              );
             },
           });
           logger.info(`[${logTag}] Restart by /restart command`);
