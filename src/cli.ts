@@ -11,7 +11,7 @@
  *   botmux restart [--include-pm2] [--with-plugin] — restart daemon, then ensure auto plugin services
  *   botmux logs [--lines] — view daemon logs
  *   botmux status         — show daemon status
- *   botmux upgrade|update — upgrade to latest version
+ *   botmux upgrade|update - self-update is disabled for this fork
  *   botmux device enroll|status|logout — manage the host desktop device credential
  *   botmux list           — interactive session picker (TUI), attach to managed tmux/ZMX sessions
  *   botmux list --plain   — plain table output (for piping / scripts)
@@ -171,6 +171,7 @@ import {
 import { recordVcMeetingListenerMessage } from './services/vc-meeting-listener-message-store.js';
 import { isValidPluginId, normalizePluginIdList } from './core/plugins/ids.js';
 import { resolveEffectivePluginIds, updateBotPluginOverride } from './core/plugins/effective.js';
+import { BOTMUX_UPDATE_FEATURE_ENABLED } from './core/botmux-update-feature.js';
 import {
   assertPluginBindingTransition,
   describePluginDependencyError,
@@ -3052,6 +3053,11 @@ function cmdStatus(): void {
 }
 
 function cmdUpgrade(): void {
+  if (!BOTMUX_UPDATE_FEATURE_ENABLED) {
+    console.error('Update is disabled for this fork. Deploy updates from its source checkout.');
+    process.exitCode = 2;
+    return;
+  }
   if (isLocalDevInstall()) {
     console.error('Update is disabled for this managed custom build. Deploy updates from its source checkout.');
     process.exitCode = 2;
@@ -5417,7 +5423,7 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
   restart     重启 daemon（默认不停止插件 service，core 启动后确保 mode=auto 正在运行；--with-plugin 显式先停再启动 auto service；--include-pm2 同时重启 PM2 God）
   logs        查看 daemon 日志（--lines N, --bot <0-based-index|pm2-name|appId>）
   status      查看 daemon 状态
-  upgrade     升级到最新版本（别名：update）
+  upgrade     Self-update is disabled for this fork (alias: update)
   dashboard   打印新的 Web Dashboard 一次性登录 URL（旧 token 同时失效）
   device enroll|status|logout
               在宿主终端注册、查看或清除 desktop device 凭证（AI CLI 会话内拒绝）

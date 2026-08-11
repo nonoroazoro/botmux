@@ -6,6 +6,7 @@ import { useT } from './react-hooks.js';
 import { mountReactPage, type PageDisposer } from './react-mount.js';
 import { store } from './store.js';
 import { ui } from './ui.js';
+import { BOTMUX_UPDATE_FEATURE_ENABLED } from '../../core/botmux-update-feature.js';
 
 interface MaintenanceTaskCfg { enabled?: boolean; time?: string }
 interface MaintenanceCfg { autoUpdate?: MaintenanceTaskCfg; autoRestart?: MaintenanceTaskCfg }
@@ -331,7 +332,7 @@ function SettingsPage() {
     setUpBusy(false);
     setUpMsg(null);
     setUpChangelogOpen(false);
-    if (canWrite) void fetchStatus();
+    if (BOTMUX_UPDATE_FEATURE_ENABLED && canWrite) void fetchStatus();
   }, [canWrite, fetchStatus, settingsLoaded]);
 
   async function saveSettings(
@@ -516,7 +517,7 @@ function SettingsPage() {
     }
   }
 
-  const updateBlock = (
+  const updateBlock = BOTMUX_UPDATE_FEATURE_ENABLED ? (
     <UpdateCard
       canWrite={canWrite}
       status={upStatus}
@@ -544,7 +545,7 @@ function SettingsPage() {
       onUpdate={() => void doUpdate()}
       onRestart={() => { if (window.confirm(tr('update.confirmPlainRestart'))) void doRestart(null); }}
     />
-  );
+  ) : null;
 
   const settingsBody = settings ? (
     <SettingsBody
@@ -875,72 +876,74 @@ function SettingsBody(props: {
         </SettingsBlock>
       </SettingsGroup>
       </SettingsModule>
-      <SettingsModule
-        title={tr('settings.moduleSystem')}
-        description={tr('settings.moduleSystemHelp')}
-      >
-      <SettingsGroup className="settings-group-ops">
-        <SettingsBlock
-          title={tr('settings.sectionMaintenance')}
-          titleExtra={settings.localDevInstall
-            ? <span className="settings-title-note">{tr('settings.autoUpdateLocalDev')}</span>
-            : !settings.autoUpdateSupported
-              ? <span className="settings-title-note">{tr('settings.autoUpdateUnsupportedInstall')}</span>
-              : null}
+      {BOTMUX_UPDATE_FEATURE_ENABLED ? (
+        <SettingsModule
+          title={tr('settings.moduleSystem')}
+          description={tr('settings.moduleSystemHelp')}
         >
-          <div className="settings-maintenance-grid">
-            <div className="settings-maintenance-update">
-              <ToggleRow
-                title={tr('settings.autoUpdate')}
-                help={tr('settings.autoUpdateHelp')}
-                checked={autoUpdate.enabled}
-                disabled={autoUpdateDisabled || savingKey === 'autoUpdate'}
-                onChange={value => {
-                  const task = { enabled: value, time: autoUpdate.time };
-                  void props.onSave('autoUpdate', { maintenance: { autoUpdate: task } }, s => ({
-                    ...s,
-                    maintenance: { ...s.maintenance, autoUpdate: task },
-                  }));
-                }}
-              />
-              <div className="maint-time">
-                <label>
-                  <span>{tr('settings.maintenanceTime')}</span>
-                  <input
-                    type="time"
-                    value={autoUpdate.time}
+          <SettingsGroup className="settings-group-ops">
+            <SettingsBlock
+              title={tr('settings.sectionMaintenance')}
+              titleExtra={settings.localDevInstall
+                ? <span className="settings-title-note">{tr('settings.autoUpdateLocalDev')}</span>
+                : !settings.autoUpdateSupported
+                  ? <span className="settings-title-note">{tr('settings.autoUpdateUnsupportedInstall')}</span>
+                  : null}
+            >
+              <div className="settings-maintenance-grid">
+                <div className="settings-maintenance-update">
+                  <ToggleRow
+                    title={tr('settings.autoUpdate')}
+                    help={tr('settings.autoUpdateHelp')}
+                    checked={autoUpdate.enabled}
                     disabled={autoUpdateDisabled || savingKey === 'autoUpdate'}
-                    onChange={e => {
-                      const task = { enabled: autoUpdate.enabled, time: e.currentTarget.value || '04:00' };
+                    onChange={value => {
+                      const task = { enabled: value, time: autoUpdate.time };
                       void props.onSave('autoUpdate', { maintenance: { autoUpdate: task } }, s => ({
                         ...s,
                         maintenance: { ...s.maintenance, autoUpdate: task },
                       }));
                     }}
                   />
-                </label>
+                  <div className="maint-time">
+                    <label>
+                      <span>{tr('settings.maintenanceTime')}</span>
+                      <input
+                        type="time"
+                        value={autoUpdate.time}
+                        disabled={autoUpdateDisabled || savingKey === 'autoUpdate'}
+                        onChange={e => {
+                          const task = { enabled: autoUpdate.enabled, time: e.currentTarget.value || '04:00' };
+                          void props.onSave('autoUpdate', { maintenance: { autoUpdate: task } }, s => ({
+                            ...s,
+                            maintenance: { ...s.maintenance, autoUpdate: task },
+                          }));
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="settings-maintenance-restart">
+                  <ToggleRow
+                    title={tr('settings.autoRestart')}
+                    help={tr('settings.autoRestartHelp')}
+                    checked={settings.maintenance.autoRestart?.enabled === true}
+                    disabled={autoRestartDisabled || savingKey === 'autoRestart'}
+                    onChange={value => {
+                      const task = { enabled: value };
+                      void props.onSave('autoRestart', { maintenance: { autoRestart: task } }, s => ({
+                        ...s,
+                        maintenance: { ...s.maintenance, autoRestart: task },
+                      }));
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="settings-maintenance-restart">
-              <ToggleRow
-                title={tr('settings.autoRestart')}
-                help={tr('settings.autoRestartHelp')}
-                checked={settings.maintenance.autoRestart?.enabled === true}
-                disabled={autoRestartDisabled || savingKey === 'autoRestart'}
-                onChange={value => {
-                  const task = { enabled: value };
-                  void props.onSave('autoRestart', { maintenance: { autoRestart: task } }, s => ({
-                    ...s,
-                    maintenance: { ...s.maintenance, autoRestart: task },
-                  }));
-                }}
-              />
-            </div>
-          </div>
-        </SettingsBlock>
-        {props.updateBlock}
-      </SettingsGroup>
-      </SettingsModule>
+            </SettingsBlock>
+            {props.updateBlock}
+          </SettingsGroup>
+        </SettingsModule>
+      ) : null}
       <div className="settings-status-row">
         <span className={`oncall-status ${props.message?.cls ?? ''}`} data-settings-status>{props.message?.text ?? ''}</span>
       </div>

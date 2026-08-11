@@ -91,6 +91,7 @@ import {
   type ChangelogResult,
   type RollbackVersionsResult,
 } from './core/update-check.js';
+import { BOTMUX_UPDATE_FEATURE_ENABLED } from './core/botmux-update-feature.js';
 import { GITHUB_REPO } from './core/restart-report.js';
 import { DEFAULT_OVERLOAD_THRESHOLDS } from './core/host-overload-alert.js';
 import { spawnDetachedRestart, globalInstallUpdateLockTarget, globalInstallUpdateCwd } from './core/maintenance.js';
@@ -3070,6 +3071,9 @@ const server = createServer(async (req, res) => {
     // are on PUBLIC_READ_PATHS, so decideDashboardAuth already 401s an
     // unauthenticated caller (in both normal and public-read mode). The explicit
     // `authed` guards on the two mutations are defense-in-depth for host actions.
+    if (!BOTMUX_UPDATE_FEATURE_ENABLED && url.pathname.startsWith('/api/update/')) {
+      return jsonRes(res, 404, { ok: false, error: 'update_feature_disabled' });
+    }
     if (req.method === 'GET' && url.pathname === '/api/update/status') {
       const current = currentInstalledVersion();
       const packageRoot = lastSuccessfulUpdatePlan?.activePackageRoot ?? botmuxInstallRoot();

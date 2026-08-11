@@ -38,6 +38,7 @@ import {
   readDashboardClientShell,
 } from './client-shell.js';
 import { dashboardLoginHref } from './auth-login.js';
+import { BOTMUX_UPDATE_FEATURE_ENABLED } from '../../core/botmux-update-feature.js';
 
 type OwnerAvatar = { avatarUrl: string; name?: string };
 type TopbarAttentionNotice = { count: number; time: string; bot: string; reason: string };
@@ -1112,7 +1113,9 @@ function DashboardShell(): React.JSX.Element {
                 <strong className="brand-wordmark">Botmux</strong>
                 <span className="brand-product">Dashboard</span>
               </a>
-              <TopbarVersionControl status={botmuxUpdateStatus} onRefresh={() => checkUpdateBadge(true)} />
+              {BOTMUX_UPDATE_FEATURE_ENABLED
+                ? <TopbarVersionControl status={botmuxUpdateStatus} onRefresh={() => checkUpdateBadge(true)} />
+                : null}
             </div>
           </div>
           <div className="topbar-actions">
@@ -1467,11 +1470,13 @@ void (async () => {
   renderShell();
   window.addEventListener(PLUGIN_PINS_CHANGED_EVENT, () => { void loadPinnedPluginNavItems(); });
   void loadPinnedPluginNavItems();
-  void checkUpdateBadge();
-  window.setInterval(() => {
-    if (document.hidden) return;
+  if (BOTMUX_UPDATE_FEATURE_ENABLED) {
     void checkUpdateBadge();
-  }, 30 * 60_000);
+    window.setInterval(() => {
+      if (document.hidden) return;
+      void checkUpdateBadge();
+    }, 30 * 60_000);
+  }
   initOwnerAvatar();
   try {
     await bootstrap();

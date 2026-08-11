@@ -25,6 +25,7 @@ import { logger } from '../utils/logger.js';
 import { readGlobalConfig, type MaintenanceConfig } from '../global-config.js';
 import { evaluateDue } from './maintenance-schedule.js';
 import { anyDaemonBusy } from './daemon-heartbeat.js';
+import { BOTMUX_UPDATE_FEATURE_ENABLED } from './botmux-update-feature.js';
 import {
   claimRestartLease,
   clearRestartLease,
@@ -366,6 +367,7 @@ let timer: NodeJS.Timeout | undefined;
 
 /** Start the maintenance loop. Call only on the primary daemon (bot-0). */
 export function startMaintenance(): void {
+  if (!BOTMUX_UPDATE_FEATURE_ENABLED) return;
   if (timer) return;
   const deps = productionDeps();
   const tick = () => {
