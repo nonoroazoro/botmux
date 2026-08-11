@@ -207,7 +207,7 @@ describe('deliverSubstituteControlCard', () => {
   });
 
   it('does not count non-ou_ entries as owners', async () => {
-    botState.resolvedAllowedUsers = ['someone@corp.com', 'ou_realowner'];
+    botState.resolvedAllowedUsers = ['someone@example.com', 'ou_realowner'];
     const ds = makeDs();
 
     const result = await deliverSubstituteControlCard(ds);

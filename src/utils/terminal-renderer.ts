@@ -19,7 +19,7 @@ function cleanBoxDrawing(line: string): string {
     .trimEnd();
 }
 
-/** Bare prompt line: ❯ (Claude) or > (Aiden) with optional trailing whitespace */
+/** Bare prompt line with optional trailing whitespace. */
 const BARE_PROMPT_RE = /^[❯>]\s*$/;
 /** Input echo: ❯ or > followed by user text */
 const INPUT_ECHO_RE = /^[❯>]\s+\S/;

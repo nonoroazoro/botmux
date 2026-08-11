@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { underReadIsolation } from './adapters/cli/read-isolation.js';
 import type { BackendType } from './adapters/backend/types.js';
-import type { RiffBackendConfig } from './adapters/backend/riff-backend.js';
 import type { CliId } from './adapters/cli/types.js';
 import {
   normalizeCliRuntimeConfig,
@@ -1057,6 +1056,11 @@ export interface BotConfig {
    * 名册。可从 dashboard Bot Defaults 页或 `/config displayName` 修改，热更新。
    */
   displayName?: string;
+  /**
+   * Optional bot profile description injected into the opening CLI context.
+   * This is separate from {@link displayName} and from chat/team roles.
+   */
+  botDescription?: string;
   cliId: CliId;
   /**
    * Optional distribution identity for a CLI that is protocol-compatible with
@@ -1075,11 +1079,11 @@ export interface BotConfig {
   /**
    * 通用启动前缀（按空格拆 token）：worker spawn 时把启动命令拼成
    * `<wrapperCli> <CLI 参数>`（首 token 当 bin 走 PATH 解析），无需 wrapper 脚本、跨系统。
-   * 典型值 `"aiden x claude"` / `"aiden x codex"`（企业网关 + SSO），也能
+   * 典型值 `"custom-wrapper claude"`，也能
    * 承载 ccr / claude-w 等任意启动器。`cliId` 仍是底层适配器（claude→claude-code、
    * codex→codex），所有适配器机制（hook / bridge / resume）照常工作；设了 wrapperCli 后
    * 它的首 token 取代 cliId 的默认 bin（cliPathOverride 不再生效）。检测到前缀是
-   * `aiden x claude` 时自动剥掉 aiden 拒收的 --settings。见 src/setup/cli-selection.ts。
+   * 启动参数由 src/setup/cli-selection.ts 统一拼接。
    */
   wrapperCli?: string;
   /**
@@ -1169,12 +1173,6 @@ export interface BotConfig {
   /** LEGACY: extra read-deny paths — auto-migrated into sandboxPaths.deny. */
   readDenyExtraPaths?: string[];
   backendType?: BackendType;
-  /**
-   * Configuration for the riff backend (agent-services platform). Required
-   * when `backendType` is `'riff'`. Contains base URL, template ID, agent/model
-   * selection, and auth settings for riff's HTTP API.
-   */
-  riff?: RiffBackendConfig;
   /**
    * Max simultaneously-LIVE sessions for this bot. When the bot's live session
    * count exceeds this, the idle-worker sweeper suspends its longest-idle,
@@ -1723,7 +1721,7 @@ export function registerBot(cfg: BotConfig): BotState {
   // apiOnly (core-only) bots have NO Feishu credential (empty appSecret). The Lark
   // SDK Client ctor throws "appSecret or clientAssertionProvider is required" on an
   // empty secret, so constructing it would fatal the whole daemon at boot — the
-  // exact failure riff hit in a clean sandbox. An apiOnly bot never uses the client
+  // exact failure a clean sandbox can hit. An apiOnly bot never uses the client
   // (getBotClient throws LarkTransportDisabledError first; getAllBotClients filters
   // apiOnly), so leave it null. Zero Feishu transport is the whole contract.
   const client = cfg.apiOnly === true
@@ -2098,7 +2096,7 @@ export function getBotTuiSlashAllow(larkAppId: string): string[] | undefined {
  * 2. ~/.botmux/bots.json — default config path
  * 3. Core-only (BOTMUX_CORE_ONLY=1) with NEITHER of the above present:
  *    synthesize a single apiOnly bot from env — no bots.json / no Feishu creds
- *    (riff's in-sandbox headless service).
+ *    for an embedded headless service.
  */
 export function loadBotConfigs(): BotConfig[] {
   const synthetic = maybeSynthesizeCoreOnlyConfig();
@@ -2128,7 +2126,7 @@ export function loadBotConfigs(): BotConfig[] {
 function maybeSynthesizeCoreOnlyConfig(): BotConfig[] | null {
   if (process.env.BOTMUX_CORE_ONLY !== '1') return null;
 
-  const larkAppId = process.env.BOTMUX_API_ONLY_BOT || 'local_riff';
+  const larkAppId = process.env.BOTMUX_API_ONLY_BOT || 'local_agent';
   if (!/^local_[A-Za-z0-9._-]+$/.test(larkAppId)) {
     throw new Error(
       `Core-only BOTMUX_API_ONLY_BOT must match local_<slug> (letters/digits/._-), got: ${larkAppId}`,
@@ -2575,23 +2573,21 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
     const messageListeners = normalizeMessageListeners(entry.messageListeners, i);
     const vcMeetingAgent = normalizeVcMeetingAgentConfig(entry.vcMeetingAgent);
 
-    // voice：per-bot 语音引擎覆盖。结构化保留（engine ∈ sami|openai，sami/openai
+    // voice：per-bot 语音引擎覆盖。结构化保留（engine 为 openai，openai
     // 为对象，speaker/rate 透传）；非对象或 engine 非法 → undefined。深度校验
     // （凭证是否可用）在 resolveVoiceConfig 做，这里只挡明显垃圾。
     let voice: VoiceConfig | undefined;
     const rawVoice = entry.voice;
     if (rawVoice && typeof rawVoice === 'object' && !Array.isArray(rawVoice)) {
       const eng = (rawVoice as any).engine;
-      if (eng === undefined || eng === 'sami' || eng === 'openai') {
+      if (eng === undefined || eng === 'openai') {
         const v: VoiceConfig = {};
         if (eng) v.engine = eng;
         if (typeof (rawVoice as any).speaker === 'string') v.speaker = (rawVoice as any).speaker;
         if (typeof (rawVoice as any).rate === 'number') v.rate = (rawVoice as any).rate;
-        const s = (rawVoice as any).sami;
-        if (s && typeof s === 'object') v.sami = { accessKey: s.accessKey, secretKey: s.secretKey, appkey: s.appkey, tokenUrl: s.tokenUrl, wsUrl: s.wsUrl };
         const o = (rawVoice as any).openai;
         if (o && typeof o === 'object') v.openai = { baseUrl: o.baseUrl, apiKey: o.apiKey, model: o.model };
-        if (v.engine || v.sami || v.openai || v.speaker) voice = v;
+        if (v.engine || v.openai || v.speaker) voice = v;
       }
     }
 
@@ -2607,6 +2603,9 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       brand: entry.brand === 'lark' ? 'lark' : undefined,
       name: typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : undefined,
       displayName: typeof entry.displayName === 'string' && entry.displayName.trim() ? entry.displayName.trim() : undefined,
+      botDescription: typeof entry.botDescription === 'string' && entry.botDescription.trim()
+        ? entry.botDescription.trim()
+        : undefined,
       cliId: entryCliId,
       cliRuntime,
       // Compatibility shadow: writers persist it for downgrade safety and the
@@ -2666,7 +2665,6 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       readIsolation: entry.readIsolation === true,
       readDenyExtraPaths: normalizeStringList(entry.readDenyExtraPaths),
       backendType: entry.backendType,
-      riff: entry.riff && typeof entry.riff === 'object' ? entry.riff : undefined,
       // Positive integer only; ≤0 / non-int / absent → undefined (= no cap).
       maxLiveWorkers: typeof entry.maxLiveWorkers === 'number'
         && Number.isInteger(entry.maxLiveWorkers) && entry.maxLiveWorkers > 0

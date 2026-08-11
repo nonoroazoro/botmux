@@ -109,7 +109,6 @@ vi.mock('../src/services/frozen-card-store.js', () => ({
 vi.mock('../src/services/git-worktree.js', () => ({
   createRepoWorktree: vi.fn(),
   removeRepoWorktree: vi.fn(async () => {}),
-  pushWorktreeBranch: vi.fn(async () => {}),
   dirSuffixForBranch: (branch: string) => branch.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'branch',
 }));
 
@@ -138,7 +137,7 @@ import { forkWorker, killWorker, teardownAuthoritativePersistentBackingBeforeClo
 import { buildNewTopicCliInput, getAvailableBots, getSessionWorkingDir } from '../src/core/session-manager.js';
 import { getBot } from '../src/bot-registry.js';
 import { createSession, closeSession, updateSession } from '../src/services/session-store.js';
-import { createRepoWorktree, pushWorktreeBranch, removeRepoWorktree } from '../src/services/git-worktree.js';
+import { createRepoWorktree, removeRepoWorktree } from '../src/services/git-worktree.js';
 import { maybeCreateDefaultWorktree } from '../src/services/default-worktree.js';
 import { applyConfigField } from '../src/services/bot-config-store.js';
 import { deleteMessage } from '../src/im/lark/client.js';
@@ -302,7 +301,6 @@ describe('repo select card — plain switch', () => {
       },
       worker: null,
     });
-    ds.session.riffRepoDirs = ['/stale/riff/repo'];
     const { deps, sessionReply } = makeDeps(ds);
 
     await handleCardAction(makeSelectEvent('repo_switch', '/repos/alpha'), deps, APP_ID);
@@ -317,7 +315,6 @@ describe('repo select card — plain switch', () => {
       { turnId: 'om_initial_turn' },
     );
     expect(ds.pendingTurnId).toBeUndefined();
-    expect(ds.session.riffRepoDirs).toBeUndefined();
     expect(sessionReply.mock.calls.map(c => c[1]).join()).toContain('已选择');
     expect(killWorker).not.toHaveBeenCalled();
     // First-spawn (pendingRepo) closes nothing, so no "session closed" card.
@@ -1220,117 +1217,6 @@ describe('repo select card — worktree open', () => {
     expect(ds.workingDir).toBe('/repos/feat-multi');
     expect(ds.session.workingDir).toBe('/repos/feat-multi');
     expect(sessionReply.mock.calls.map(c => c[1]).join()).toContain('worktree 已创建');
-  });
-
-  it('Riff multi-repo pushes every branch and preserves the user-selected repo order', async () => {
-    vi.mocked(getBot).mockImplementation(() => ({
-      config: {
-        larkAppId: APP_ID,
-        larkAppSecret: 'secret',
-        cliId: 'riff',
-        backendType: 'riff',
-      },
-      resolvedAllowedUsers: [],
-      botName: 'testbot',
-      botOpenId: 'ou_bot',
-    }) as any);
-    const ds = makeDs({ pendingRepo: true, pendingPrompt: 'hi', worker: null });
-    ds.session.cliId = 'riff';
-    const { deps } = makeDeps(ds);
-    vi.mocked(createRepoWorktree)
-      .mockResolvedValueOnce({ path: '/repos/feat-riff/alpha', branch: 'feat/riff-alpha', baseRef: 'origin/master' })
-      .mockResolvedValueOnce({ path: '/repos/feat-riff/beta', branch: 'feat/riff-beta', baseRef: 'origin/master' });
-
-    await handleCardAction(makeWorktreeSubmitEvent('feat/riff', ['/repos/alpha', '/repos/beta']), deps, APP_ID);
-    await vi.waitFor(() => expect(ds.worktreeCreating).toBe(false));
-
-    expect(pushWorktreeBranch).toHaveBeenCalledTimes(2);
-    expect(pushWorktreeBranch).toHaveBeenNthCalledWith(1, '/repos/feat-riff/alpha', 'feat/riff-alpha');
-    expect(pushWorktreeBranch).toHaveBeenNthCalledWith(2, '/repos/feat-riff/beta', 'feat/riff-beta');
-    expect(ds.session.riffRepoDirs).toEqual([
-      '/repos/feat-riff/alpha',
-      '/repos/feat-riff/beta',
-    ]);
-  });
-
-  it('uses the reconciled CLI/backend pair when deciding whether to push a worktree branch', async () => {
-    vi.mocked(getBot).mockImplementation(() => ({
-      config: {
-        larkAppId: APP_ID,
-        larkAppSecret: 'secret',
-        cliId: 'codex-app',
-        backendType: 'riff',
-      },
-      resolvedAllowedUsers: [],
-      botName: 'testbot',
-      botOpenId: 'ou_bot',
-    }) as any);
-    const invalidNonRiffDs = makeDs({ pendingRepo: true, pendingPrompt: 'hi', worker: null });
-    invalidNonRiffDs.session.cliId = 'codex-app';
-    const { deps: invalidDeps } = makeDeps(invalidNonRiffDs);
-    vi.mocked(createRepoWorktree).mockResolvedValueOnce({
-      path: '/repos/codex-app-wt', branch: 'feat/codex-app', baseRef: 'origin/master',
-    });
-
-    await handleCardAction(makeSelectEvent('repo_worktree', '/repos/alpha'), invalidDeps, APP_ID);
-    await vi.waitFor(() => expect(invalidNonRiffDs.worktreeCreating).toBe(false));
-    expect(pushWorktreeBranch).not.toHaveBeenCalled();
-
-    vi.clearAllMocks();
-    vi.mocked(getBot).mockImplementation(() => ({
-      config: {
-        larkAppId: APP_ID,
-        larkAppSecret: 'secret',
-        cliId: 'riff',
-        backendType: 'pty',
-      },
-      resolvedAllowedUsers: [],
-      botName: 'testbot',
-      botOpenId: 'ou_bot',
-    }) as any);
-    const invalidRiffDs = makeDs({ pendingRepo: true, pendingPrompt: 'hi', worker: null });
-    invalidRiffDs.session.cliId = 'riff';
-    const { deps: riffDeps } = makeDeps(invalidRiffDs);
-    vi.mocked(createRepoWorktree).mockResolvedValueOnce({
-      path: '/repos/riff-wt', branch: 'feat/riff-local', baseRef: 'origin/master',
-    });
-
-    await handleCardAction(makeSelectEvent('repo_worktree', '/repos/alpha'), riffDeps, APP_ID);
-    await vi.waitFor(() => expect(invalidRiffDs.worktreeCreating).toBe(false));
-    expect(pushWorktreeBranch).toHaveBeenCalledOnce();
-    expect(pushWorktreeBranch).toHaveBeenCalledWith('/repos/riff-wt', 'feat/riff-local');
-  });
-
-  it('stamps multi-repo Riff directories on the fresh mid-session replacement', async () => {
-    vi.mocked(getBot).mockImplementation(() => ({
-      config: {
-        larkAppId: APP_ID,
-        larkAppSecret: 'secret',
-        cliId: 'riff',
-        backendType: 'riff',
-      },
-      resolvedAllowedUsers: [],
-      botName: 'testbot',
-      botOpenId: 'ou_bot',
-    }) as any);
-    const ds = makeDs();
-    const oldSession = ds.session;
-    const { deps } = makeDeps(ds);
-    vi.mocked(createRepoWorktree)
-      .mockResolvedValueOnce({ path: '/repos/mid-riff/alpha', branch: 'feat/mid-alpha', baseRef: 'origin/master' })
-      .mockResolvedValueOnce({ path: '/repos/mid-riff/beta', branch: 'feat/mid-beta', baseRef: 'origin/master' });
-
-    await handleCardAction(makeWorktreeSubmitEvent('feat/mid', ['/repos/alpha', '/repos/beta']), deps, APP_ID);
-    await vi.waitFor(() => expect(ds.worktreeCreating).toBe(false));
-
-    expect(closeSession).toHaveBeenCalledWith('uuid-old');
-    expect(ds.session).not.toBe(oldSession);
-    expect(oldSession.riffRepoDirs).toBeUndefined();
-    expect(ds.session.riffRepoDirs).toEqual([
-      '/repos/mid-riff/alpha',
-      '/repos/mid-riff/beta',
-    ]);
-    expect(forkWorker).toHaveBeenCalledTimes(1);
   });
 
   it('reads official form multi-select values from action.form_value and creates all selected repos', async () => {

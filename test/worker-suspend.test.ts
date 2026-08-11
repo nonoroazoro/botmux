@@ -27,8 +27,6 @@ import { dashboardEventBus } from '../src/core/dashboard-events.js';
 
 const CLI_IDS: CliId[] = [
   'claude-code',
-  'seed',
-  'aiden',
   'coco',
   'codex',
   'codex-app',
@@ -38,7 +36,6 @@ const CLI_IDS: CliId[] = [
   'antigravity',
   'mtr',
   'hermes',
-  'mira',
   'traex',
   'pi',
   'copilot',

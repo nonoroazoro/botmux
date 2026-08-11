@@ -14,7 +14,7 @@ const escText = (s: string) =>
 
 describe('renderPlainBrandLabel', () => {
   it('renders the bot name as plain text without a link', () => {
-    expect(renderPlainBrandLabel('Finder Master')).toBe('Finder Master');
+    expect(renderPlainBrandLabel('Example Bot')).toBe('Example Bot');
   });
 
   it('neutralizes markdown, tags, and cwd template syntax in bot names', () => {

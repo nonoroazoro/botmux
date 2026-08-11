@@ -82,6 +82,7 @@ describe('bot-config store', () => {
     const keys = store.CONFIG_FIELDS.map(f => f.key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys).toContain('allowedUsers');
+    expect(keys).toContain('botDescription');
     expect(keys).toContain('model');
     expect(keys).not.toContain('repoPickerMode');
     expect(keys).toContain('skills');
@@ -155,6 +156,27 @@ describe('bot-config store', () => {
     // Fields without maxLen stay uncapped (e.g. brandLabel markdown can be long).
     const brand = store.findConfigField('brandLabel')!;
     expect(store.coerceConfigValue(brand, 'y'.repeat(200)).ok).toBe(true);
+  });
+
+  it('botDescription trims, persists for the next session, and clears on null', async () => {
+    const { registry, store } = await loaded();
+    const spec = store.findConfigField('botDescription')!;
+
+    expect(spec.effect).toBe('next-session');
+    expect(store.coerceConfigValue(spec, '  Example assistant  ')).toEqual({ ok: true, value: 'Example assistant' });
+
+    const coerced = store.coerceConfigValue(spec, '  Example assistant  ');
+    expect(coerced.ok).toBe(true);
+    if (!coerced.ok) throw new Error(coerced.reason);
+    const set = await store.applyConfigField('app_default', spec, coerced.value);
+    expect(set.ok).toBe(true);
+    expect(readConfig().botDescription).toBe('Example assistant');
+    expect(registry.getBot('app_default').config.botDescription).toBe('Example assistant');
+
+    const cleared = await store.applyConfigField('app_default', spec, null);
+    expect(cleared.ok).toBe(true);
+    expect(readConfig().botDescription).toBeUndefined();
+    expect(registry.getBot('app_default').config.botDescription).toBeUndefined();
   });
 
   it('parses bot skill policy while leaving omitted policy undefined', async () => {
@@ -569,19 +591,19 @@ describe('bot-config store', () => {
 
   it('setBotAllowedUsers persists raw entries and syncs resolved open_ids', async () => {
     const { registry, store } = await loaded();
-    const r = await store.setBotAllowedUsers('app_default', ['alice@corp.com', 'ou_owner'], 'ou_owner');
+    const r = await store.setBotAllowedUsers('app_default', ['alice@example.com', 'ou_owner'], 'ou_owner');
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.resolved).toEqual(['ou_alice', 'ou_owner']);
 
-    expect(readConfig().allowedUsers).toEqual(['alice@corp.com', 'ou_owner']);
+    expect(readConfig().allowedUsers).toEqual(['alice@example.com', 'ou_owner']);
     const bot = registry.getBot('app_default');
-    expect(bot.config.allowedUsers).toEqual(['alice@corp.com', 'ou_owner']);
+    expect(bot.config.allowedUsers).toEqual(['alice@example.com', 'ou_owner']);
     expect(bot.resolvedAllowedUsers).toEqual(['ou_alice', 'ou_owner']);
   });
 
   it('setBotAllowedUsers refuses self-lockout (sender not in resolved list)', async () => {
     const { registry, store } = await loaded();
-    const r = await store.setBotAllowedUsers('app_default', ['bob@corp.com'], 'ou_owner');
+    const r = await store.setBotAllowedUsers('app_default', ['bob@example.com'], 'ou_owner');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe('self_lockout');
     // Disk + memory untouched.

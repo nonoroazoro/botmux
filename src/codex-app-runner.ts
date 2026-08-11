@@ -25,6 +25,7 @@ import {
   parseTokenUsagePair,
 } from './services/codex-app-token-usage.js';
 import { botmuxVersion } from './utils/install-info.js';
+import { escapeXmlText } from './utils/xml.js';
 
 type JsonObject = Record<string, any>;
 
@@ -67,7 +68,14 @@ function parseArgs(argv: string[]): Args {
     else if (key === '--model' && val !== undefined) { out.model = val; i++; }
     else if (key === '--reasoning-effort' && val !== undefined) { out.reasoningEffort = val; i++; }
   }
+  out.sessionId = out.sessionId.trim();
   if (!out.sessionId) throw new Error('--session-id is required');
+  out.botName = out.botName?.trim() || undefined;
+  out.botOpenId = out.botOpenId?.trim() || undefined;
+  out.threadId = out.threadId?.trim() || undefined;
+  out.locale = out.locale?.trim() || undefined;
+  out.model = out.model?.trim() || undefined;
+  out.reasoningEffort = out.reasoningEffort?.trim() || undefined;
   return out;
 }
 
@@ -85,10 +93,12 @@ function prompt(): void {
 
 function appDeveloperInstructions(args: Args): string {
   const zh = args.locale === 'zh';
+  const botName = args.botName?.trim();
+  const botOpenId = args.botOpenId?.trim();
   const identity = [
-    args.botName ? `Bot name: ${args.botName}` : '',
-    args.botOpenId ? `Bot open_id: ${args.botOpenId}` : '',
-    `botmux session_id: ${args.sessionId}`,
+    botName ? `Bot name: ${escapeXmlText(botName)}` : '',
+    botOpenId ? `Bot open_id: ${escapeXmlText(botOpenId)}` : '',
+    `botmux session_id: ${escapeXmlText(args.sessionId)}`,
   ].filter(Boolean).join('\n');
 
   if (zh) {

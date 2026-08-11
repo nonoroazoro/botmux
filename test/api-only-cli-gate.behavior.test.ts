@@ -6,14 +6,14 @@ import { tmpdir } from 'node:os';
 
 /**
  * BEHAVIORAL zero-touch test for the root-dispatch transport gate (codex round-10
- * requirement — real subprocess, not source-lock). Proves the gate is
+ * requirement with a real subprocess). Proves the gate is
  * TAMPER-RESISTANT: the managed origin is resolved via the pid-marker ancestry
  * (a `.botmux-cli-pids/<ppid>` file the worker writes), NOT the mutable
  * BOTMUX_SESSION_ID env — so `env -u BOTMUX_SESSION_ID … botmux create-group`
  * still gets refused. The spawned CLI's parent is THIS test process, so a marker
  * at our own pid is on the CLI's ancestry chain.
  *
- * Requires the compiled artifact; skips if dist is absent.
+ * Requires the compiled artifact.
  */
 const CLI = resolve('dist/cli.js');
 const LARK_FACING = ['send', 'dispatch', 'create-group', 'history', 'quoted', 'bots', 'grant'];
@@ -52,10 +52,7 @@ function runCli(args: string[], env: Record<string, string | undefined>): { code
   }
 }
 
-const distReady = existsSync(CLI);
-const d = distReady ? describe : describe.skip;
-
-d('root-dispatch transport gate — behavioral, tamper-resistant (built CLI)', () => {
+describe('root-dispatch transport gate behavior', () => {
   beforeAll(() => {
     DATA_DIR = join(tmpdir(), `botmux-gate-test-${process.pid}`);
   });
@@ -88,7 +85,7 @@ d('root-dispatch transport gate — behavioral, tamper-resistant (built CLI)', (
     //      gate loads THAT session record and refuses regardless of env.
     // We assert (b) here because it is deterministic under vitest; (a) depends on
     // process.ppid which the vitest worker pool controls, so it is covered by the
-    // `managedOriginHasNoTransport → resolveSessionContext` source-lock instead.
+    // `managedOriginHasNoTransport` and `resolveSessionContext` behavior instead.
     // NOTE (manual repro, matches codex's): with a marker at the CLI's real parent
     // pid, `env -u BOTMUX_SESSION_ID -u BOTMUX_CHAT_ID -u BOTMUX_LARK_APP_ID node
     // dist/cli.js create-group --bot x` exits 2 via ancestry — confirmed by hand.

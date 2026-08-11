@@ -32,7 +32,7 @@ export interface CodexTokenBreakdown {
   reasoningOutputTokens: number;
 }
 
-/** riff-facing four-bucket usage (mutually exclusive input buckets). */
+/** Four-bucket usage with mutually exclusive input buckets. */
 export interface TurnTokenUsage {
   inputTokens: number;
   outputTokens: number;
@@ -108,7 +108,7 @@ export function parseTokenUsagePair(
   return { total, last };
 }
 
-/** Map a cumulative-delta codex breakdown to riff's four mutually-exclusive
+/** Map a cumulative-delta codex breakdown to four mutually-exclusive
  *  buckets. codex `inputTokens` INCLUDES cached-read + cache-write, so the
  *  fresh-input bucket subtracts both. Returns null if the split is incoherent
  *  (buckets exceed input) — caller drops usage + warns rather than emit garbage. */

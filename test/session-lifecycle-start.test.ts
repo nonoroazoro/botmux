@@ -46,7 +46,7 @@ vi.mock('../src/bot-registry.js', () => ({
       larkAppId: 'app_test',
       larkAppSecret: 'secret',
       cliId: 'codex',
-      wrapperCli: 'ttadk codex',
+      wrapperCli: 'custom-wrapper codex',
       model: 'glm-5.1',
       plugins: ['demo'],
       skills: { include: ['skill:deploy'] },
@@ -61,7 +61,7 @@ vi.mock('../src/bot-registry.js', () => ({
     larkAppId: 'app_test',
     larkAppSecret: 'secret',
     cliId: 'codex',
-    wrapperCli: 'ttadk codex',
+    wrapperCli: 'custom-wrapper codex',
     model: 'glm-5.1',
     plugins: ['demo'],
     skills: { include: ['skill:deploy'] },
@@ -195,7 +195,7 @@ function defaultBot(overrides: Record<string, unknown> = {}) {
       larkAppId: 'app_test',
       larkAppSecret: 'secret',
       cliId: 'codex',
-      wrapperCli: 'ttadk codex',
+      wrapperCli: 'custom-wrapper codex',
       model: 'glm-5.1',
       plugins: ['demo'],
       skills: { include: ['skill:deploy'] },
@@ -794,33 +794,6 @@ describe('Codex App clean-input feature gate', () => {
     });
   });
 
-  it('keeps Riff lineage fields while rejecting a Codex App sidecar on the Riff CLI', () => {
-    vi.mocked(getBot).mockImplementation(() => defaultBot({
-      cliId: 'riff',
-      backendType: 'riff',
-      riff: { baseUrl: 'https://riff.example' },
-      codexAppCleanInput: true,
-    }));
-    const ds = makeDs();
-    ds.session.riffParentTaskId = 'riff-parent-task';
-    ds.session.riffRepoDirs = ['/repo/primary', '/repo/secondary'];
-
-    forkWorker(ds, payload, { turnId: 'om_riff' });
-
-    const worker = forkMock.mock.results.at(-1)!.value;
-    const init = vi.mocked(worker.send).mock.calls[0][0];
-    expect(init).toEqual(expect.objectContaining({
-      type: 'init',
-      cliId: 'riff',
-      backendType: 'riff',
-      backendConfig: { baseUrl: 'https://riff.example' },
-      riffParentTaskId: 'riff-parent-task',
-      riffRepoDirs: ['/repo/primary', '/repo/secondary'],
-      prompt: payload.content,
-      turnId: 'om_riff',
-    }));
-    expect(init).not.toHaveProperty('promptCodexAppInput');
-  });
 });
 
 describe('adopt worker re-fork forwards the incoming turn (PR#293 issue #3)', () => {
@@ -1882,7 +1855,7 @@ describe('forkWorker session agent config freeze', () => {
         larkAppId: 'app_test',
         larkAppSecret: 'secret',
         cliId: 'codex',
-        wrapperCli: 'ttadk codex',
+        wrapperCli: 'custom-wrapper codex',
         model: 'glm-5.1',
         sandbox: true,
         sandboxHidePaths: ['~/.ssh'],
@@ -1917,13 +1890,13 @@ describe('forkWorker session agent config freeze', () => {
     forkWorker(ds, 'hello', false);
 
     expect(ds.session.cliId).toBe('codex');
-    expect(ds.session.wrapperCli).toBe('ttadk codex');
+    expect(ds.session.wrapperCli).toBe('custom-wrapper codex');
     expect(ds.session.model).toBe('glm-5.1');
     const worker = forkMock.mock.results.at(-1)!.value;
     expect(worker.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'init',
       cliId: 'codex',
-      wrapperCli: 'ttadk codex',
+      wrapperCli: 'custom-wrapper codex',
       model: 'glm-5.1',
     }));
   });
@@ -1935,13 +1908,13 @@ describe('forkWorker session agent config freeze', () => {
     forkWorker(ds, 'hello', false);
 
     expect(ds.session.cliId).toBe('codex');
-    expect(ds.session.wrapperCli).toBe('ttadk codex');
+    expect(ds.session.wrapperCli).toBe('custom-wrapper codex');
     expect(ds.session.model).toBe('glm-5.1');
     const worker = forkMock.mock.results.at(-1)!.value;
     expect(worker.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'init',
       cliId: 'codex',
-      wrapperCli: 'ttadk codex',
+      wrapperCli: 'custom-wrapper codex',
       model: 'glm-5.1',
     }));
   });
@@ -1949,9 +1922,9 @@ describe('forkWorker session agent config freeze', () => {
   it('resumes a frozen session with its recorded cli/wrapper/model, ignoring bot config changes', () => {
     const ds = makeDs();
     // A session that was already frozen on a prior spawn: bot config has since
-    // been switched (codex/ttadk/glm-5.1), but the frozen session must not budge.
+    // been switched, but the frozen session must not budge.
     ds.session.cliId = 'claude-code' as any;
-    ds.session.wrapperCli = 'aiden x claude';
+    ds.session.wrapperCli = 'custom-wrapper claude';
     ds.session.model = 'opus';
     ds.session.agentFrozen = true;
 
@@ -1961,7 +1934,7 @@ describe('forkWorker session agent config freeze', () => {
     expect(worker.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'init',
       cliId: 'claude-code',
-      wrapperCli: 'aiden x claude',
+      wrapperCli: 'custom-wrapper claude',
       model: 'opus',
       resume: true,
     }));
@@ -1970,21 +1943,21 @@ describe('forkWorker session agent config freeze', () => {
   it('back-fills wrapper/model from bot config on the first resume of a legacy (pre-freeze) session', () => {
     // Created before agentFrozen/wrapperCli/model existed: cliId was stamped
     // historically, but wrapper/model are absent and it has no freeze marker.
-    // The bot launches via a `ttadk codex` wrapper — the first post-upgrade resume
+    // The bot launches via a custom wrapper. The first post-upgrade resume
     // must restore that wrapper, not silently relaunch as bare `codex`.
     const ds = makeDs();
     ds.session.cliId = 'codex' as any;
 
     forkWorker(ds, '', true);
 
-    expect(ds.session.wrapperCli).toBe('ttadk codex');
+    expect(ds.session.wrapperCli).toBe('custom-wrapper codex');
     expect(ds.session.model).toBe('glm-5.1');
     expect(ds.session.agentFrozen).toBe(true);
     const worker = forkMock.mock.results.at(-1)!.value;
     expect(worker.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'init',
       cliId: 'codex',
-      wrapperCli: 'ttadk codex',
+      wrapperCli: 'custom-wrapper codex',
       model: 'glm-5.1',
       resume: true,
     }));

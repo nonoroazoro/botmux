@@ -45,10 +45,8 @@ export const PASSTHROUGH_COMMANDS = new Set([
   //
   // ⚠️ 能力边界（只对原生 paste TUI 成立）：passthrough 是往 CLI 敲字（PTY write）。
   // Codex RPC 模式的 pane 是纯 viewer、无 terminal input（turn 走 JSON-RPC）,
-  // /fast 敲进去到不了 app-server;codex+Riff 后端把文本+回车当两次远端 task。这两
-  // 种形态下 /fast 不会真正切档,徽标也只反映 rollout 实际记录（RPC app-server 仍写
-  // rollout;Riff 无 rollout/tier 概念,tracker 只在 structuredBridgeIsCodex 且有
-  // rollout 时 bind,天然 fail-closed 不显示徽标）。此处仅登记 passthrough 语义,不
+  // /fast 敲进去到不了 app-server。在这种形态下 /fast 不会真正切档，
+  // 徽标也只反映 rollout 实际记录。此处仅登记 passthrough 语义，不
   // 声称在非 paste 形态下能切档。
   '/fast',
 ]);

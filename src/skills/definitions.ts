@@ -413,7 +413,7 @@ botmux send --files /tmp/report.pdf "报告已生成，请查收附件。"
 \`--videos <path>\` 发送本地 H.264 MP4 预览消息，可重复；\`--video-covers <path>\` 按顺序提供每个视频的封面图片（当前必须显式提供 cover）。视频会作为飞书/Lark media message 单独发送；正文存在时先发正文卡片，再发视频。
 
 \`\`\`bash
-botmux send --videos /tmp/replay.mp4 --video-covers /tmp/cover.png --no-mention "RRH replay preview"
+botmux send --videos /tmp/demo.mp4 --video-covers /tmp/cover.png --no-mention "video preview"
 \`\`\`
 
 ### 原始飞书/Lark 卡片 JSON
@@ -433,8 +433,8 @@ botmux send --card-json '{"schema":"2.0","body":{"direction":"vertical","element
 # 先查可用机器人
 botmux bots list
 
-# 形式 A：带名字 — 文本里 @Aiden 被替换成 <at> 标签
-botmux send --mention "ou_xxx:Aiden" "请 @Aiden 帮忙 review 这段代码"
+# 形式 A：带名字，文本里的 mention 被替换成 <at> 标签
+botmux send --mention "ou_xxx:Reviewer" "请 Reviewer 帮忙 review 这段代码"
 
 # 形式 B：只传 open_id — 在消息末尾追加 @mention 通知
 botmux send --mention ou_xxx "帮忙看下这段代码"
@@ -987,7 +987,7 @@ humanGate：
 
 ## 常见错误
 
-- **\`subagent.bot\` 填了 displayName（如 \`claude-loopy\` 或 \`aiden-oncall(d2)\`）而不是 larkAppId**：跨 daemon 必 fail，runtime 报 "Bot 'X' not found in registry"。一定填 \`cli_xxxxxxxxxxxxxxxx\`。
+- **\`subagent.bot\` 填了 displayName（如 \`reviewer-bot\`）而不是 larkAppId**：跨 daemon 必 fail，runtime 报 "Bot 'X' not found in registry"。一定填 \`cli_xxxxxxxxxxxxxxxx\`。
 - **workflow 文件写到当前 cwd 的 \`./workflows/\` 而不是 \`$HOME/.botmux/workflows/\`**：CLI agent cwd 和 daemon cwd 不一致时 daemon 找不到文件。一定用绝对路径 \`$HOME/.botmux/workflows/<id>.workflow.json\`。
 - 启动时传了 workflow 没声明的参数：会报 \`未知参数：foo\`。要么删掉参数，要么在顶层 \`params\` schema 里声明。
 - 漏传必填参数：会报 \`缺少必填参数：city\`。启动时补 \`--param city=上海\` 或 IM \`city=上海\`。

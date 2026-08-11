@@ -462,7 +462,6 @@ function gateProjection(nodes: V3Node[], prefix = ''): unknown[] {
 
 const CHAT_SIDE_EFFECT_PATTERNS: Array<{ kind: string; re: RegExp }> = [
   { kind: 'botmux-send', re: /\bbotmux\s+(?:send|reply)\b/i },
-  { kind: 'bytedcli-feishu', re: /\bbytedcli\s+feishu\b.*\b(?:send|reply|message|im|chat)\b/i },
   { kind: 'lark-cli-im', re: /\blark-cli\b.*\b(?:send|reply|message|im|chat)\b/i },
   { kind: 'feishu-openapi-message', re: /\/open-apis\/im\/v1\/(?:messages|chats)\b/i },
   { kind: 'feishu-openapi-message', re: /\b(?:feishu|lark)\b.*\bopenapi\b.*\b(?:send|reply|message)\b/i },

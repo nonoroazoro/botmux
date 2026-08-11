@@ -127,16 +127,13 @@ describe('skill injection-mode resolution', () => {
 
 describe('resolveSkillInjectionSupport (dashboard control class)', () => {
   it('classifies the whole CLI matrix by capability', () => {
-    // claude-family (incl. the relay/seed forks) → dynamic --plugin-dir injection
-    for (const id of ['claude-code', 'seed', 'relay'] as const) {
-      expect(resolveSkillInjectionSupport(id)).toBe('dynamic');
-    }
+    expect(resolveSkillInjectionSupport('claude-code')).toBe('dynamic');
     // global skills-dir CLIs → the global|prompt|off knob applies
     for (const id of ['codex', 'gemini', 'opencode', 'cursor', 'coco', 'traex', 'pi', 'oh-my-pi', 'mtr', 'kiro-cli', 'genius', 'grok'] as const) {
       expect(resolveSkillInjectionSupport(id)).toBe('global');
     }
     // no skill mechanism → control hidden
-    for (const id of ['antigravity', 'aiden', 'hermes', 'mir', 'mira', 'codex-app'] as const) {
+    for (const id of ['antigravity', 'hermes', 'codex-app'] as const) {
       expect(resolveSkillInjectionSupport(id)).toBe('none');
     }
   });
@@ -211,6 +208,14 @@ describe('built-in skill catalog', () => {
 
   it('renders an empty block for no entries', () => {
     expect(buildBuiltinSkillCatalogBlock([])).toBe('');
+  });
+
+  it('drops built-in catalog entries with invalid generated metadata', () => {
+    expect(buildBuiltinSkillCatalogBlock([{
+      name: '   ',
+      description: '   ',
+      content: '',
+    }])).toBe('');
   });
 
   it('builtinSkillContent resolves known names (incl. conditional ask) and rejects unknown', () => {

@@ -19,7 +19,6 @@ describe('repinSessionWorkingDir', () => {
       session: {
         sessionId: 'session-one',
         workingDir: '/repo/old',
-        riffRepoDirs: ['/repo/old'],
       },
     } as DaemonSession;
 
@@ -31,7 +30,6 @@ describe('repinSessionWorkingDir', () => {
 
     expect(ds.workingDir).toBe('/repo/new');
     expect(ds.session.workingDir).toBe('/repo/new');
-    expect(ds.session.riffRepoDirs).toBeUndefined();
     expect(updateSession).toHaveBeenCalledWith(ds.session);
     expect(events).toContainEqual({
       type: 'session.update',

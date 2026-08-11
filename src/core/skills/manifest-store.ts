@@ -8,17 +8,17 @@ function manifestDir(): string {
   return join(config.session.dataDir, 'skill-manifests');
 }
 
-function manifestPath(sessionId: string): string {
+export function sessionSkillManifestPath(sessionId: string): string {
   return join(manifestDir(), `${sessionId}.json`);
 }
 
 export function writeSessionSkillManifest(manifest: SessionSkillManifest): void {
   mkdirSync(manifestDir(), { recursive: true });
-  atomicWriteFileSync(manifestPath(manifest.sessionId), JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
+  atomicWriteFileSync(sessionSkillManifestPath(manifest.sessionId), JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
 }
 
 export function readSessionSkillManifest(sessionId: string): SessionSkillManifest | null {
-  const file = manifestPath(sessionId);
+  const file = sessionSkillManifestPath(sessionId);
   if (!existsSync(file)) return null;
   try {
     return JSON.parse(readFileSync(file, 'utf-8')) as SessionSkillManifest;
@@ -28,5 +28,5 @@ export function readSessionSkillManifest(sessionId: string): SessionSkillManifes
 }
 
 export function removeSessionSkillManifest(sessionId: string): void {
-  rmSync(manifestPath(sessionId), { force: true });
+  rmSync(sessionSkillManifestPath(sessionId), { force: true });
 }

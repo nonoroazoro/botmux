@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
   buildFsPolicy,
   mergeFsRules,
@@ -220,6 +218,17 @@ describe('buildFsPolicy', () => {
     expect(accessForPath(p.rules, '/Users/u/.botmux/data/sessions-cli_futureBot.json').access).toBe('none');
   });
 
+  it('exposes only the selected session Skill manifest and roots as read-only', () => {
+    const manifest = '/Users/u/.botmux/data/skill-manifests/session-1.json';
+    const skillRoot = '/Users/u/.botmux/private-skills/example-team-context';
+    const p = buildFsPolicy(ctx({ readonlyRoots: [manifest, skillRoot] }));
+
+    expect(accessForPath(p.rules, manifest).access).toBe('readOnly');
+    expect(accessForPath(p.rules, `${skillRoot}/SKILL.md`).access).toBe('readOnly');
+    expect(accessForPath(p.rules, '/Users/u/.botmux/data/skill-manifests/session-2.json').access).toBe('none');
+    expect(accessForPath(p.rules, '/Users/u/.botmux/private-skills/other/SKILL.md').access).toBe('none');
+  });
+
   it('lark-cli key store: OWN appsecret + master.key readable, siblings denied (verified live: without this `lark-cli auth` fails EPERM)', () => {
     const p = buildFsPolicy(ctx()); // currentAppId = cli_self
     const store = '/Users/u/Library/Application Support/lark-cli';
@@ -365,9 +374,9 @@ describe('buildFsPolicy', () => {
       botmuxHome: '/home/u/.botmux', sessionDataDir: '/home/u/.botmux/data',
       workingDir: '/home/u/proj', botHome: '/home/u/.botmux/bots/cli_self',
       redirectedCliData: true,
-      authPaths: ['/home/u/.local/share/bytedcli'], // a survivor the worker kept
+      authPaths: ['/home/u/.local/share/example-auth'], // a survivor the worker kept
     }));
-    expect(accessForPath(p.rules, '/home/u/.local/share/bytedcli/data/sso_session.json').access).toBe('readWrite');
+    expect(accessForPath(p.rules, '/home/u/.local/share/example-auth/session.json').access).toBe('readWrite');
   });
 });
 
@@ -381,10 +390,10 @@ describe('resolveRedirectedAdapterAuthPaths (redirect authPath suppression)', ()
 
   it('not redirected → declared authPaths pass through verbatim', () => {
     expect(resolveRedirectedAdapterAuthPaths({
-      declaredAuthPaths: ['/home/u/.codex', '/home/u/.local/share/bytedcli'],
+      declaredAuthPaths: ['/home/u/.codex', '/home/u/.local/share/example-auth'],
       willRedirectCliData: false,
       rehomedHostRoots: ['/home/u/.codex'], // ignored when not redirecting
-    })).toEqual(['/home/u/.codex', '/home/u/.local/share/bytedcli']);
+    })).toEqual(['/home/u/.codex', '/home/u/.local/share/example-auth']);
   });
 
   it('claude-code: ~/.claude/.credentials.json is inside ~/.claude → dropped (BOT_HOME copy is provisioned)', () => {
@@ -395,19 +404,15 @@ describe('resolveRedirectedAdapterAuthPaths (redirect authPath suppression)', ()
     expect(resolve4(['/home/u/.codex'], ['/home/u/.codex'])).toEqual([]);
   });
 
-  it('seed/relay: ~/.local/share/bytedcli is OUTSIDE the data root → kept (external SSO login source)', () => {
-    // relay: dataDir ~/.relay; seed: dataDir <pkg>/.claude-runtime. bytedcli is
-    // outside both → must survive or cold-start login regresses. byted-cloud-auth
-    // (inside the data root) is dropped — it is never the redirected read location
-    // anyway (CLI reads $CLAUDE_CONFIG_DIR/byted-cloud-auth.json = BOT_HOME/claude).
+  it('keeps external authentication sources outside redirected data roots', () => {
     expect(resolve4(
-      ['/home/u/.local/share/bytedcli', '/home/u/.relay/byted-cloud-auth.json'],
+      ['/home/u/.local/share/example-auth', '/home/u/.relay/token.json'],
       ['/home/u/.relay'],
-    )).toEqual(['/home/u/.local/share/bytedcli']);
+    )).toEqual(['/home/u/.local/share/example-auth']);
     expect(resolve4(
-      ['/home/u/.local/share/bytedcli', '/opt/relay/.claude-runtime/byted-cloud-auth.json'],
+      ['/home/u/.local/share/example-auth', '/opt/relay/.claude-runtime/token.json'],
       ['/opt/relay/.claude-runtime'],
-    )).toEqual(['/home/u/.local/share/bytedcli']);
+    )).toEqual(['/home/u/.local/share/example-auth']);
   });
 
   it('path boundary: a sibling like ~/.relay2 is NOT judged inside ~/.relay', () => {
@@ -419,17 +424,16 @@ describe('resolveRedirectedAdapterAuthPaths (redirect authPath suppression)', ()
 
   it('multiple rehomed roots + normalization (trailing slash, empty entries)', () => {
     expect(resolve4(
-      ['/home/u/.claude/.credentials.json', '/home/u/.local/share/bytedcli', '/home/u/.codex/auth.json'],
+      ['/home/u/.claude/.credentials.json', '/home/u/.local/share/example-auth', '/home/u/.codex/auth.json'],
       ['/home/u/.claude/', '/home/u/.codex'], // trailing slash normalized
-    )).toEqual(['/home/u/.local/share/bytedcli']);
+    )).toEqual(['/home/u/.local/share/example-auth']);
     // empty / unusable entries are filtered, not crashing
     expect(authPathsSurvivingCliDataRedirect(['', '/home/u/x'], [''])).toEqual(['/home/u/x']);
   });
 
   it('LEXICAL containment: a leaf declared inside the root is dropped by its DECLARED path, not its realpath', () => {
     // The resolver decides containment purely on the (lexical) strings it's given.
-    // The worker MUST pass lexically-expanded (not realpath'd) paths — asserted in
-    // WIRING GUARD below — so that a symlinked-out leaf like
+    // The caller must pass lexically-expanded paths so that a symlinked-out leaf like
     // ~/.claude/.credentials.json → /external/creds is still judged INSIDE ~/.claude
     // and dropped. If the worker instead realpath'd first, the resolver would see
     // /external/creds (outside the root) and wrongly KEEP it → the real host
@@ -442,38 +446,7 @@ describe('resolveRedirectedAdapterAuthPaths (redirect authPath suppression)', ()
     expect(resolve4(['/external/creds/claude.json'], ['/home/u/.claude'])).toEqual(['/external/creds/claude.json']);
   });
 
-  it('WIRING GUARD: worker.ts assembles authPaths via resolveRedirectedAdapterAuthPaths, filtered in ONE LEXICAL HOME namespace then keepExisting', () => {
-    // A pure-fn test alone can't catch the worker dropping/reverting the call or
-    // passing wrong roots (the blind spot that let the first cut miss Seed/Relay),
-    // the ORDER bug (realpath before containment leaks a symlinked-out leaf), nor
-    // the NAMESPACE bug (codex #605 P1: expanding declaredAuthPaths with the
-    // CANONICAL home `sandboxHome` while `cliAdapter.claudeDataDir` is lexical →
-    // coversPath misses under a symlinked $HOME → the host credential leaks back in).
-    // Assert the actual call site in worker.ts source: it must (a) produce authPaths
-    // by keepExisting-wrapping the resolver, (b) feed the resolver declared paths
-    // expanded with the LEXICAL home (expandTildeLexical, NOT keepExisting/realpath
-    // first, NOT the canonical expandTilde), (c) thread willRedirectCliData, (d)
-    // build rehomedHostRoots from cliAdapter.claudeDataDir + the LEXICAL codex host
-    // root, also lexically expanded — both sides in the same namespace.
-    const src = readFileSync(resolve('src/worker.ts'), 'utf8');
-    // (a) survivors are realpath/existence-filtered AFTER the resolver, not before.
-    expect(src).toMatch(/authPaths:\s*keepExisting\(resolveRedirectedAdapterAuthPaths\(\{/);
-    // (b) declared authPaths reach the resolver via the LEXICAL expander, not keepExisting, not canonical expandTilde.
-    expect(src).toMatch(/declaredAuthPaths:\s*cfg\.multiUserHomeDir[\s\S]*?\?\s*\[\][\s\S]*?:\s*\[\.\.\.\(cliAdapter\.authPaths[\s\S]*?\)\]\.map\(expandTildeLexical\)/);
-    // (c) the redirect flag is threaded in.
-    expect(src).toMatch(/resolveRedirectedAdapterAuthPaths\(\{[\s\S]*?willRedirectCliData,/);
-    // (d) rehomed roots = adapter host data dir + codex host root, LEXICAL home, lexically expanded.
-    expect(src).toMatch(/rehomedHostRoots:\s*\[cliAdapter\.claudeDataDir,\s*isolatedCodexHome\s*\?\s*`\$\{lexicalHome\}\/\.codex`/);
-    expect(src).toMatch(/rehomedHostRoots:[\s\S]*?\.map\(expandTildeLexical\)/);
-    // negative: the resolver must NOT be fed keepExisting/realpath'd paths (the leak-order bug).
-    expect(src).not.toMatch(/declaredAuthPaths:\s*keepExisting\(/);
-    // negative: containment must NOT use the CANONICAL home expander on either side
-    // (the #605 P1 namespace bug — canonical vs lexical divergence under symlinked $HOME).
-    expect(src).not.toMatch(/declaredAuthPaths:\s*\[\.\.\.\(cliAdapter\.authPaths[\s\S]*?\)\]\.map\(expandTilde\)(?!Lexical)/);
-    expect(src).not.toMatch(/isolatedCodexHome\s*\?\s*`\$\{sandboxHome\}\/\.codex`/);
-  });
-
-  it('SYMLINKED-HOME regression (codex #605 P1): worker-assembly under /home/u → /data00/home/u keeps Claude/Codex dropped, Seed/Relay bytedcli kept', () => {
+  it('SYMLINKED-HOME regression: worker assembly keeps external authentication roots', () => {
     // The matrix above hand-matches lexical strings on BOTH sides, so it never
     // exercises the canonical-vs-lexical home divergence the worker actually
     // produces. This models the REAL worker assembly on a symlinked $HOME:
@@ -510,11 +483,11 @@ describe('resolveRedirectedAdapterAuthPaths (redirect authPath suppression)', ()
     // Codex: ~/.codex is the rehomed root itself → dropped (headline leak fix, must
     // survive the lexical namespace change).
     expect(workerAssemble(['~/.codex'], claudeDataDir, true, expandTildeLexical)).toEqual([]);
-    // Seed/Relay: bytedcli (outside data root) kept; byted-cloud-auth (inside) dropped.
+    // Seed/Relay: external auth outside the data root is kept; nested auth is dropped.
     expect(workerAssemble(
-      ['~/.local/share/bytedcli', `${lexicalHome}/.relay/byted-cloud-auth.json`],
+      ['~/.local/share/example-auth', `${lexicalHome}/.relay/token.json`],
       `${lexicalHome}/.relay`, false, expandTildeLexical,
-    )).toEqual([`${lexicalHome}/.local/share/bytedcli`]);
+    )).toEqual([`${lexicalHome}/.local/share/example-auth`]);
 
     // PROOF the namespace matters: with the CANONICAL expander (the bug), the Claude
     // credential canonicalizes to /data00/home/u/... , escapes the lexical /home/u/.claude

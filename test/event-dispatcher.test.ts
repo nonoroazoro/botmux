@@ -5272,13 +5272,13 @@ describe('configured-but-unresolved allowlist stays fail-closed (not fail-open)'
   // 为空。hasAllowlist 必须用「原始配置」判定，否则会 fall through 成「无白名单=全开放」，
   // 让任何人 canTalk/canOperate（正是 onboarding 路径可能写出的隐患）。
   it('canOperate: configured owner that resolves to empty denies everyone (not open)', () => {
-    setupBotState({ configAllowedUsers: ['owner@corp.com'], allowedUsers: [] });
+    setupBotState({ configAllowedUsers: ['owner@example.com'], allowedUsers: [] });
     expect(canOperate(MY_APP_ID, 'chat-A', 'ou_random_stranger')).toBe(false);
     expect(canOperate(MY_APP_ID, 'chat-A', USER_OPEN_ID)).toBe(false);
   });
 
   it('canTalk: configured owner that resolves to empty blocks ordinary talk (not open)', () => {
-    setupBotState({ configAllowedUsers: ['owner@corp.com'], allowedUsers: [] });
+    setupBotState({ configAllowedUsers: ['owner@example.com'], allowedUsers: [] });
     expect(canTalk(MY_APP_ID, 'chat-A', 'ou_random_stranger')).toBe(false);
   });
 
@@ -6337,7 +6337,7 @@ describe('im.message.receive_v1 — /summary command', () => {
       {
         message_id: 'incident',
         msg_type: 'text',
-        body: { content: JSON.stringify({ text: 'PSM ad.qa.demo 在 PPE 节点 start_pipeline 报错' }) },
+        body: { content: JSON.stringify({ text: 'Service api.example.invalid failed on the staging pipeline node' }) },
         sender: { id: 'ou_fresh', sender_type: 'user' },
         create_time: String(triggerMs - 60 * 60_000),
       },
@@ -7426,7 +7426,7 @@ describe('writeBotInfoFile — multi-daemon merge', () => {
   it('merges current bot into existing entries from other daemons', () => {
     // Existing file has bot B written by another daemon process
     const existing = [
-      { larkAppId: 'app-bot-b', botOpenId: 'ou_bot_b', botName: 'BotB', cliId: 'aiden' },
+      { larkAppId: 'app-bot-b', botOpenId: 'ou_bot_b', botName: 'BotB', cliId: 'gemini' },
     ];
     mockReadFileSync.mockReturnValue(JSON.stringify(existing));
 
@@ -7451,7 +7451,7 @@ describe('writeBotInfoFile — multi-daemon merge', () => {
     // File already has both bots, but bot A has stale open_id
     const existing = [
       { larkAppId: MY_APP_ID, botOpenId: null, botName: null, cliId: 'claude-code' },
-      { larkAppId: 'app-bot-b', botOpenId: 'ou_bot_b', botName: 'BotB', cliId: 'aiden' },
+      { larkAppId: 'app-bot-b', botOpenId: 'ou_bot_b', botName: 'BotB', cliId: 'gemini' },
     ];
     mockReadFileSync.mockReturnValue(JSON.stringify(existing));
 

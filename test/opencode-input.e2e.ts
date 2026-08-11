@@ -1,7 +1,7 @@
 /**
  * E2E test: OpenCode CLI first-input submission.
  *
- * Root cause (same class as Gemini): OpenCode uses Bubble Tea TUI which has
+ * Root cause (same class as Gemini): OpenCode uses an alternate-screen TUI with
  * an async startup phase.  Writing to stdin during this window may be silently
  * lost because the text input component hasn't mounted yet.
  *
@@ -70,7 +70,7 @@ describe('OpenCode first input submission', () => {
      * 1. OpenCode spawns without --prompt
      * 2. IdleDetector fires on quiescence
      * 3. flushPending writes prompt IMMEDIATELY (same event loop turn)
-     * 4. OpenCode may NOT process it — Bubble Tea TextInput hasn't mounted yet
+     * 4. OpenCode may NOT process it because the text input has not mounted yet
      *
      * The bug is timing-dependent: writing much later works because the TUI
      * eventually finishes mounting.  This documents the race condition.
@@ -127,7 +127,7 @@ describe('OpenCode first input submission', () => {
     console.log('Output (first 400 chars):\n' + afterOutput.slice(0, 400));
 
     // When writing immediately after idle, the prompt may be lost
-    // because Bubble Tea's TextInput hasn't finished mounting.  This confirms
+    // because the TUI text input has not finished mounting. This confirms
     // the need for the --prompt flag fix.
     console.log(`\n>>> Bug reproduced (stdin lost): ${!hasPromptProcessed}`);
 
@@ -291,7 +291,7 @@ describe('OpenCode first input submission', () => {
     expect(adapter.initialPromptArgsIgnoredOnResume).toBe(true);
   });
 
-  it('adapter: altScreen is true (Bubble Tea)', () => {
+  it('adapter: altScreen is true for the alternate-screen TUI', () => {
     const adapter = createOpenCodeAdapter();
     expect(adapter.altScreen).toBe(true);
   });

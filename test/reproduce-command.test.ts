@@ -13,16 +13,6 @@ describe('buildReproduceCommand', () => {
     HOME: '/home/u',
   } as NodeJS.ProcessEnv;
 
-  it('riff backend returns null (no local command — never fabricate one)', () => {
-    expect(buildReproduceCommand({
-      backendType: 'riff',
-      bin: '/opt/claude',
-      args: ['--session-id', 's1'],
-      cwd: '/repo',
-      env: baseEnv,
-    })).toBeNull();
-  });
-
   it('empty bin returns null', () => {
     expect(buildReproduceCommand({
       backendType: 'pty',
@@ -118,24 +108,22 @@ describe('selectReproduceLaunch (never surfaces sandbox wrapper)', () => {
     expect(r.args.join(' ')).not.toContain('-f ');
   });
 
-  it('wrapperCli set + sandbox off: returns wrapper form (aiden x claude ...)', () => {
+  it('wrapperCli set + sandbox off: returns wrapper form', () => {
     const r = selectReproduceLaunch({
       ...base,
-      wrapperCli: 'aiden x claude',
+      wrapperCli: 'custom-wrapper claude',
       sandboxOn: false,
       binResolver: (b) => b,
     });
-    expect(r.bin).toBe('aiden');
-    // wrapper tokens 前置，基础 CLI args 跟随（aiden wrapper 会 strip 部分 unsafe args，
-    // 但 --session-id 应保留）。
-    expect(r.args[0]).toBe('x');
+    expect(r.bin).toBe('custom-wrapper');
+    expect(r.args[0]).toBe('claude');
     expect(r.args).toContain('--session-id');
   });
 
   it('wrapperCli set + sandbox ON: wrapper ignored (matches worker: wrapper vs bwrap mutually exclusive), base only', () => {
     const r = selectReproduceLaunch({
       ...base,
-      wrapperCli: 'aiden x claude',
+      wrapperCli: 'custom-wrapper claude',
       sandboxOn: true,
       binResolver: (b) => b,
     });

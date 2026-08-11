@@ -31,7 +31,7 @@ export function addCodexAppContext(
   value: string,
   kind: CodexAppAdditionalContextEntry['kind'],
 ): void {
-  if (!value) return;
+  if (!value.trim()) return;
   if (!/^[A-Za-z0-9_]+$/.test(key)) {
     throw new Error(`Unsafe Codex App additionalContext key: ${key}`);
   }
@@ -50,7 +50,7 @@ export function withCodexAppContext(
   value: string,
   kind: CodexAppAdditionalContextEntry['kind'],
 ): CodexAppTurnInput {
-  if (!value) return input;
+  if (!value.trim()) return input;
   const additionalContext = { ...input.additionalContext };
   addCodexAppContext(additionalContext, key, value, kind);
   return { ...input, additionalContext };

@@ -15,7 +15,7 @@ import {
 const BOTS: GroupsBotInput[] = [
   { larkAppId: 'cli_claude', botName: 'claude' },
   { larkAppId: 'cli_codex', botName: 'codex' },
-  { larkAppId: 'cli_mira', botName: 'mira' },
+  { larkAppId: 'cli_example', botName: 'example' },
 ];
 
 function member(over: Partial<GroupsMemberBotInput> & { larkAppId: string; botName: string }): GroupsMemberBotInput {
@@ -36,7 +36,7 @@ describe('groups-card-model · filterGroups', () => {
   it('query matches name, chatId, or ownerId — case-insensitive', () => {
     const chats: GroupsChatInput[] = [
       makeChat({ chatId: 'oc_alpha111', name: 'Alpha Room', ownerId: 'cli_codex' }),
-      makeChat({ chatId: 'oc_beta222', name: 'Beta Room', ownerId: 'cli_mira' }),
+      makeChat({ chatId: 'oc_beta222', name: 'Beta Room', ownerId: 'cli_example' }),
       makeChat({ chatId: 'oc_gamma333', name: 'Gamma Room', ownerId: 'cli_claude' }),
     ];
     expect(filterGroups(chats, { query: 'ALPHA' }).map(c => c.chatId)).toEqual(['oc_alpha111']);
@@ -51,7 +51,7 @@ describe('groups-card-model · filterGroups', () => {
       memberBots: [
         member({ larkAppId: 'cli_claude', botName: 'claude' }),
         { larkAppId: 'cli_codex', botName: 'codex', inChat: false },
-        member({ larkAppId: 'cli_mira', botName: 'mira' }),
+        member({ larkAppId: 'cli_example', botName: 'example' }),
       ],
     });
     const absent = makeChat({
@@ -59,7 +59,7 @@ describe('groups-card-model · filterGroups', () => {
       memberBots: [
         member({ larkAppId: 'cli_claude', botName: 'claude' }),
         member({ larkAppId: 'cli_codex', botName: 'codex' }),
-        // mira intentionally NOT listed — only detectable when the bot universe is passed.
+        // The example bot is intentionally absent and only detectable from the bot universe.
       ],
     });
     const statusUnknown = makeChat({
@@ -67,7 +67,7 @@ describe('groups-card-model · filterGroups', () => {
       memberBots: [
         member({ larkAppId: 'cli_claude', botName: 'claude' }),
         { larkAppId: 'cli_codex', botName: 'codex', status: 'unknown' },
-        member({ larkAppId: 'cli_mira', botName: 'mira' }),
+        member({ larkAppId: 'cli_example', botName: 'example' }),
       ],
     });
     const statusError = makeChat({
@@ -75,7 +75,7 @@ describe('groups-card-model · filterGroups', () => {
       memberBots: [
         member({ larkAppId: 'cli_claude', botName: 'claude' }),
         member({ larkAppId: 'cli_codex', botName: 'codex' }),
-        { larkAppId: 'cli_mira', botName: 'mira', status: 'error' },
+        { larkAppId: 'cli_example', botName: 'example', status: 'error' },
       ],
     });
 
@@ -86,7 +86,7 @@ describe('groups-card-model · filterGroups', () => {
     );
     expect(kept.map(c => c.chatId)).toEqual(['oc_notInChat', 'oc_absent', 'oc_unknown', 'oc_error']);
 
-    // Without the bots universe, the "row absent" case (mira not listed at all)
+    // Without the bots universe, the absent row
     // is NOT detectable and `absent` drops out of the missingOnly slice.
     const withoutBotsUniverse = filterGroups(
       [fullyCovered, notInChat, absent, statusUnknown, statusError],
@@ -120,11 +120,11 @@ describe('groups-card-model · buildGroupRow', () => {
       memberBots: [
         { larkAppId: 'cli_claude', botName: 'claude', inChat: true },
         { larkAppId: 'cli_codex', botName: 'codex', inChat: false },
-        { larkAppId: 'cli_mira', botName: 'mira', status: 'error' },
+        { larkAppId: 'cli_example', botName: 'example', status: 'error' },
       ],
     };
     const row = buildGroupRow(chat, BOTS);
-    expect(row.coverage.map(c => c.larkAppId)).toEqual(['cli_claude', 'cli_codex', 'cli_mira']);
+    expect(row.coverage.map(c => c.larkAppId)).toEqual(['cli_claude', 'cli_codex', 'cli_example']);
     expect(row.coverage.map(c => c.status)).toEqual(['in', 'out', 'error']);
     expect(row.missingCount).toBe(2);
     expect(row.totalBots).toBe(3);
@@ -146,7 +146,7 @@ describe('groups-card-model · buildGroupRows', () => {
     const fully = makeChat({ chatId: 'oc_fully' });
     const missing = makeChat({
       chatId: 'oc_missing',
-      memberBots: BOTS.map(b => member({ larkAppId: b.larkAppId, botName: b.botName, inChat: b.larkAppId !== 'cli_mira' })),
+      memberBots: BOTS.map(b => member({ larkAppId: b.larkAppId, botName: b.botName, inChat: b.larkAppId !== 'cli_example' })),
     });
     const out = buildGroupRows([fully, missing], BOTS, { missingOnly: true }, 1, 10);
     expect(out.rows.map(r => r.chatId)).toEqual(['oc_missing']);
@@ -163,7 +163,7 @@ describe('groups-card-model · buildGroupDetail', () => {
       memberBots: [
         { larkAppId: 'cli_claude', botName: 'claude', inChat: true, oncallChat: null },
         { larkAppId: 'cli_codex', botName: 'codex', inChat: true, oncallChat: { chatId: 'oc_detail', workingDir: '/repo/codex' } },
-        { larkAppId: 'cli_mira', botName: 'mira', inChat: false },
+        { larkAppId: 'cli_example', botName: 'example', inChat: false },
       ],
     };
     const detail = buildGroupDetail(chat, BOTS);
@@ -181,10 +181,10 @@ describe('groups-card-model · buildGroupDetail', () => {
     expect(codex.oncallChat).toEqual({ chatId: 'oc_detail', workingDir: '/repo/codex' });
     expect(codex.oncallWorkingDir).toBe('/repo/codex');
 
-    const mira = detail.members[2]!;
-    expect(mira.status).toBe('out');
-    expect(mira.bind.enabled).toBe(false);
-    expect(mira.unbind.enabled).toBe(false);
+    const example = detail.members[2]!;
+    expect(example.status).toBe('out');
+    expect(example.bind.enabled).toBe(false);
+    expect(example.unbind.enabled).toBe(false);
   });
 
   it('oncallChat object passes through to detail; { workingDir: "" } still counts as bound', () => {

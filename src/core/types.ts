@@ -163,7 +163,6 @@ export interface DaemonSession {
   streamCardNonce?: string;       // unique nonce for the current streaming card — embedded in button values to distinguish old vs current card
   streamCardPending?: boolean;    // true when a new turn started, next screen_update creates a new card
   pendingLocalCliButtonRefresh?: boolean; // true when cli_session_id arrived while the streaming card POST was in flight
-  pendingRiffUrlCardRefresh?: boolean; // true when riff_access_url arrived while the streaming card POST was in flight
   /** Set on sessions restored after a daemon restart: suppresses the automatic
    *  card post/patch from the recovery re-fork so a restart stays silent in the
    *  group (the owner gets a private DM summary instead). Cleared on the first
@@ -207,11 +206,6 @@ export interface DaemonSession {
   /** The currently referenced card has been frozen/parked for handoff. Tier
    * updates belong to the successor card and must not rewrite this snapshot. */
   parkedStreamCardNonce?: string;
-  /** Riff AIO Sandbox web terminal link. When set, buildTerminalUrl returns
-   *  this URL directly (bypassing the local terminal proxy) so the dashboard
-   *  "Web终端" button opens the riff sandbox. In-memory only — re-sent by the
-   *  worker on each task. */
-  riffAccessUrl?: string;
   usageLimit?: CliUsageLimitState;
   usageLimitRetryTimer?: NodeJS.Timeout;
   /** Interval that re-PATCHes the live streaming card with fresh Context/Token

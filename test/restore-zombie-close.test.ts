@@ -501,13 +501,13 @@ describe('restoreActiveSessions — persistent-backend zombie-close decision', (
   });
 
   it('wrapper mismatch on restore (same cliId) → closes the active record', async () => {
-    // 'aiden x claude' and bare claude-code share cliId='claude-code' but are
+    // A custom wrapper and bare claude-code share cliId='claude-code' but are
     // distinct launch choices (selectionKeyForBot keys on cliId+wrapperCli).
     // A frozen wrapper snapshot that differs from the bot's current wrapper is
     // the same config-switch case as a cliId change and must close too.
     probe.result = 'missing';
     const s = makeActivePersistentSession('om_wrapper_mismatch');
-    s.wrapperCli = 'aiden x claude';
+    s.wrapperCli = 'custom-wrapper claude';
     s.agentFrozen = true;
     sessionStore.updateSession(s);
     const map = new Map<string, DaemonSession>();
@@ -524,9 +524,9 @@ describe('restoreActiveSessions — persistent-backend zombie-close decision', (
 
   it('frozen wrapper matching the bot wrapper → NOT a mismatch, session kept', async () => {
     probe.result = 'missing';
-    bot.wrapperCli = 'aiden x claude';
+    bot.wrapperCli = 'custom-wrapper claude';
     const s = makeActivePersistentSession('om_wrapper_match');
-    s.wrapperCli = 'aiden x claude';
+    s.wrapperCli = 'custom-wrapper claude';
     s.agentFrozen = true;
     sessionStore.updateSession(s);
     const map = new Map<string, DaemonSession>();
@@ -545,7 +545,7 @@ describe('restoreActiveSessions — persistent-backend zombie-close decision', (
     // exactly what the bot is configured for — closing it would be a false
     // positive.
     probe.result = 'missing';
-    bot.wrapperCli = 'aiden x claude';
+    bot.wrapperCli = 'custom-wrapper claude';
     const s = makeActivePersistentSession('om_wrapper_legacy');
     sessionStore.updateSession(s);
     const map = new Map<string, DaemonSession>();
@@ -755,7 +755,7 @@ describe('closeCliMismatchedSessionsForBot — runtime CLI hot-switch sweep', ()
 
   it('closes wrapper-axis mismatches for frozen sessions', async () => {
     const s = makeActivePersistentSession('om_rt_wrapper');
-    s.wrapperCli = 'aiden x claude';
+    s.wrapperCli = 'custom-wrapper claude';
     s.agentFrozen = true;
     sessionStore.updateSession(s);
     registerDs(s);

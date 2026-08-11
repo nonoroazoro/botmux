@@ -47,7 +47,7 @@ function fakeRawPty(opts: { throwOnWrite?: boolean } = {}) {
   return { pty, writes };
 }
 
-/** Faithful mirror of codex-app-runner.ts / mira-runner.ts handleInput buffer
+/** Faithful mirror of the runner input buffer
  *  logic: accumulate stdin bytes, enqueue (and base64-decode the control line)
  *  only on a newline. Used to prove no cross-message buffer contamination. */
 function makeRunnerSim() {

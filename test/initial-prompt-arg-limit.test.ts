@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createPiAdapter } from '../src/adapters/cli/pi.js';
 import { createGrokAdapter } from '../src/adapters/cli/grok.js';
-import { createRiffAdapter } from '../src/adapters/cli/riff.js';
 import { createGeminiAdapter } from '../src/adapters/cli/gemini.js';
 import { shouldQueueInitialPrompt } from '../src/codex-rpc-lifecycle.js';
 import {
@@ -27,20 +26,6 @@ describe('shouldArmSpawnArgvInitialPromptBusy (PR #633 CR)', () => {
       injectsReadyHook: grok.injectsReadyHook === true,
       reliableTurnTerminal: grok.reliableTurnTerminal === true,
     })).toBe(true);
-  });
-
-  it('does not arm for Riff (prompt is queue-after-spawn, not argv)', () => {
-    const riff = createRiffAdapter();
-    // Reviewer regression: preparedInitialPrompt non-empty alone must NOT arm —
-    // Riff ignores prompt in buildArgs and queues after spawnCli returns.
-    expect(riff.passesInitialPromptViaArgs).toBeFalsy();
-    expect(shouldArmSpawnArgvInitialPromptBusy({
-      passesInitialPromptViaArgs: riff.passesInitialPromptViaArgs === true,
-      preparedInitialPrompt: 'hello from feishu',
-      queuedInitialPrompt: undefined,
-      injectsReadyHook: riff.injectsReadyHook === true,
-      reliableTurnTerminal: riff.reliableTurnTerminal === true,
-    })).toBe(false);
   });
 
   it('does not arm for quiescence-only argv adapters (Pi / Gemini) but still tracks argv seed', () => {
@@ -73,15 +58,12 @@ describe('shouldArmSpawnArgvInitialPromptBusy (PR #633 CR)', () => {
     })).toBe(false);
   });
 
-  it('Riff post-spawn queue path: shouldQueueInitialPrompt is true when prompt exists', () => {
-    // Behavioral pin: riff does not bake prompt into argv, so the worker must
-    // queue + flush once after spawn (isPromptReady stays true for that flush).
-    const riff = createRiffAdapter();
+  it('queues a first prompt for queue-after-spawn adapters', () => {
     expect(shouldQueueInitialPrompt({
       hasPrompt: true,
       rpcEngineActive: false,
       queuePrompt: false,
-      passesInitialPromptViaArgs: riff.passesInitialPromptViaArgs === true,
+      passesInitialPromptViaArgs: false,
       deferInitialPrompt: false,
     })).toBe(true);
   });

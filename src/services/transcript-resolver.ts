@@ -3,7 +3,6 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import type { CliId } from '../adapters/cli/types.js';
 import { botHomePath } from '../adapters/cli/read-isolation.js';
-import { createCliAdapterSync } from '../adapters/cli/registry.js';
 import { expandHome } from '../core/working-dir.js';
 import { findCodexRolloutBySessionId, findCodexSessionIdByBotmuxSessionId } from './codex-transcript.js';
 import { codexHome as configuredCodexHome } from './codex-paths.js';
@@ -103,17 +102,6 @@ export function getClaudeSessionJsonlPath(
     && regularFileMtime(jsonlPath) !== null
     ? jsonlPath
     : null;
-}
-
-/** Resolve a Claude-family fork's (seed / relay) data root EXACTLY as the worker
- *  does, so usage/insight reads hit the same transcript the CLI wrote. */
-const claudeForkDataDirCache = new Map<string, string>();
-function claudeForkDataDir(cliId: 'seed' | 'relay'): string {
-  const cached = claudeForkDataDirCache.get(cliId);
-  if (cached) return cached;
-  const dir = createCliAdapterSync(cliId).claudeDataDir ?? join(homedir(), '.claude-runtime');
-  claudeForkDataDirCache.set(cliId, dir);
-  return dir;
 }
 
 /** Resolve one CLI data root redirected beneath a sandboxed bot's BOT_HOME.
@@ -264,7 +252,7 @@ function codexRolloutInHome(
  *  surface usage, so UI should hide usage-display options for it rather than
  *  offer a control that is always empty. */
 const USAGE_RESOLVABLE_CLI_IDS: ReadonlySet<string> = new Set([
-  'claude-code', 'aiden', 'seed', 'relay', 'codex', 'coco', 'cursor', 'traex', 'antigravity',
+  'claude-code', 'codex', 'coco', 'cursor', 'traex', 'antigravity',
 ]);
 
 /** True when this CLI can produce native usage (has a resolvable transcript).
@@ -278,15 +266,6 @@ export function resolveSessionTranscriptPath(q: TranscriptPathQuery): ResolvedTr
   switch (q.cliId) {
     case 'claude-code': {
       const path = claudeJsonlWithBotHomeFallback(sid, q, join(homedir(), '.claude'));
-      return path ? { path, kind: 'claude' } : null;
-    }
-    case 'aiden': {
-      const path = claudeJsonlWithBotHomeFallback(sid, q, join(homedir(), '.claude'));
-      return path ? { path, kind: 'claude' } : null;
-    }
-    case 'seed':
-    case 'relay': {
-      const path = claudeJsonlWithBotHomeFallback(sid, q, claudeForkDataDir(q.cliId));
       return path ? { path, kind: 'claude' } : null;
     }
     case 'codex': {

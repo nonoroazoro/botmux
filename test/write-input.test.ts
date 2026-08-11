@@ -19,7 +19,7 @@
  *   message in the input box. Submit is verified via CoCo's platform-specific
  *   history.jsonl.
  * - CoCo (raw PTY): same explicit \x1b[200~...\x1b[201~ wrap as claude-code.
- * - Other adapters (Aiden/Codex/Gemini): use plain sendText + Enter
+ * - Other adapters use plain sendText + Enter
  *   in tmux, or write(content) + \r in raw mode. The whole content (including
  *   newlines) is sent in one sendText call — those CLIs tolerate raw LF.
  * - OpenCode: short single-line prompts use sendText + Enter; multiline or
@@ -44,7 +44,6 @@ import {
   chunkTextByUtf8Bytes,
   createClaudeCodeAdapter,
 } from '../src/adapters/cli/claude-code.js';
-import { createAidenAdapter } from '../src/adapters/cli/aiden.js';
 import { createCocoAdapter } from '../src/adapters/cli/coco.js';
 import { createCodexAdapter } from '../src/adapters/cli/codex.js';
 import { createTraexAdapter } from '../src/adapters/cli/traex.js';
@@ -53,7 +52,6 @@ import { createGeniusAdapter } from '../src/adapters/cli/genius.js';
 import { createOpenCodeAdapter } from '../src/adapters/cli/opencode.js';
 import { createMtrAdapter } from '../src/adapters/cli/mtr.js';
 import { createHermesAdapter } from '../src/adapters/cli/hermes.js';
-import { createMiraAdapter } from '../src/adapters/cli/mira.js';
 import { createPiAdapter } from '../src/adapters/cli/pi.js';
 import { createGrokAdapter } from '../src/adapters/cli/grok.js';
 import { createKiroCliAdapter } from '../src/adapters/cli/kiro-cli.js';
@@ -158,12 +156,11 @@ function makeRawPty(opts?: { confirmCodexSubmit?: boolean; codexSessionId?: stri
 
 type AdapterEntry = [string, CliAdapter];
 
-/** Adapters that use plain sendText+Enter (tmux) / write+CR (raw) — Aiden,
- *  Gemini, Genius, MTR, Hermes. (Codex moved to PASTE_BUFFER_ADAPTERS; its
+/** Adapters that use plain sendText+Enter (tmux) / write+CR (raw).
+ *  Codex moved to PASTE_BUFFER_ADAPTERS because its
  *  TUI treats every literal \n as Enter, so a multi-line burst fragmented into
  *  per-line submits / "Queued follow-up inputs" — bracketed paste fixes it.) */
 const PLAIN_ADAPTERS: AdapterEntry[] = [
-  ['aiden', createAidenAdapter('/bin/aiden')],
   ['gemini', createGeminiAdapter('/bin/gemini')],
   ['genius', createGeniusAdapter('/bin/genius')],
   ['mtr', createMtrAdapter('/bin/mtr')],
@@ -171,12 +168,6 @@ const PLAIN_ADAPTERS: AdapterEntry[] = [
 ];
 
 const OPENCODE_ADAPTER: AdapterEntry = ['opencode', createOpenCodeAdapter('/bin/opencode')];
-
-/** Node runner adapters use a one-line base64 control protocol so multiline
- *  content cannot be split by terminal Enter semantics. */
-const APP_RUNNER_ADAPTERS: AdapterEntry[] = [
-  ['mira', createMiraAdapter()],
-];
 
 /** Adapters that type per-line + `\` soft-newline + Enter (Claude Code idiom). */
 const HUMAN_TYPING_ADAPTERS: AdapterEntry[] = [
@@ -206,14 +197,7 @@ const ALL_ADAPTERS: AdapterEntry[] = [
   ...PASTE_BUFFER_ADAPTERS,
   ...PLAIN_ADAPTERS,
   OPENCODE_ADAPTER,
-  ...APP_RUNNER_ADAPTERS,
 ];
-
-function decodeRunnerLine(line: string, prefix: string): any {
-  expect(line.startsWith(prefix)).toBe(true);
-  const encoded = line.slice(prefix.length).replace(/\r$/, '');
-  return JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
-}
 
 // =========================================================================
 // 1. Single-line content
@@ -236,14 +220,6 @@ describe('writeInput: single-line, tmux mode', () => {
     expect(pty.sendText).not.toHaveBeenCalled();
   });
 
-  it.each(APP_RUNNER_ADAPTERS)('%s: sends a base64 runner control line + Enter', async (_name, adapter) => {
-    const pty = makeTmuxPty();
-    await adapter.writeInput(pty, 'hello world');
-    const line = pty.sendText.mock.calls[0]?.[0] ?? '';
-    expect(decodeRunnerLine(line, '::botmux-mira:')).toEqual({ type: 'message', content: 'hello world' });
-    expect(pty.sendSpecialKeys).toHaveBeenCalledWith('Enter');
-    expect(pty.pasteText).not.toHaveBeenCalled();
-  });
 });
 
 describe('writeInput: single-line, non-tmux mode', () => {
@@ -264,20 +240,13 @@ describe('writeInput: single-line, non-tmux mode', () => {
     expect(allWritten.endsWith('\r')).toBe(true);
   });
 
-  it.each(APP_RUNNER_ADAPTERS)('%s: writes a base64 runner control line + CR', async (_name, adapter) => {
-    const pty = makeRawPty();
-    await adapter.writeInput(pty, 'hello world');
-    const allWritten = pty.write.mock.calls.map(c => c[0]).join('');
-    expect(decodeRunnerLine(allWritten, '::botmux-mira:')).toEqual({ type: 'message', content: 'hello world' });
-    expect(allWritten.endsWith('\r')).toBe(true);
-  });
 });
 
 // =========================================================================
 // 2. Multiline content
 //    - Claude Code / CoCo / Codex: bracketed paste (pasteText) with the whole
 //      string — the embedded \n stay content, only the trailing Enter submits.
-//    - PLAIN adapters (Aiden/Gemini/MTR/Hermes): sendText with the
+//    - Plain adapters use sendText with the
 //      whole string (including \n) — those CLIs treat literal LF as a newline,
 //      not a submit, so only the trailing Enter submits.
 //    - OpenCode: pasteText for multiline/large prompts so its TUI receives
@@ -333,14 +302,6 @@ describe('writeInput: multiline, tmux mode', () => {
     expect(pty.pasteText).not.toHaveBeenCalled();
   });
 
-  it.each(APP_RUNNER_ADAPTERS)('%s: preserves multiline content inside the control payload', async (_name, adapter) => {
-    const pty = makeTmuxPty();
-    await adapter.writeInput(pty, MULTILINE);
-    const line = pty.sendText.mock.calls[0]?.[0] ?? '';
-    expect(decodeRunnerLine(line, '::botmux-mira:')).toEqual({ type: 'message', content: MULTILINE });
-    expect(pty.sendSpecialKeys).toHaveBeenCalledWith('Enter');
-    expect(pty.pasteText).not.toHaveBeenCalled();
-  });
 
   it.each(HUMAN_TYPING_ADAPTERS)('%s: sendText per-line + `\\` + Enter for soft newlines, no pasteText', async (_name, adapter) => {
     // 'first line\n\nSession ID: abc-123' splits into 3 lines: non-empty, empty, non-empty.

@@ -27,7 +27,6 @@ vi.mock('node:child_process', () => ({
 import { createCliAdapterSync } from '../src/adapters/cli/registry.js';
 import { TERMINAL_CANCEL_COOLDOWN_MS } from '../src/adapters/backend/critical-control-key.js';
 import { createClaudeCodeAdapter } from '../src/adapters/cli/claude-code.js';
-import { createAidenAdapter } from '../src/adapters/cli/aiden.js';
 import { createCocoAdapter } from '../src/adapters/cli/coco.js';
 import { createCodexAdapter } from '../src/adapters/cli/codex.js';
 import { createCodexAppAdapter } from '../src/adapters/cli/codex-app.js';
@@ -39,8 +38,6 @@ import { createAntigravityAdapter } from '../src/adapters/cli/antigravity.js';
 import { createMtrAdapter, mtrSessionIdForBotmuxSession } from '../src/adapters/cli/mtr.js';
 import { GOAL_ENV } from '../src/workflows/v3/contract.js';
 import { createHermesAdapter } from '../src/adapters/cli/hermes.js';
-import { createMiraAdapter } from '../src/adapters/cli/mira.js';
-import { createMirAdapter } from '../src/adapters/cli/mir.js';
 import { createTraexAdapter } from '../src/adapters/cli/traex.js';
 import { createPiAdapter } from '../src/adapters/cli/pi.js';
 import { createCopilotAdapter } from '../src/adapters/cli/copilot.js';
@@ -56,7 +53,7 @@ import type { CliAdapter, CliId, PtyHandle } from '../src/adapters/cli/types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-const ALL_CLI_IDS: CliId[] = ['claude-code', 'seed', 'aiden', 'coco', 'codex', 'codex-app', 'gemini', 'genius', 'opencode', 'antigravity', 'mtr', 'hermes', 'mira', 'mir', 'traex', 'pi', 'copilot', 'oh-my-pi', 'kimi', 'grok', 'kiro-cli', 'reasonix'];
+const ALL_CLI_IDS: CliId[] = ['claude-code', 'coco', 'codex', 'codex-app', 'gemini', 'genius', 'opencode', 'antigravity', 'mtr', 'hermes', 'traex', 'pi', 'copilot', 'oh-my-pi', 'kimi', 'grok', 'kiro-cli', 'reasonix'];
 
 // ---------------------------------------------------------------------------
 // 1. Factory: createCliAdapterSync
@@ -80,7 +77,7 @@ describe('createCliAdapterSync factory', () => {
 
   it.each(ALL_CLI_IDS)('adapter for "%s" has resolvedBin set', (id) => {
     const adapter = createCliAdapterSync(id, `/opt/${id}`);
-    if (id === 'codex-app' || id === 'mira' || id === 'mir') expect(adapter.resolvedBin).toBe(process.execPath);
+    if (id === 'codex-app') expect(adapter.resolvedBin).toBe(process.execPath);
     else expect(adapter.resolvedBin).toBe(`/opt/${id}`);
   });
 });
@@ -94,21 +91,19 @@ describe('createCliAdapterSync factory', () => {
 
 describe('lazy binary resolution', () => {
   // Direct CLI adapters resolve their actual executable lazily. Runner-backed
-  // adapters (codex-app/mira) intentionally use process.execPath and are covered
+  // codex-app intentionally uses process.execPath and is covered
   // by their own buildArgs tests below.
-  const DIRECT_CLI_IDS: CliId[] = ['claude-code', 'seed', 'aiden', 'coco', 'codex', 'cursor', 'gemini', 'genius', 'opencode', 'antigravity', 'mtr', 'hermes', 'traex', 'copilot', 'kimi', 'grok', 'kiro-cli', 'reasonix'];
+  const DIRECT_CLI_IDS: CliId[] = ['claude-code', 'coco', 'codex', 'cursor', 'gemini', 'genius', 'opencode', 'antigravity', 'mtr', 'hermes', 'traex', 'copilot', 'kimi', 'grok', 'kiro-cli', 'reasonix'];
 
   it.each(DIRECT_CLI_IDS)('"%s": construction does not probe; first resolvedBin read does', async (id) => {
     const { spawnSync } = await import('node:child_process');
     const probe = vi.mocked(spawnSync);
     probe.mockClear();
     const adapter = createCliAdapterSync(id); // bare command name → would probe if eager
-    // Seed eagerly resolves its bin to derive its data root; the others must not
-    // touch the shell until resolvedBin is read.
-    if (id !== 'seed') expect(probe).not.toHaveBeenCalled();
+    expect(probe).not.toHaveBeenCalled();
     probe.mockClear();
     void adapter.resolvedBin;
-    if (id !== 'seed') expect(probe).toHaveBeenCalled();
+    expect(probe).toHaveBeenCalled();
   });
 
   it('memoises: a second resolvedBin read does not probe again', async () => {
@@ -244,30 +239,6 @@ describe('claude-code buildArgs', () => {
   });
 });
 
-describe('aiden buildArgs', () => {
-  const adapter = createAidenAdapter('/usr/bin/aiden');
-
-  it('new session does not include --resume or session id', () => {
-    const args = adapter.buildArgs({ sessionId: 'sess-2', resume: false });
-    expect(args).not.toContain('--resume');
-    expect(args).not.toContain('sess-2');
-    expect(args).toContain('--permission-mode');
-    expect(args).toContain('agentFull');
-  });
-
-  it('resume session passes --resume with session id', () => {
-    const args = adapter.buildArgs({ sessionId: 'sess-2', resume: true });
-    expect(args).toContain('--resume');
-    expect(args).toContain('sess-2');
-  });
-
-  it('omits agentFull permission mode when disableCliBypass is true', () => {
-    const args = adapter.buildArgs({ sessionId: 'sess-2', resume: false, disableCliBypass: true });
-    expect(args).not.toContain('--permission-mode');
-    expect(args).not.toContain('agentFull');
-  });
-});
-
 describe('coco buildArgs', () => {
   const adapter = createCocoAdapter('/usr/bin/coco');
 
@@ -301,10 +272,10 @@ describe('coco buildArgs', () => {
   });
 
   it('passes configured model through coco config override', () => {
-    const args = adapter.buildArgs({ sessionId: 's', resume: false, model: 'Doubao-Seed-2.0-Code' });
+    const args = adapter.buildArgs({ sessionId: 's', resume: false, model: 'example-code-model' });
     const idx = args.indexOf('--config');
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('model.name=Doubao-Seed-2.0-Code');
+    expect(args[idx + 1]).toBe('model.name=example-code-model');
   });
 
   it('uses Trae skill root for filesystem skill discovery', () => {
@@ -524,86 +495,6 @@ describe('codex-app buildArgs', () => {
     });
     expect(args).toContain('--thread-id');
     expect(args).toContain('thread-123');
-  });
-});
-
-describe('mira buildArgs', () => {
-  const adapter = createMiraAdapter();
-
-  it('spawns the node runner', () => {
-    const args = adapter.buildArgs({ sessionId: 'sess-mira', resume: false, model: 'kimi-k2.5' });
-    expect(adapter.resolvedBin).toBe(process.execPath);
-    expect(args[0]).toMatch(/mira-runner\.js$/);
-    expect(args).toContain('--session-id');
-    expect(args).toContain('sess-mira');
-    expect(args).not.toContain('--model');
-    expect(args).not.toContain('kimi-k2.5');
-  });
-
-  it('resumes with the persisted Mira session id', () => {
-    const args = adapter.buildArgs({
-      sessionId: 'sess-mira',
-      resume: true,
-      resumeSessionId: 'mira-session-123',
-    });
-    expect(args).toContain('--mira-session-id');
-    expect(args).toContain('mira-session-123');
-  });
-});
-
-describe('mir buildArgs (runner model)', () => {
-  const adapter = createMirAdapter();
-
-  it('spawns the mir-runner via node with --session-id', () => {
-    const args = adapter.buildArgs({ sessionId: 'sess-mir', resume: false });
-    expect(adapter.resolvedBin).toBe(process.execPath);
-    expect(args[0]).toMatch(/mir-runner\.js$/);
-    expect(args).toContain('--session-id');
-    expect(args).toContain('sess-mir');
-  });
-
-  it('forwards bot identity + locale to the runner', () => {
-    const args = adapter.buildArgs({
-      sessionId: 's', resume: false, botName: 'Mir', botOpenId: 'ou_x', locale: 'zh',
-    });
-    expect(args).toContain('--bot-name');
-    expect(args).toContain('Mir');
-    expect(args).toContain('--bot-open-id');
-    expect(args).toContain('ou_x');
-    expect(args).toContain('--locale');
-    expect(args).toContain('zh');
-  });
-
-  it('ignores model (mircli model is a global file, not a flag)', () => {
-    const args = adapter.buildArgs({ sessionId: 's', resume: false, model: 'opus4.6' });
-    expect(args).not.toContain('--model');
-    expect(args).not.toContain('opus4.6');
-  });
-
-  it('passes a cliPathOverride to the runner via --mircli-bin (absolute kept as-is)', () => {
-    const overridden = createMirAdapter('/opt/mircli/bin/mircli');
-    const args = overridden.buildArgs({ sessionId: 's', resume: false });
-    const idx = args.indexOf('--mircli-bin');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('/opt/mircli/bin/mircli');
-  });
-
-  it('omits --mircli-bin when no cliPathOverride is configured', () => {
-    const args = adapter.buildArgs({ sessionId: 's', resume: false });
-    expect(args).not.toContain('--mircli-bin');
-  });
-
-  it('has no portable copy-paste resume command (mircli owns the session store)', () => {
-    expect(adapter.buildResumeCommand?.({ sessionId: 'sess-mir', cliSessionId: 'conv-abc' })).toBeNull();
-  });
-
-  it('readyPattern matches the runner prompt indicator', () => {
-    expect(adapter.readyPattern?.test('› ')).toBe(true);
-  });
-
-  it('injectsSessionContext (runner injects its own context) + empty systemHints', () => {
-    expect(adapter.injectsSessionContext).toBe(true);
-    expect(adapter.systemHints).toEqual([]);
   });
 });
 
@@ -1261,10 +1152,6 @@ describe('completionPattern', () => {
     expect(adapter.completionPattern!.test('Worked on it')).toBe(false);
   });
 
-  it('aiden has no completionPattern', () => {
-    expect(createAidenAdapter('/bin/aiden').completionPattern).toBeUndefined();
-  });
-
   it('coco has no completionPattern', () => {
     expect(createCocoAdapter('/bin/coco').completionPattern).toBeUndefined();
   });
@@ -1275,10 +1162,6 @@ describe('completionPattern', () => {
 
   it('codex-app has no completionPattern', () => {
     expect(createCodexAppAdapter('/bin/codex').completionPattern).toBeUndefined();
-  });
-
-  it('mira has no completionPattern', () => {
-    expect(createMiraAdapter().completionPattern).toBeUndefined();
   });
 
   it('gemini has no completionPattern', () => {
@@ -1430,16 +1313,6 @@ describe('readyPattern', () => {
     expect(adapter.readyPattern!.test('›')).toBe(true);
   });
 
-  it('mira matches runner prompt indicator', () => {
-    const adapter = createMiraAdapter();
-    expect(adapter.readyPattern).toBeDefined();
-    expect(adapter.readyPattern!.test('›')).toBe(true);
-  });
-
-  it('aiden has no readyPattern', () => {
-    expect(createAidenAdapter('/bin/aiden').readyPattern).toBeUndefined();
-  });
-
   it('gemini has no readyPattern', () => {
     expect(createGeminiAdapter('/bin/gemini').readyPattern).toBeUndefined();
   });
@@ -1532,14 +1405,7 @@ describe('systemHints', () => {
     expect(createCodexAppAdapter('/bin/codex').injectsSessionContext).toBe(true);
   });
 
-  it('mira has empty systemHints (runner injects API instructions)', () => {
-    expect(createMiraAdapter().systemHints).toEqual([]);
-    expect(createMiraAdapter().injectsSessionContext).toBe(true);
-    expect(createMiraAdapter().modelChoices).toBeUndefined();
-  });
-
   const nonClaudeAdapters: Array<[string, () => CliAdapter]> = [
-    ['aiden', () => createAidenAdapter('/bin/aiden')],
     ['coco', () => createCocoAdapter('/bin/coco')],
     ['codex', () => createCodexAdapter('/bin/codex')],
     ['gemini', () => createGeminiAdapter('/bin/gemini')],
@@ -1571,7 +1437,6 @@ describe('systemHints', () => {
 describe('id property', () => {
   const expected: [CliId, () => CliAdapter][] = [
     ['claude-code', () => createClaudeCodeAdapter('/bin/claude')],
-    ['aiden', () => createAidenAdapter('/bin/aiden')],
     ['coco', () => createCocoAdapter('/bin/coco')],
     ['codex', () => createCodexAdapter('/bin/codex')],
     ['codex-app', () => createCodexAppAdapter('/bin/codex')],
@@ -1580,7 +1445,6 @@ describe('id property', () => {
     ['antigravity', () => createAntigravityAdapter('/bin/agy')],
     ['mtr', () => createMtrAdapter('/bin/mtr')],
     ['hermes', () => createHermesAdapter('/bin/hermes')],
-    ['mira', () => createMiraAdapter()],
     ['pi', () => createPiAdapter('/bin/pi')],
     ['copilot', () => createCopilotAdapter('/bin/copilot')],
     ['kiro-cli', () => createKiroCliAdapter('/bin/kiro-cli')],
@@ -1609,10 +1473,6 @@ describe('altScreen property', () => {
     expect(createClaudeCodeAdapter('/bin/claude').altScreen).toBe(false);
   });
 
-  it('aiden does not use alt screen', () => {
-    expect(createAidenAdapter('/bin/aiden').altScreen).toBe(false);
-  });
-
   it('coco does not use alt screen', () => {
     expect(createCocoAdapter('/bin/coco').altScreen).toBe(false);
   });
@@ -1635,10 +1495,6 @@ describe('altScreen property', () => {
 
   it('hermes does not use alt screen', () => {
     expect(createHermesAdapter('/bin/hermes').altScreen).toBe(false);
-  });
-
-  it('mira does not use alt screen', () => {
-    expect(createMiraAdapter().altScreen).toBe(false);
   });
 
   it('pi native TUI uses alt screen', () => {
@@ -1671,12 +1527,6 @@ describe('buildResumeCommand', () => {
       .toBe('claude --resume bm-1');
   });
 
-  it('aiden uses botmux sessionId directly (no separate cli id)', () => {
-    const a = createAidenAdapter('/bin/aiden');
-    expect(a.buildResumeCommand?.({ sessionId: 'sess-aiden', cliSessionId: 'ignored' }))
-      .toBe('aiden --resume sess-aiden');
-  });
-
   it('coco uses botmux sessionId', () => {
     const a = createCocoAdapter('/bin/coco');
     expect(a.buildResumeCommand?.({ sessionId: 'sess-coco' }))
@@ -1701,11 +1551,6 @@ describe('buildResumeCommand', () => {
   it('codex-app has no copy-paste resume command', () => {
     const a = createCodexAppAdapter('/bin/codex');
     expect(a.buildResumeCommand?.({ sessionId: 'bm-x', cliSessionId: 'thread-1' })).toBeNull();
-  });
-
-  it('mira has no copy-paste resume command', () => {
-    const a = createMiraAdapter();
-    expect(a.buildResumeCommand?.({ sessionId: 'bm-x', cliSessionId: 'mira-session-1' })).toBeNull();
   });
 
   it('gemini does not implement buildResumeCommand (no precise resume)', () => {
@@ -1785,7 +1630,6 @@ describe('native session rename capability', () => {
     expect(createClaudeCodeAdapter('/bin/claude').buildSessionRenameCommand?.('new title'))
       .toBe('/rename new title');
 
-    expect(createCliAdapterSync('seed', '/bin/true').buildSessionRenameCommand).toBeUndefined();
     expect(createCodexAppAdapter('/bin/codex').buildSessionRenameCommand).toBeUndefined();
     expect(createCocoAdapter('/bin/coco').buildSessionRenameCommand).toBeUndefined();
   });

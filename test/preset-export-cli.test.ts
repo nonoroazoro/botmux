@@ -52,7 +52,7 @@ beforeAll(() => {
         name: 'norole',
         larkAppId: APP_NO_ROLE,
         larkAppSecret: SECRET,
-        cliId: 'aiden',
+        cliId: 'gemini',
       },
       {
         name: 'bareshell',

@@ -184,15 +184,13 @@ export function coversPath(p: string, child: string): boolean {
  * whole `~/.codex`: history.jsonl, sessions/, state_*.sqlite). Both are dropped.
  *
  * But authPaths that live OUTSIDE every rehomed root are external login sources
- * the redirect does NOT rehome — e.g. Seed/Relay's `~/.local/share/bytedcli` SSO
- * dir (bytedcli login reuse). Dropping those regresses login (a fresh BOT_HOME /
+ * the redirect does NOT rehome. Dropping those regresses login (a fresh BOT_HOME /
  * expired token cold-start would have no credential source). They MUST survive.
  *
  * NOTE this is a SUPPRESSION-vs-KEEP decision only. A path inside a rehomed root
- * whose BOT_HOME copy is NOT provisioned (e.g. `<dataDir>/byted-cloud-auth.json`
- * — never seeded, and never the redirected read location since the CLI resolves
- * it under $CLAUDE_CONFIG_DIR=BOT_HOME) is still dropped: keeping the host path
- * would not help the redirected read anyway. Provisioning such files into
+ * whose BOT_HOME copy is NOT provisioned (for example, a deployment token file
+ * that is never seeded and is not the redirected read location) is still
+ * dropped: keeping the host path would not help the redirected read anyway. Provisioning such files into
  * BOT_HOME is a separate concern (see provisionIsolatedBotHome), orthogonal to
  * closing the host-dir leak this filter exists for.
  *
@@ -223,7 +221,7 @@ export function authPathsSurvivingCliDataRedirect(
  * - not redirected → expose the adapter's declared authPaths verbatim.
  * - redirected     → drop the ones inside a rehomed host data root
  *                    (authPathsSurvivingCliDataRedirect), keeping data-root-external
- *                    login sources (Seed/Relay bytedcli SSO).
+ *                    deployment-provided login sources.
  *
  * rehomedHostRoots is assembled from the adapter's ORIGINAL host data dir
  * (claude family) + the codex host root when applicable — passed in by the worker
@@ -531,7 +529,7 @@ export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
   // Adapter-declared surfaces.
   push(ctx.execPaths, 'readOnly', 'adapter');
   // authPaths = the model CLI's OWN login/state surface (~/.codex, ~/.claude
-  // credentials, Seed/bytedcli SSO, Gemini OAuth, OpenCode DB, …) — NOT Feishu.
+  // credentials, deployment SSO, Gemini OAuth, OpenCode DB, …) — NOT Feishu.
   // These MUST stay granted even for a no-transport turn, else the CLI can't
   // authenticate and the core functionality breaks. The no-Lark-transport gate
   // only denies Feishu-authority paths (below), never the CLI's own auth.

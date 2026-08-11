@@ -22,8 +22,8 @@ describe('resolveMultiUserSessionPaths', () => {
         root,
         ownerOnlyTopics: true,
         defaultGitIdentity: {
-          name: 'Finder Master',
-          email: 'finder-master@botmux.local',
+          name: 'Example Bot',
+          email: 'example-bot@example.com',
         },
       },
       principalOpenId: 'ou_alice',
@@ -32,7 +32,7 @@ describe('resolveMultiUserSessionPaths', () => {
     });
 
     expect(result.workingDir).toMatch(/\/workspace\/project-a$/u);
-    expect(readFileSync(join(result.homeDir, '.gitconfig'), 'utf8')).toContain('Finder Master');
+    expect(readFileSync(join(result.homeDir, '.gitconfig'), 'utf8')).toContain('Example Bot');
     expect(statSync(root).mode & 0o777).toBe(0o700);
   });
 

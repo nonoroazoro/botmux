@@ -96,29 +96,6 @@ describe('maybeCreateDefaultWorktree', () => {
     expect(notices[1]).toContain(r.dir);
   });
 
-  it('does not push for an invalid codex-app + riff backend pair', async () => {
-    const repo = makeRepo('codex-invalid-riff');
-    const { mod } = await loadWithBot(repo, true, { cliId: 'codex-app', backendType: 'riff' });
-
-    const r = await mod.maybeCreateDefaultWorktree('app_wt', repo, {
-      isBotDefaultDir: true, locale: 'zh',
-    });
-
-    const branch = git(r.dir, 'branch', '--show-current');
-    expect(git(repo, 'ls-remote', '--heads', 'origin', `refs/heads/${branch}`)).toBe('');
-  });
-
-  it('pushes when a Riff CLI is paired with a stale local backend', async () => {
-    const repo = makeRepo('riff-invalid-local');
-    const { mod } = await loadWithBot(repo, true, { cliId: 'riff', backendType: 'pty' });
-
-    const r = await mod.maybeCreateDefaultWorktree('app_wt', repo, {
-      isBotDefaultDir: true, locale: 'zh',
-    });
-
-    const branch = git(r.dir, 'branch', '--show-current');
-    expect(git(repo, 'ls-remote', '--heads', 'origin', `refs/heads/${branch}`)).toContain(`refs/heads/${branch}`);
-  });
 
   it('non-git default dir falls back WITHOUT a premature "creating" notice (single fallback notice)', async () => {
     const plain = join(tempRoot, 'not-a-repo');

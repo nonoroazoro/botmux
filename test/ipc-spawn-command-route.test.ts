@@ -5,7 +5,7 @@
 //   - 过 loopback-HMAC（ipcHmacAuthorized）；未签名请求 401。
 //   - 只读 active session 的**内存**字段 DaemonSession.spawnCommand；非 active → 404，
 //     不从持久化 session 取（避免误暴露、也确认没落盘）。
-//   - active 但无命令（riff / warm reattach / daemon 刚重启还没 ready）→ 404 unavailable。
+//   - active 但无命令（warm reattach / daemon 刚重启还没 ready）→ 404 unavailable。
 //
 // 手法沿用 test/ipc-cd-route.test.ts：真实 IPC server(port 0) + fetch + spyOn。
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -61,11 +61,11 @@ describe('GET /api/sessions/:sessionId/spawn-command', () => {
     expect(await res.json()).toMatchObject({ ok: false, error: 'session_not_active' });
   });
 
-  it('404 spawn_command_unavailable when active but no command (riff / warm reattach / pre-ready)', async () => {
+  it('404 spawn_command_unavailable when active but no command (warm reattach / pre-ready)', async () => {
     vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
-      session: { sessionId: 's-riff' }, spawnCommand: undefined,
+      session: { sessionId: 's-pre-ready' }, spawnCommand: undefined,
     } as any);
-    const res = await getSpawnCommand('s-riff');
+    const res = await getSpawnCommand('s-pre-ready');
     expect(res.status).toBe(404);
     expect(await res.json()).toMatchObject({ ok: false, error: 'spawn_command_unavailable' });
   });

@@ -79,7 +79,6 @@ import {
 import { handleAskCardAction, isAskCardAction } from './ask-card.js';
 import { createCliAdapterSync } from '../../adapters/cli/registry.js';
 import { buildClosedSessionCard } from '../../core/closed-session-card.js';
-import { ttadkConfigModelChoices } from '../../setup/cli-selection.js';
 import { logger } from '../../utils/logger.js';
 import * as sessionStore from '../../services/session-store.js';
 import { loadFrozenCards, saveFrozenCards } from '../../services/frozen-card-store.js';
@@ -95,9 +94,8 @@ import { sessionKey, sessionAnchorId, frozenDisplayMode, markRepoCardConsumed, i
 import type { DaemonSession } from '../../core/types.js';
 import { buildTerminalUrl } from '../../core/terminal-url.js';
 import type { ProjectInfo } from '../../services/project-scanner.js';
-import { createRepoWorktree, removeRepoWorktree, dirSuffixForBranch, pushWorktreeBranch } from '../../services/git-worktree.js';
+import { createRepoWorktree, removeRepoWorktree, dirSuffixForBranch } from '../../services/git-worktree.js';
 import { withCodexAppContext } from '../../utils/codex-app-context.js';
-import { resolvePairedSpawnBackendType } from '../../core/persistent-backend.js';
 import { sessionConfiguredRuntimeDisplayName } from '../../core/cli-runtime-display.js';
 import { worktreeSlugFromContextAI } from '../../services/worktree-slug-ai.js';
 import { t, localeForBot, isLocale, type Locale } from '../../i18n/index.js';
@@ -306,21 +304,6 @@ function sessionCliDisplayName(ds: DaemonSession): string {
   return sessionRuntimeDisplayName(ds) ?? getCliDisplayName(sessionCliId(ds));
 }
 
-/** Worktree selection always creates or starts a fresh session. Decide whether
- * that next session will use Riff from the live bot pairing after applying the
- * same invalid-pair reconciliation as forkWorker, rather than from the old
- * session stamp or the raw backendType alone. */
-function nextSessionUsesRiffBackend(ds: DaemonSession): boolean {
-  const botCfg = getBot(ds.larkAppId).config;
-  const pendingSession = ds.pendingRepo === true;
-  return resolvePairedSpawnBackendType(
-    pendingSession ? sessionCliId(ds) : botCfg.cliId,
-    pendingSession ? ds.session.backendType : undefined,
-    botCfg.backendType,
-    config.daemon.backendType,
-  ) === 'riff';
-}
-
 function validateCardCliBinding(ds: DaemonSession, value?: Record<string, string>): boolean {
   const expected = value?.cli_id;
   if (!expected) return true;
@@ -425,7 +408,6 @@ export async function commitRepoSelection(
     suppressConfirmReply?: boolean;
     confirmReplyText?: string;
     pinWorkingDir?: boolean;
-    riffRepoDirs?: string[];
   },
 ): Promise<void> {
   const { ds, rootId, cardMessageId, larkAppId, operatorOpenId, activeSessions, sessionReply } = ctx;
@@ -457,7 +439,6 @@ export async function commitRepoSelection(
         ds.workingDir = dirPath;
         ds.session.workingDir = dirPath;
       }
-      ds.session.riffRepoDirs = opts?.riffRepoDirs;
       sessionStore.updateSession(ds.session);
       const selfBot = getBot(ds.larkAppId);
       const botCfg = selfBot.config;
@@ -713,7 +694,6 @@ export async function commitRepoSelection(
     ds.session.lastCallerOpenId = oldSession.lastCallerOpenId;
     // Stamp the newly-created session, not the displaced session that was just
     // closed. Plain/single-repo switches pass undefined and clear stale state.
-    ds.session.riffRepoDirs = opts?.riffRepoDirs;
     sessionStore.updateSession(ds.session);
     ds.hasHistory = false;
     // Re-persist the parked card under the NEW sessionId so a daemon crash
@@ -1448,11 +1428,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
     if (admins.length === 0 || !operatorOpenId || !admins.includes(operatorOpenId)) {
       return { toast: { type: 'error', content: t('cmd.config.not_admin', undefined, loc) } };
     }
-    // ttadk 网关 bot 用 ttadk 网关模型候选（glm-5.1…），非底层适配器的 opus/gpt-5
-    // （否则被 worker 注入成 `ttadk -m opus` 用错模型启动失败）；CoCo 无候选。
     const modelChoices = (() => {
-      const ttadkChoices = ttadkConfigModelChoices(cbot.config.wrapperCli);
-      if (ttadkChoices !== null) return ttadkChoices;
       try { return createCliAdapterSync(cbot.config.cliId, cbot.config.cliPathOverride).modelChoices ?? []; } catch { return []; }
     })();
     const reRender = () => {
@@ -2665,7 +2641,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
         await deliverEphemeralOrReply(ds, operatorOpenId, unsupportedCard, 'interactive', () => sessionReply(rootId, unsupportedCard, 'interactive'));
         return;
       }
-      if (sessionSupportsWebTerminal(ds) && (ds.riffAccessUrl || (ds.workerPort && ds.workerToken))) {
+      if (sessionSupportsWebTerminal(ds) && ds.workerPort && ds.workerToken) {
         const writeUrl = buildTerminalUrl(ds, { write: true });
         const cardJson = buildSessionCard(
           ds.session.sessionId,
@@ -3318,20 +3294,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           return;
         }
         if (sessionChanged()) return notSwitched(creation, 'mid-flight');
-        // riff：新建的 worktree 分支只存在于本地，远程沙箱克隆不到 → 先推送
-        // 分支指针到远端，riff 任务才能钉住这个新分支。推送失败不阻塞（worker
-        // 推导会按现状回退默认分支并在卡片注入告警），只提示用户。
-        if (nextSessionUsesRiffBackend(targetDs)) {
-          for (const c of created) {
-            try {
-              await pushWorktreeBranch(c.result.path, c.result.branch);
-            } catch (e) {
-              const errMsg = e instanceof Error ? e.message : String(e);
-              logger.warn(`[${tag(targetDs)}] riff worktree branch push failed (${c.result.branch}): ${errMsg}`);
-              await sessionReply(rootId, t('card.repo.riff_worktree_push_failed', { branch: c.result.branch, error: errMsg }, locTarget));
-            }
-          }
-        }
         await sessionReply(rootId, t('cmd.repo.worktree_created', {
           path: creation.path, branch: creation.branch, base: creation.baseRef,
         }, locTarget));
@@ -3344,9 +3306,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           // suppress commitRepoSelection's own "已选择/已切换" to avoid a dup.
           await commitRepoSelection(commitCtx, creation.path, `${pathBasename(creation.path)} (${creation.branch})`, {
             suppressConfirmReply: true,
-            // 多仓：把按用户选择顺序创建的 worktree 目录 stamp 到 session，
-            // riff 按此显式列表（而非目录扫描）推导 repos，首仓为 primary。
-            riffRepoDirs: created.length > 1 ? created.map(c => c.result.path) : undefined,
           });
         } catch (e) {
           // The worktree DOES exist at this point — only the switch failed.

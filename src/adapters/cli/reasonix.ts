@@ -117,7 +117,7 @@ export function findSessionStemForCli(sessionsDir: string, cliPid: number): stri
 }
 
 /**
- * Adapter for the Reasonix Bubble Tea TUI.
+ * Adapter for the Reasonix alternate-screen TUI.
  *
  * Reasonix does not emit a stable ready marker after each turn, so input uses
  * the standard quiescence detector. Sessions live under
@@ -206,7 +206,7 @@ export function createReasonixAdapter(pathOverride?: string): CliAdapter {
     readyPattern: undefined,
     systemHints: BOTMUX_SHELL_HINTS,
     // Reasonix 1.19.3 always enters the alternate screen and provides no
-    // no-alt-screen option. Its transcript lives in the Bubble Tea viewport,
+    // no-alt-screen option. Its transcript lives in the TUI viewport,
     // so tmux has no scrollback available for transcript paging.
     altScreen: true,
     skillsDir: '~/.reasonix/skills',

@@ -98,15 +98,14 @@ export function shouldInstallGlobalSkills(skillsDir: string): boolean {
  * How a CLI delivers botmux skills, for the dashboard control (and any other
  * consumer that must branch on skill-delivery capability):
  *  - 'dynamic': per-session `--plugin-dir` injection — the claude-family
- *    (claude-code / seed / relay), which set `pluginDir`. Not configurable: they
+ *    (claude-code), which sets `pluginDir`. Not configurable: it
  *    always inject dynamically, no global leak. The mode knobs don't apply.
  *  - 'global': a shared global skills dir (`skillsDir`) — codex/gemini/opencode/
  *    cursor/coco/traex/pi/oh-my-pi/mtr/kiro-cli/genius/grok — where
  *    global|prompt|off applies.
- *  - 'none': neither — the CLI has no skill mechanism (antigravity/aiden/hermes/
- *    mir/mira/codex-app), so there's nothing to configure.
- * Capability-based (not a hardcoded id list) so claude-family forks like relay
- * are classified correctly without per-fork upkeep.
+ *  - 'none': neither; the CLI has no skill mechanism (antigravity/hermes/
+ *    codex-app), so there's nothing to configure.
+ * Capability-based so future adapters are classified without per-adapter upkeep.
  */
 export type SkillInjectionSupport = 'dynamic' | 'global' | 'none';
 export function resolveSkillInjectionSupport(cliId: CliId, cliPathOverride?: string): SkillInjectionSupport {
@@ -181,12 +180,18 @@ export function builtinSkillContent(name: string): string | undefined {
  * are prose (including dynamic skill descriptions), so escape them here.
  */
 export function buildBuiltinSkillCatalogBlock(entries: BuiltinSkillEntry[], locale?: Locale): string {
-  if (entries.length === 0) return '';
+  const normalizedEntries = entries.flatMap((entry) => {
+    const name = entry.name.trim();
+    const description = promptCatalogDescription(entry, locale).trim();
+    if (!name || !description) return [];
+    return [{ name, description }];
+  });
+  if (normalizedEntries.length === 0) return '';
   const en = locale === 'en';
   const intro = en
     ? '<botmux_routing> covers basic communication only. These supplementary botmux skills are available in this session. Match the task against a description, then run `botmux skill show <name>` to read that skill\'s full instructions before acting — do not guess the commands.'
     : '<botmux_routing> 只覆盖基础通信用法。当前 botmux 会话还有下面这些可按需读取的内置技能。先按描述判断该用哪个，再用 `botmux skill show <name>` 读取完整说明后再执行——不要凭空猜命令。';
-  const lines = entries.map((e) => escapeXmlText(`- ${e.name}: ${promptCatalogDescription(e, locale)}`));
+  const lines = normalizedEntries.map(entry => escapeXmlText(`- ${entry.name}: ${entry.description}`));
   // Distinct tag from the user-registered skill catalog (`<botmux_skills
   // mode=...>`, injected only in the worker via prepareSessionSkillPrompt) so
   // the two never collide and can co-exist in one prompt.

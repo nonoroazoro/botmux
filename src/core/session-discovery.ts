@@ -2,7 +2,7 @@
  * Session Discovery — scans tmux panes for running CLI processes that can be adopted.
  *
  * Discovers non-botmux tmux sessions running known CLI binaries (Claude Code,
- * Codex, Aiden, CoCo, Cursor, Gemini, OpenCode, MTR, Hermes, TRAE, Pi) and collects metadata needed to adopt them.
+ * Codex, CoCo, Cursor, Gemini, OpenCode, MTR, Hermes, TRAE, Pi) and collects metadata needed to adopt them.
  */
 import { execFileSync, execSync } from 'node:child_process';
 import { readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
@@ -42,16 +42,7 @@ export interface AdoptableSession {
 
 const CLI_COMM_MAP: Record<string, CliId> = {
   claude: 'claude-code',
-  // Seed / Relay are Claude Code forks (Relay is Seed's new release
-  // name). Both rebrand process.title to their product name, so a running
-  // session's `/proc/<pid>/comm` is literally `seed` / `relay` (verified on a
-  // live host) — map them so `/adopt` can discover live panes by comm, the same
-  // way `claude` resolves to claude-code. filterCliId keeps a seed/relay bot
-  // from adopting the other's (or claude's) sessions.
-  seed: 'seed',
-  relay: 'relay',
   codex: 'codex',
-  aiden: 'aiden',
   coco: 'coco',
   'cursor-agent': 'cursor',
   // CoCo 的别名 traecli：某些发行版（如 trae）安装的可执行实际叫
@@ -519,7 +510,7 @@ function hasCliProcess(
 
 /**
  * Resolve the REAL CLI pid spawned underneath a wrapperCli launcher
- * (e.g. `aiden x claude`, where the launcher forks real Claude Code as a child).
+ * where a launcher forks the real coding CLI as a child.
  *
  * The worker's `backend.getChildPid()` returns the LAUNCHER's pid, but it's the
  * forked child — not the launcher — that writes `~/.claude/sessions/<pid>.json`
@@ -528,10 +519,10 @@ function hasCliProcess(
  * never writes. This walks the launcher's DESCENDANTS to find the actual CLI.
  *
  * Matching is by process `comm` ONLY — deliberately NOT argv. The launcher's own
- * argv carries the target name as a literal token (`aiden x claude` → "claude"
+ * argv carries the target name as a literal token (for example `wrapper claude`
  * is in argv), so argv-scanning (cliIdFromCommArgv) would misidentify the
  * launcher itself as the CLI. The real CLI process has the binary as its comm
- * (`claude`, `codex`, …); the launcher's comm is its own (`node`/`aiden`).
+ * (`claude`, `codex`, …); the launcher's comm is its own (`node` or another name).
  *
  * BFS starts at the launcher's children (never the launcher node) and returns
  * the shallowest descendant recognized as `targetCliId`, or null if none exists
@@ -946,7 +937,7 @@ function resolveAdoptableSessionForPane(
   if (filterCliId && match.cliId !== filterCliId) return undefined;
 
   // If the match came from an argv scan on a COMM_ARGV_LAUNCHER
-  // (node/ttadk/aiden/python… — matchedByComm=false), the matched pid is
+  // (node, another wrapper, or python; matchedByComm=false), the matched pid is
   // the LAUNCHER, not the CLI. The real CLI is a descendant that writes the
   // session state / owns the transcript (e.g. claude keys
   // ~/.claude/sessions/<pid>.json to the child, not the wrapper), so

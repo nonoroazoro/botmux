@@ -487,17 +487,17 @@ describe('sendVideoAttachments (best-effort media messages)', () => {
     const res = await sendVideoAttachments(
       { uploadFile, uploadImage, dispatch },
       'cli_app',
-      [{ videoPath: '/tmp/replay.mp4', coverPath: '/tmp/cover.png', durationMs: 0 }],
+      [{ videoPath: '/tmp/demo.mp4', coverPath: '/tmp/cover.png', durationMs: 0 }],
     );
 
     expect(res.failed).toEqual([]);
     expect(res.sent).toEqual([
-      'om:media:{"file_key":"file:/tmp/replay.mp4","image_key":"image:/tmp/cover.png","duration":0}',
+      'om:media:{"file_key":"file:/tmp/demo.mp4","image_key":"image:/tmp/cover.png","duration":0}',
     ]);
-    expect(uploadFile).toHaveBeenCalledWith('cli_app', '/tmp/replay.mp4');
+    expect(uploadFile).toHaveBeenCalledWith('cli_app', '/tmp/demo.mp4');
     expect(uploadImage).toHaveBeenCalledWith('cli_app', '/tmp/cover.png');
     expect(dispatch).toHaveBeenCalledWith(
-      '{"file_key":"file:/tmp/replay.mp4","image_key":"image:/tmp/cover.png","duration":0}',
+      '{"file_key":"file:/tmp/demo.mp4","image_key":"image:/tmp/cover.png","duration":0}',
       'media',
     );
   });

@@ -37,18 +37,14 @@ export function hasAgentLaunchConfigChanged(
  * exceptions which caused setup/runtime checks to report the wrong result:
  *
  * - wrapperCli replaces the adapter binary, so the wrapper's first token is
- *   the real executable (aiden/cjadk/ttadk/custom gateway);
+ *   the real executable (built-in or custom wrapper);
  * - Codex App starts a bundled Node runner which then starts `codex`;
- * - Mir starts a bundled Node runner which then starts `mircli`.
  *
- * Mira and Riff are API-backed and therefore have no local CLI requirement.
  */
 function requiredCommand(input: CliAvailabilityInput): string | undefined {
   const wrapperBin = input.wrapperCli ? parseWrapperCli(input.wrapperCli)[0] : undefined;
   if (wrapperBin) return wrapperBin;
 
-  if (input.cliId === 'riff' || input.cliId === 'mira') return undefined;
-  if (input.cliId === 'mir') return input.cliPathOverride?.trim() || process.env.MIRCLI_BIN?.trim() || 'mircli';
   return rawCliExecutable(input.cliId, input.cliPathOverride);
 }
 

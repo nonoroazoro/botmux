@@ -145,8 +145,8 @@ describe('resolveAllowedUsersWithMap — entryStatus classification (PR#590)', (
       async () => ({ code: 0, data: { user: {} } }),
       async () => ({ code: 0, data: { user_list: [] } }), // batch OK but empty
     );
-    const { entryStatus, errored } = await resolveAllowedUsersWithMap(APP, ['ghost@corp.com']);
-    expect(entryStatus.get('ghost@corp.com')).toBe('definitive');
+    const { entryStatus, errored } = await resolveAllowedUsersWithMap(APP, ['ghost@example.com']);
+    expect(entryStatus.get('ghost@example.com')).toBe('definitive');
     expect(errored).toBeFalsy();
   });
 
@@ -155,9 +155,9 @@ describe('resolveAllowedUsersWithMap — entryStatus classification (PR#590)', (
       async () => ({ code: 0, data: { user: {} } }),
       async () => ({ code: 500, msg: 'batch down' }),
     );
-    const { entryStatus, errored } = await resolveAllowedUsersWithMap(APP, ['a@corp.com', 'b@corp.com']);
-    expect(entryStatus.get('a@corp.com')).toBe('transient');
-    expect(entryStatus.get('b@corp.com')).toBe('transient');
+    const { entryStatus, errored } = await resolveAllowedUsersWithMap(APP, ['a@example.com', 'b@example.com']);
+    expect(entryStatus.get('a@example.com')).toBe('transient');
+    expect(entryStatus.get('b@example.com')).toBe('transient');
     expect(errored).toBe(true);
   });
 
@@ -170,8 +170,8 @@ describe('resolveAllowedUsersWithMap — entryStatus classification (PR#590)', (
       async () => ({ code: 0, data: { user: {} } }),
       async () => ({ code: 40001, msg: 'invalid argument' }),
     );
-    const { entryStatus, errored, resolved } = await resolveAllowedUsersWithMap(APP, ['owner@corp.com']);
-    expect(entryStatus.get('owner@corp.com')).toBe('transient');
+    const { entryStatus, errored, resolved } = await resolveAllowedUsersWithMap(APP, ['owner@example.com']);
+    expect(entryStatus.get('owner@example.com')).toBe('transient');
     expect(errored).toBe(true);
     expect(resolved).toEqual([]); // no cache in this stub → empty, but retry-eligible
   });
@@ -182,16 +182,16 @@ describe('resolveAllowedUsersWithMap — entryStatus classification (PR#590)', (
       async () => ({ code: 0, data: { user: {} } }),
       async () => { const e: any = new Error('not visible'); e.response = { data: { code: 41050 } }; throw e; },
     );
-    const thrown4xx = await resolveAllowedUsersWithMap(APP, ['hidden@corp.com']);
-    expect(thrown4xx.entryStatus.get('hidden@corp.com')).toBe('transient');
+    const thrown4xx = await resolveAllowedUsersWithMap(APP, ['hidden@example.com']);
+    expect(thrown4xx.entryStatus.get('hidden@example.com')).toBe('transient');
     expect(thrown4xx.errored).toBe(true);
 
     stubClient(
       async () => ({ code: 0, data: { user: {} } }),
       async () => { throw new Error('ECONNRESET'); },
     );
-    const network = await resolveAllowedUsersWithMap(APP, ['flaky@corp.com']);
-    expect(network.entryStatus.get('flaky@corp.com')).toBe('transient');
+    const network = await resolveAllowedUsersWithMap(APP, ['flaky@example.com']);
+    expect(network.entryStatus.get('flaky@example.com')).toBe('transient');
     expect(network.errored).toBe(true);
   });
 });
@@ -206,15 +206,15 @@ describe('resolve → apply end-to-end: email-only owner + batch error keeps own
       async () => ({ code: 0, data: { user: {} } }),
       async () => ({ code: 40001, msg: 'invalid argument' }),
     );
-    const resolveResult = await resolveAllowedUsersWithMap(APP, ['owner@corp.com']);
+    const resolveResult = await resolveAllowedUsersWithMap(APP, ['owner@example.com']);
     // resolver: whole-request failure → transient, errored, nothing resolved.
-    expect(resolveResult.entryStatus.get('owner@corp.com')).toBe('transient');
+    expect(resolveResult.entryStatus.get('owner@example.com')).toBe('transient');
     expect(resolveResult.errored).toBe(true);
     expect(resolveResult.resolved).toEqual([]);
 
     const applied = applyAllowedUsersResolve({
-      rawEntries: ['owner@corp.com'],
-      previousResolvedMap: { 'owner@corp.com': 'ou_owner' }, // last-known-good
+      rawEntries: ['owner@example.com'],
+      previousResolvedMap: { 'owner@example.com': 'ou_owner' }, // last-known-good
       resolveResult,
     });
     // owner kept alive from cache; flagged failed so a retry is armed; the cache
@@ -222,7 +222,7 @@ describe('resolve → apply end-to-end: email-only owner + batch error keeps own
     expect(applied.resolved).toEqual(['ou_owner']);
     expect(applied.usedFallback).toBe(true);
     expect(applied.failed).toBe(true);
-    expect(applied.map.get('owner@corp.com')).toBe('ou_owner');
+    expect(applied.map.get('owner@example.com')).toBe('ou_owner');
     const definitives = [...resolveResult.entryStatus.entries()]
       .filter(([, s]) => s === 'definitive').map(([e]) => e);
     expect(definitives).toEqual([]); // nothing to prune → cached owner survives
@@ -233,9 +233,9 @@ describe('resolve → apply end-to-end: email-only owner + batch error keeps own
       async () => ({ code: 0, data: { user: {} } }),
       async () => ({ code: 40001, msg: 'invalid argument' }),
     );
-    const resolveResult = await resolveAllowedUsersWithMap(APP, ['owner@corp.com']);
+    const resolveResult = await resolveAllowedUsersWithMap(APP, ['owner@example.com']);
     const applied = applyAllowedUsersResolve({
-      rawEntries: ['owner@corp.com'],
+      rawEntries: ['owner@example.com'],
       previousResolvedMap: {},
       resolveResult,
     });

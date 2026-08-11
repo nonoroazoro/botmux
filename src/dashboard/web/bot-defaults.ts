@@ -4,8 +4,6 @@ import type { CliRuntimeConfig as SharedCliRuntimeConfig } from '../../adapters/
 export type CliOption = {
   id: string;
   label: string;
-  gateway?: 'ttadk';
-  acceptsModel?: boolean;
   available?: boolean;
   command?: string;
   availabilityReason?: string;
@@ -13,8 +11,6 @@ export type CliOption = {
 
 export type CliOptionsState = {
   options: CliOption[];
-  ttadkModelDefault: string;
-  ttadkModelSuggestions: string[];
 };
 
 /** Keep the browser payload contract tied to the daemon's canonical schema. */
@@ -107,7 +103,6 @@ export type BotDefaultsRow = {
   canTalkDaemonCommands?: string;
   launchShell?: string;
   env?: string;
-  riff?: Record<string, unknown> | null;
   autoStartOnGroupJoin?: boolean;
   autoStartOnGroupJoinPrompt?: string;
   autoStartOnNewTopic?: boolean;
@@ -137,8 +132,6 @@ export const fallbackCliOptions: CliOption[] = [
 
 export const fallbackCliOptionsState: CliOptionsState = {
   options: fallbackCliOptions,
-  ttadkModelDefault: 'glm-5.1',
-  ttadkModelSuggestions: [],
 };
 
 export function displayCliId(bot: Pick<BotDefaultsRow, 'cliId'> | null | undefined, sessionFallback: string): string {
@@ -167,7 +160,8 @@ export function selectedCliOption(options: CliOption[], key: string): CliOption 
 }
 
 export function modelSuggestionsForOption(opt: CliOption | undefined, cliState: CliOptionsState): string[] {
-  if (opt?.gateway === 'ttadk' && opt.acceptsModel !== false) return cliState.ttadkModelSuggestions;
+  void opt;
+  void cliState;
   return [];
 }
 
@@ -247,16 +241,8 @@ export async function fetchCliOptions(): Promise<CliOptionsState> {
     const options = body.options.filter((o: any): o is CliOption =>
       o && typeof o.id === 'string' && typeof o.label === 'string',
     );
-    const ttadkModelDefault = typeof body.ttadkModelDefault === 'string' && body.ttadkModelDefault.trim()
-      ? body.ttadkModelDefault.trim()
-      : fallbackCliOptionsState.ttadkModelDefault;
-    const ttadkModelSuggestions = Array.isArray(body.ttadkModelSuggestions)
-      ? body.ttadkModelSuggestions.filter((s: unknown): s is string => typeof s === 'string')
-      : [];
     return {
       options: options.length ? options : fallbackCliOptions,
-      ttadkModelDefault,
-      ttadkModelSuggestions,
     };
   } catch {
     return fallbackCliOptionsState;

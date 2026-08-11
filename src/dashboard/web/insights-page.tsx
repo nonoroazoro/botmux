@@ -1116,7 +1116,7 @@ function ConvoPrompt({ msg, recByTurn, onOpenPrompt }: { msg: InsightConversatio
   return (
     <div className={`cbub cbub-${side} role-${msg.role}${sevCls}`}>
       <div className="cbub-head"><PromptSourceChip src={msg.source} /><PromptMentions src={msg.source} /><span className="cbub-turn">#{String(msg.turnIndex)}</span><ConvoRecBadges turnIndex={msg.turnIndex} recByTurn={recByTurn} /></div>
-      <div className="cbub-body">{text ? <MarkdownBody text={text + (msg.truncated ? ' …' : '')} /> : <p className="mut">{t('insights.replayNoText')}</p>}</div>
+      <div className="cbub-body">{text ? <MarkdownBody text={text + (msg.truncated ? ' …' : '')} /> : <p className="mut">{t('insights.historyNoText')}</p>}</div>
       {msg.truncated ? <div className="cbub-foot"><button type="button" className="tp-toggle" onClick={() => onOpenPrompt(msg.turnIndex)}>{t('insights.turnPromptFull')}</button></div> : null}
     </div>
   );
@@ -1165,7 +1165,7 @@ function ConvoOps({ unit, convo, recByTurn, onToggleOp }: { unit: { turnIndex: n
   const worst = unit.msgs.some(m => m.severity === 'bad') ? ' sev-bad' : unit.msgs.some(m => m.severity === 'warn') ? ' sev-warn' : '';
   return (
     <div className={`cbub cbub-left role-agent cbub-ops${worst}`}>
-      <div className="cbub-head"><span className="tp-label tp-src tp-src-system">🤖 {t('insights.replayAgent')}</span><span className="cbub-turn">#{String(unit.turnIndex)}</span>{opMsgs.length ? <span className="cbub-opcount">{t('insights.replayOps', { count: opMsgs.length })}</span> : null}<ConvoRecBadges turnIndex={unit.turnIndex} recByTurn={recByTurn} /></div>
+      <div className="cbub-head"><span className="tp-label tp-src tp-src-system">🤖 {t('insights.historyAgent')}</span><span className="cbub-turn">#{String(unit.turnIndex)}</span>{opMsgs.length ? <span className="cbub-opcount">{t('insights.historyOps', { count: opMsgs.length })}</span> : null}<ConvoRecBadges turnIndex={unit.turnIndex} recByTurn={recByTurn} /></div>
       {sayMsgs.length ? <div className="cbub-saywrap">{sayMsgs.map(m => <div key={m.id} className="cbub-say"><MarkdownBody text={m.text!} /></div>)}</div> : null}
       {opMsgs.length ? <div className="cbub-ops-list">{opMsgs.map(m => <ConvoOpRow key={m.id} msg={m} open={convo.openOps.has(m.id)} onToggle={onToggleOp} />)}</div> : null}
     </div>
@@ -1191,7 +1191,7 @@ function Conversation({ convo, recByTurn, onQuery, onRole, onTag, onLoadMore, on
         <input
           type="search"
           className="convo-search"
-          placeholder={t('insights.replaySearch')}
+          placeholder={t('insights.historySearch')}
           value={draft}
           onChange={event => setDraft(event.currentTarget.value)}
           onKeyDown={event => {
@@ -1203,26 +1203,26 @@ function Conversation({ convo, recByTurn, onQuery, onRole, onTag, onLoadMore, on
         />
         <div className="convo-filters">
           <div className="spanfilter convo-rolefilter">
-            <span className="convo-flabel">{t('insights.replayBy')}</span>
+            <span className="convo-flabel">{t('insights.historyBy')}</span>
             {CONVO_ROLES.map(r => <button key={r.key} type="button" className={`spanchip${convo.role === r.key ? ' on' : ''}`} onClick={() => onRole(r.key)}>{t(`insights.${r.label}`)}</button>)}
           </div>
           <div className="spanfilter convo-tagfilter">
-            <span className="convo-flabel">{t('insights.replayState')}</span>
+            <span className="convo-flabel">{t('insights.historyState')}</span>
             {CONVO_TAGS.map(tg => <button key={tg.key} type="button" className={`spanchip${convo.tag === tg.key ? ' on' : ''}`} onClick={() => onTag(tg.key)}>{tg.label.startsWith('tag.') ? tagLabel(tg.label.slice(4)) : t(`insights.${tg.label}`)}</button>)}
           </div>
         </div>
       </div>
       <div className="convothread">
         {!convo.messages.length ? (
-          convo.loading ? <LoadingState label={t('insights.detailLoading')} compact /> : <p className="mut">{t('insights.replayEmpty')}</p>
+          convo.loading ? <LoadingState label={t('insights.detailLoading')} compact /> : <p className="mut">{t('insights.historyEmpty')}</p>
         ) : (
           <>
             {units.map((u, i) => u.kind === 'prompt'
               ? <ConvoPrompt key={u.msg.id} msg={u.msg} recByTurn={recByTurn} onOpenPrompt={onOpenPrompt} />
               : <ConvoOps key={`${u.turnIndex}:${i}`} unit={u} convo={convo} recByTurn={recByTurn} onToggleOp={onToggleOp} />)}
             {convo.hasMore ? (
-              <div className="convo-more"><button type="button" className="primary convo-loadmore" disabled={convo.loading} onClick={onLoadMore}>{convo.loading ? t('insights.detailLoading') : t('insights.replayLoadMore', { shown: convo.messages.length, total: convo.total })}</button></div>
-            ) : <p className="convo-more mut">{t('insights.replayAllLoaded', { total: convo.total })}</p>}
+              <div className="convo-more"><button type="button" className="primary convo-loadmore" disabled={convo.loading} onClick={onLoadMore}>{convo.loading ? t('insights.detailLoading') : t('insights.historyLoadMore', { shown: convo.messages.length, total: convo.total })}</button></div>
+            ) : <p className="convo-more mut">{t('insights.historyAllLoaded', { total: convo.total })}</p>}
           </>
         )}
       </div>
@@ -1456,7 +1456,7 @@ function DetailBody({ report, view, onViewChange, onOpenPrompt, onJumpTurn, onOp
         <div className="detailtabbar" role="tablist" aria-label={t('insights.detailTabs')}>
           <button type="button" role="tab" className={view.tab === 'spans' ? 'on' : ''} onClick={() => setTab('spans')}>{t('insights.trace')} <b>{spanCount}</b></button>
           <button type="button" role="tab" className={view.tab === 'ledger' ? 'on' : ''} onClick={() => setTab('ledger')}>{t('insights.ledger')} <b>{turnTotal}</b></button>
-          <button type="button" role="tab" className={view.tab === 'convo' ? 'on' : ''} onClick={() => setTab('convo')}>{t('insights.replay')}</button>
+          <button type="button" role="tab" className={view.tab === 'convo' ? 'on' : ''} onClick={() => setTab('convo')}>{t('insights.history')}</button>
         </div>
         <div className="detailtabbody">
           <div className="insight-tab-panel" data-panel="spans" hidden={view.tab !== 'spans'}>

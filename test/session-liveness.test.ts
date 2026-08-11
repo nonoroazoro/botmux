@@ -4,7 +4,7 @@ import type { Session } from '../src/types.js';
 
 // Minimal Session stub — isSessionStopped reads pid / adoptedFrom / cliId /
 // lastCliInput / suspendedColdResume. A real managed session always carries a
-// frozen `cliId` (stamped at spawn for every backend, incl. riff/zmx), so the
+// frozen `cliId` stamped at spawn, so the
 // default stub includes one; scratch-row cases clear it explicitly.
 function session(over: Partial<Session>): Session {
   return { sessionId: '0123456789abcdef', status: 'active', cliId: 'claude-code', ...over } as Session;
@@ -71,10 +71,6 @@ describe('isSessionStopped — real managed sessions are dormant, not zombies', 
 
   it('keeps a legacy (undefined backend) real row recoverable — cannot prove it was ever tmux', () => {
     expect(isSessionStopped(session({ backendType: undefined, pid: undefined }))).toBe(false);
-  });
-
-  it('does not call a remote Riff task stopped just because no local process exists', () => {
-    expect(isSessionStopped(session({ backendType: 'riff', pid: undefined }))).toBe(false);
   });
 
   it('reports an adopted session with a dead external pid as stopped (external pid authoritative)', () => {

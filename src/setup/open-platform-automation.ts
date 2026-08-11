@@ -177,8 +177,8 @@ export interface OpenPlatformAutomationOptions {
   appId: string;
   brand?: 'feishu' | 'lark';
   sessionFilePath?: string;
-  bytedcliFallbackSessionFilePath?: string;
-  disableBytedcliFallback?: boolean;
+  externalSessionFallbackFilePath?: string;
+  disableExternalSessionFallback?: boolean;
   /** Ignore any shared cached account and require the exact App owner to scan. */
   forceQrLogin?: boolean;
   /** Reuse a valid cache or fail instead of presenting another QR. */
@@ -196,7 +196,7 @@ export interface OpenPlatformAutomationOptions {
 }
 
 
-export type FeishuWebSessionSource = 'botmux_cache' | 'qr_login' | 'bytedcli_fallback';
+export type FeishuWebSessionSource = 'botmux_cache' | 'qr_login' | 'external_session_fallback';
 export type FeishuWebSessionFailureReason = 'login_failed' | 'qr_expired' | 'timeout' | 'network' | 'invalid_session';
 
 export type FeishuWebSessionPrepareResult =
@@ -217,8 +217,8 @@ export type FeishuWebSessionPrepareResult =
 
 export interface FeishuWebSessionOptions {
   sessionFilePath?: string;
-  bytedcliFallbackSessionFilePath?: string;
-  disableBytedcliFallback?: boolean;
+  externalSessionFallbackFilePath?: string;
+  disableExternalSessionFallback?: boolean;
   /**
    * Ignore cached sessions and require a fresh QR login. Dashboard onboarding
    * uses this so the user always sees which account is authorizing the new app;
@@ -264,8 +264,8 @@ export function botmuxFeishuSessionFilePath(configDir = join(homedir(), '.botmux
   return join(configDir, 'feishu-session.json');
 }
 
-export function bytedcliFeishuSessionFilePath(homeDir = homedir()): string {
-  return join(homeDir, '.local', 'share', 'bytedcli', 'data', 'feishu_session.json');
+export function externalFeishuSessionFilePath(): string | undefined {
+  return process.env.BOTMUX_FEISHU_EXTERNAL_SESSION_FILE?.trim() || undefined;
 }
 
 export function readStoredCookiesFromSessionFile(filePath: string): StoredCookie[] | null {
@@ -282,7 +282,7 @@ export function readStoredCookiesFromSessionFile(filePath: string): StoredCookie
   return pruneExpiredCookies(cookies.filter(isStoredCookieRecord));
 }
 
-export function readStoredCookiesFromBytedcliSession(filePath: string): StoredCookie[] | null {
+export function readStoredCookiesFromExternalSession(filePath: string): StoredCookie[] | null {
   return readStoredCookiesFromSessionFile(filePath);
 }
 
@@ -584,15 +584,15 @@ export async function prepareFeishuWebSession(
     loginError = err;
   }
 
-  const fallbackSessionFile = options.bytedcliFallbackSessionFilePath ?? bytedcliFeishuSessionFilePath();
-  if (!options.forceQrLogin && !options.disableBytedcliFallback) {
-    const fallback = readStoredCookiesFromBytedcliSession(fallbackSessionFile);
+  const fallbackSessionFile = options.externalSessionFallbackFilePath ?? externalFeishuSessionFilePath();
+  if (fallbackSessionFile && !options.forceQrLogin && !options.disableExternalSessionFallback) {
+    const fallback = readStoredCookiesFromExternalSession(fallbackSessionFile);
     if (fallback && fallback.length > 0 && await validateFeishuWebSession(fallback, fetcher)) {
       writeStoredCookiesToSessionFile(sessionFile, fallback);
       return {
         ok: true,
         sessionFile,
-        source: 'bytedcli_fallback',
+        source: 'external_session_fallback',
         cookies: fallback,
         cookieCount: fallback.length,
       };
@@ -604,7 +604,9 @@ export async function prepareFeishuWebSession(
     reason: classifyFeishuLoginError(loginError),
     message: safeErrorMessage(loginError),
     sessionFile,
-    fallbackSessionFile: options.disableBytedcliFallback || options.forceQrLogin ? undefined : fallbackSessionFile,
+    fallbackSessionFile: options.disableExternalSessionFallback || options.forceQrLogin
+      ? undefined
+      : fallbackSessionFile,
   };
 }
 
@@ -619,8 +621,8 @@ export async function automateOpenPlatformSetup(
   const fetcher = options.fetchImpl ?? fetch;
   const preparedSession = await prepareFeishuWebSession({
     sessionFilePath: options.sessionFilePath,
-    bytedcliFallbackSessionFilePath: options.bytedcliFallbackSessionFilePath,
-    disableBytedcliFallback: options.disableBytedcliFallback,
+    externalSessionFallbackFilePath: options.externalSessionFallbackFilePath,
+    disableExternalSessionFallback: options.disableExternalSessionFallback,
     forceQrLogin: options.forceQrLogin,
     disableQrLogin: options.disableQrLogin,
     fetchImpl: fetcher,
@@ -1081,7 +1083,7 @@ export async function inspectCachedFeishuOpenPlatformSession(
   const prepared = await prepareFeishuWebSession({
     ...options,
     disableQrLogin: true,
-    disableBytedcliFallback: true,
+    disableExternalSessionFallback: true,
   });
   if (!prepared.ok) return prepared;
   const clientResult = await createOpenPlatformApiClient(prepared.cookies, { fetchImpl: options.fetchImpl });

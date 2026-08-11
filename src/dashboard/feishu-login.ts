@@ -38,7 +38,7 @@ export interface FeishuLoginSnapshot {
   message?: string;
   /** 失败原因码（qr_expired / timeout / network / login_failed / …）。 */
   reason?: string;
-  /** 成功时的 cookie 数与来源（cache / qr_login / bytedcli_fallback）。 */
+  /** 成功时的 cookie 数与来源（cache / qr_login / external_session_fallback）。 */
   cookieCount?: number;
   source?: string;
   updatedAt: number;

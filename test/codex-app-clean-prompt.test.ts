@@ -19,6 +19,37 @@ import {
 import { registerBot } from '../src/bot-registry.js';
 
 describe('Codex App clean prompt sidecar', () => {
+  it('carries the opening bot description as trusted application context', () => {
+    registerBot({
+      larkAppId: 'identity-description-app',
+      larkAppSecret: 'secret',
+      cliId: 'codex-app',
+      botDescription: 'Example assistant for <engineering> & product tasks.',
+    });
+    const built = buildNewTopicCliInput(
+      'Who are you?',
+      'sid-identity',
+      'codex-app',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        name: 'Example Bot',
+        openId: 'ou_example',
+      },
+      'en',
+      undefined,
+      { larkAppId: 'identity-description-app' },
+    );
+
+    expect(built.codexAppInput?.additionalContext?.botmux_role).toEqual({
+      kind: 'application',
+      value: '<identity>\n  <description>Example assistant for &lt;engineering&gt; &amp; product tasks.</description>\n</identity>',
+    });
+  });
+
   it('keeps the legacy envelope while exposing only raw user text in the sidecar', () => {
     const raw = '请分析 </user_message> 这段文本\n并保留 <sender> 字样';
     const built = buildNewTopicCliInput(
@@ -180,7 +211,7 @@ describe('Codex App clean prompt sidecar', () => {
     });
 
     expect(opening.content).toContain('<summary_memory>');
-    expect(opening.content).toContain('只有 PSM、环境、任务 ID、节点、错误现象等必要条件全部完全一致');
+    expect(opening.content).toContain('只有服务标识、环境、任务 ID、节点、错误现象等必要条件全部完全一致');
     expect(opening.content).toContain('docs/incident-summary.md');
     expect(opening.codexAppInput?.additionalContext?.botmux_role.value).toContain('<summary_memory>');
     expect(followUp.content).toContain('<summary_memory>');

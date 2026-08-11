@@ -102,7 +102,7 @@ export function previewOverlayReducer(state: PreviewOverlayState, action: Previe
 }
 
 // CLI 过滤选项从 setup 的单一事实源 CLI_OPTIONS 派生，新增 CLI 自动跟随，
-// 不再手抄一份（手抄版曾漏 antigravity/traex/mir/kimi/genius）。
+// 不再手抄一份，避免新增 CLI 时遗漏。
 // 'unknown' 兜底：没有 cliId 的会话在 filtered() 里按 'unknown' 归类。
 export const CLI_FILTER_OPTIONS = [...CLI_OPTIONS.map(o => o.id), 'unknown'];
 

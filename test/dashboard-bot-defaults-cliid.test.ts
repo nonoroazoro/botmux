@@ -77,8 +77,6 @@ describe('bot defaults cli label', () => {
             { id: 'codex', label: 'Codex' },
             { id: 'traex', label: 'traex' },
           ],
-          ttadkModelDefault: 'glm-5.1',
-          ttadkModelSuggestions: [],
         },
         patchBot: () => undefined,
       }));
@@ -99,8 +97,6 @@ describe('bot defaults cli label', () => {
           options: [
             { id: 'codex', label: 'Codex', available: false, command: 'codex' },
           ],
-          ttadkModelDefault: 'glm-5.1',
-          ttadkModelSuggestions: [],
         },
         patchBot: () => undefined,
       }));
@@ -118,10 +114,7 @@ describe('Codex-compatible runtime editor', () => {
       { id: 'claude-code', label: 'Claude' },
       { id: 'codex', label: 'Codex' },
       { id: 'traex', label: 'traex' },
-      { id: 'ttadk-x-codex', label: 'Codex via TTADK' },
     ],
-    ttadkModelDefault: 'glm-5.1',
-    ttadkModelSuggestions: [],
   };
 
   function renderAgent(bot: Record<string, any>, patchBot = vi.fn()) {
@@ -147,8 +140,8 @@ describe('Codex-compatible runtime editor', () => {
 
     const wrapper = renderAgent({
       cliId: 'codex',
-      wrapperCli: 'ttadk codex',
-      agentSelectionKey: 'ttadk-x-codex',
+      wrapperCli: 'custom-wrapper codex',
+      agentSelectionKey: 'codex',
     });
     expect(wrapper.root.findAllByProps({ 'data-codex-runtime': '' })).toHaveLength(0);
 
@@ -477,55 +470,6 @@ describe('bot onboarding Agent availability warning', () => {
   });
 });
 
-describe('riff CLI switch persistence (PR #467 P1)', () => {
-  it('save-riff saves the riff config first, then persists the CLI selection (PUT /riff → /agent)', async () => {
-    const requests: Array<{ method: string; url: string; body: any }> = [];
-    (globalThis as any).fetch = async (url: string, init?: any) => {
-      requests.push({ method: init?.method ?? 'GET', url: String(url), body: init?.body ? JSON.parse(init.body) : undefined });
-      const body = String(url).endsWith('/agent')
-        ? { ok: true, cliId: 'riff', wrapperCli: null, model: '', selectionKey: 'riff' }
-        : { ok: true, riff: JSON.stringify({ baseUrl: 'https://riff.example' }) };
-      return { ok: true, status: 200, json: async () => body } as any;
-    };
-    let renderer!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      renderer = TestRenderer.create(React.createElement(BotAgentSection, {
-        bot: { larkAppId: 'cli_x', cliId: 'codex', model: '' },
-        sessionFallback: 'codex',
-        cliState: {
-          options: [
-            { id: 'codex', label: 'Codex' },
-            { id: 'riff', label: 'Riff' },
-          ],
-          ttadkModelDefault: 'glm-5.1',
-          ttadkModelSuggestions: [],
-        },
-        patchBot: () => undefined,
-      }));
-    });
-    const root = renderer.root;
-    // 下拉切到 riff → RiffSection 出现，「保存 Agent」按钮隐藏
-    // （DropdownField 是自定义组件：按组件 prop dataInput 定位并调用其 onChange）
-    act(() => { root.findByProps({ dataInput: 'agentCliId' }).props.onChange('riff'); });
-    expect(root.findAllByProps({ 'data-action': 'save-agent' })).toHaveLength(0);
-    // Agent 配置已下线：面板不得再渲染 riff-agent 输入框
-    expect(root.findAllByProps({ 'data-input': 'riff-agent' })).toHaveLength(0);
-    // 运行环境选择 CN、思考等级选择 xhigh → 保存的 PUT /riff 必须一起携带
-    // sandboxCluster / reasoningEffort。
-    act(() => { root.findByProps({ dataInput: 'riff-sandbox-cluster' }).props.onChange('cn'); });
-    act(() => { root.findByProps({ dataInput: 'riff-reasoning-effort' }).props.onChange('xhigh'); });
-    const baseUrlInput = root.findByProps({ 'data-input': 'riff-base-url' });
-    act(() => { baseUrlInput.props.onChange({ currentTarget: { value: 'https://riff.example' } }); });
-    // 点「保存 Riff 配置」→ 先 PUT /riff 存配置，成功后再 PUT /agent 落盘
-    // cliId=riff（反过来会在 /riff 失败时留下已切 riff+空配置+旧会话被关的半配置态）
-    await act(async () => { await root.findByProps({ 'data-action': 'save-riff' }).props.onClick(); });
-    const puts = requests.filter(r => r.method === 'PUT');
-    expect(puts.map(r => r.url.split('/').pop())).toEqual(['riff', 'agent']);
-    expect(puts[1]!.body).toEqual({ cliId: 'riff', model: '' });
-    expect(JSON.parse(puts[0]!.body.riff)).toMatchObject({ sandboxCluster: 'cn', reasoningEffort: 'xhigh' });
-  });
-});
-
 describe('Codex App history switch', () => {
   it('keeps the clean-history control visible when the nested Codex dependency is unavailable', () => {
     let agentRenderer!: TestRenderer.ReactTestRenderer;
@@ -542,8 +486,6 @@ describe('Codex App history switch', () => {
             command: 'codex',
             availabilityReason: '找不到嵌套 codex',
           }],
-          ttadkModelDefault: 'glm-5.1',
-          ttadkModelSuggestions: [],
         },
         patchBot: () => undefined,
       }));

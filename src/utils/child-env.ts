@@ -221,7 +221,6 @@ export const BOTMUX_INJECTED_ENV_KEYS = [
   'CODEX_HOME',
   // CLI-specific non-interactive/resume startup controls.
   'CLAUDE_CODE_RESUME_TOKEN_THRESHOLD',
-  'CJADK_INTERACTIVE',
 ] as const;
 
 /** Proxy env vars that must reach the CLI child process so it can dial the

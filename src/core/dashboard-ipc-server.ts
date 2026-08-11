@@ -22,7 +22,6 @@ import * as brandStore from '../services/brand-store.js';
 import * as sandboxStore from '../services/sandbox-store.js';
 import * as multiUserIsolationStore from '../services/multi-user-isolation-store.js';
 import * as backendTypeStore from '../services/backend-type-store.js';
-import { isValidRiffBaseUrl, isValidRiffSandboxCluster } from '../adapters/backend/riff-backend.js';
 import { ensureBackendAvailable } from '../services/backend-availability.js';
 import type { BackendType } from '../adapters/backend/types.js';
 import * as cardPrefsStore from '../services/card-prefs-store.js';
@@ -410,13 +409,13 @@ function tokenRouteAuthorized(req: IncomingMessage, bind?: string): boolean {
 
 function routeHasPublicAccess(method: string, pathname: string): boolean {
   // Liveness contains no data and performs no mutation. /healthz is the
-  // core-only public alias of /__health (riff's sandbox launcher polls it).
+  // core-only public alias of /__health for embedded launchers.
   return method === 'GET' && (pathname === '/__health' || pathname === '/healthz');
 }
 
 /**
- * Core-only ONLY: the exact riff-facing routes that bypass the trusted-host HMAC
- * when the daemon runs headless in riff's sandbox. Everything else STILL requires
+ * Core-only: the exact routes that bypass the trusted-host HMAC when the daemon
+ * runs as a headless embedded service. Everything else still requires
  * the HMAC (codex P1: authRequired:false opened all 96 IPC routes — a co-resident
  * model turn could read/perturb sessions, scheduler, mutations). This is a tight
  * allowlist of drive-my-own-turn + poll-my-own-output surfaces:
@@ -425,7 +424,7 @@ function routeHasPublicAccess(method: string, pathname: string): boolean {
  *   GET  /api/sessions/:id/insight                 (poll conversation/progress)
  * `/api/asks/answer` is deliberately EXCLUDED — it is askId-keyed with no
  * session/turn binding, so exposing it would let any co-resident turn hijack
- * another pending ask (codex). riff's async main-link needs no awaiting_input;
+ * another pending ask. The async main link needs no awaiting_input;
  * a future clarify path must be a sessionId+interaction-bound endpoint.
  */
 function routeIsCoreOnlyPublic(method: string, pathname: string): boolean {
@@ -516,10 +515,10 @@ export function setCoreOnlyReady(): void { coreOnlyReady = true; }
 export function __testOnly_resetCoreOnlyReadiness(): void { coreOnlyReadinessGate = false; coreOnlyReady = false; }
 /** True when the readiness gate is armed (core-only) but restore hasn't finished.
  *  The server-level gate returns 503 for the public control routes in this state,
- *  and /healthz reports 'starting' — a barrier so riff can't trigger into a racing
+ *  and /healthz reports 'starting', creating a barrier against a racing
  *  durable restore even if it skips the healthz probe (codex P1). */
 function coreOnlyNotReady(): boolean { return coreOnlyReadinessGate && !coreOnlyReady; }
-// Public alias for core-only: riff's sandbox launcher polls GET /healthz to know
+// Public alias for core-only: embedded launchers poll GET /healthz to know
 // the service is FULLY up (bound AND restore-complete). 200 {ok:true} once ready;
 // 503 {ok:false,status:'starting'} while the readiness gate is armed but not ready.
 ipcRoute('GET', '/healthz', (_req, res) => {
@@ -1153,7 +1152,7 @@ function buildAsyncTriggerLookupResponse(sessionId: string, triggerId?: string):
   // Form C: attach the read-only web-terminal URL ONLY in core-only mode, and
   // only when a LIVE worker terminal exists (workerPort bound + view capability
   // minted). Core-only is the single-tenant loopback path where trigger-result
-  // is a public (no-HMAC) route and riff's in-sandbox runner polls it to open
+  // is a public no-HMAC route and an embedded runner polls it to open
   // the visible CLI TUI. Gating on BOTMUX_CORE_ONLY keeps this OFF the normal/
   // mixed fleet: there trigger-result is HMAC-gated, but we still must not widen
   // the token surface by minting a terminal read-capability into a poll response
@@ -1722,11 +1721,6 @@ ipcRoute('GET', '/api/sessions/:sessionId/write-link', (req, res, params) => {
   if (!sessionSupportsWebTerminal(ds)) {
     return jsonRes(res, 409, { ok: false, error: 'terminal_unsupported' });
   }
-  // Riff backend: the sandbox URL is the writable link — no local worker needed.
-  if (ds.riffAccessUrl) {
-    jsonRes(res, 200, { ok: true, url: ds.riffAccessUrl });
-    return;
-  }
   const port = ds.workerPort ?? ds.session.webPort;
   if (!port || !ds.workerToken) return jsonRes(res, 409, { ok: false, error: 'terminal_unavailable' });
   jsonRes(res, 200, { ok: true, url: buildTerminalUrl(ds, { write: true }) });
@@ -1742,7 +1736,7 @@ ipcRoute('GET', '/api/sessions/:sessionId/write-link', (req, res, params) => {
  * 只读 active session 的**内存**字段（DaemonSession.spawnCommand）：命令含凭证，
  * 绝不落盘，也绝不从 closed/持久化 session 取（那既无值也避免误暴露）。daemon 重启后
  * 到 worker 再次 ready 之前返回 unavailable——可接受。warm reattach 不重算命令，此时
- * 亦为空。riff 后端无本地 bin/args，worker 侧不产出命令，这里同样 unavailable。
+ * 亦为空。无本地 bin/args 时，worker 侧不产出命令，这里同样 unavailable。
  */
 ipcRoute('GET', '/api/sessions/:sessionId/spawn-command', (req, res, params) => {
   if (!ipcHmacAuthorized(req)) return jsonRes(res, 401, { ok: false, error: 'unauthorized' });
@@ -3222,7 +3216,6 @@ ipcRoute('GET', '/api/bot-default-oncall', async (_req, res) => {
     canTalkDaemonCommands,
     launchShell: getBot(cachedLarkAppId).config.launchShell ?? '',
     env,
-    riff: redactRiffForClient(getBot(cachedLarkAppId).config.riff),
     summaryRange: summaryRangeFromBotConfig(getBot(cachedLarkAppId).config),
     skills: getBot(cachedLarkAppId).config.skills ?? null,
   });
@@ -3484,7 +3477,7 @@ ipcRoute('PUT', '/api/bot-avatar', async (req, res) => {
 
 // Per-bot agent launch settings. Body `{ cliId, model, cliRuntime? }` where `cliId` is the
 // dashboard selection key (plain adapter id or a wrapper option such as
-// `ttadk-x-codex`). Changes affect the next spawned CLI session; existing
+// a built-in wrapper selection key). Changes affect the next spawned CLI session; existing
 // sessions frozen on a different cliId/wrapperCli are closed immediately, so
 // a later lazy resume can't resurrect the old CLI (#346 covered the restart
 // path; this covers the hot-switch path).
@@ -3603,15 +3596,6 @@ ipcRoute('PUT', '/api/bot-agent', async (req, res) => {
       delete entry.readIsolation;
       readIsolationCleared = true;
     }
-    // cliId=riff → backendType 自动设为 riff（否则 spawn 走 pty 后端找不到本地二进制）。
-    if (selected.cliId === 'riff') {
-      entry.backendType = 'riff';
-    } else if (entry.backendType === 'riff') {
-      // 从 riff 切回其它 CLI：清掉这个自动配对的 backend override，回落 daemon
-      // 默认后端——否则新 CLI 会跑在 RiffBackend 上（PTY 分块输入被当成一串 riff
-      // 任务）。手动的 pty/tmux/herdr/zellij override 不受影响（它们不会是 riff）。
-      delete entry.backendType;
-    }
     return { write: true, result: null };
   });
   if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
@@ -3624,11 +3608,6 @@ ipcRoute('PUT', '/api/bot-agent', async (req, res) => {
   else bot.config.wrapperCli = undefined;
   bot.config.model = model || undefined;
   if (readIsolationCleared) bot.config.readIsolation = false;
-  if (selected.cliId === 'riff') {
-    bot.config.backendType = 'riff';
-  } else if (bot.config.backendType === 'riff') {
-    bot.config.backendType = undefined;
-  }
 
   // 热切后立刻清掉本 bot 名下失配的存量会话——否则它们冻结的旧 CLI 会被下一条
   // 消息 lazy resume 复活，要等下次 daemon 重启才被 restore 守卫清理。
@@ -3824,60 +3803,6 @@ ipcRoute('PUT', '/api/bot-env', async (req, res) => {
   const r = await applyConfigField(cachedLarkAppId, spec, value);
   if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
   jsonRes(res, 200, { ok: true, env: value ? JSON.stringify(value, null, 2) : '' });
-});
-
-// Per-bot riff 后端配置。Body `{ riff: string }`（原始 JSON 文本，如
-// `{"baseUrl":"https://...","model":"gpt-5.5","reasoningEffort":"high"}`）：
-// 空白 → 清除；否则按 json kind 解析后落盘。走 applyConfigField（与 /botconfig
-// 同一写盘 + 内存热更新路径），next-session 生效。仅 backendType=riff 时使用。
-/** riff 配置里 dashboard 可编辑的字段——PUT /bot-riff 只覆盖这些，其余保留。 */
-// injectStatusLines 已从 dashboard UI 移除（恒默认开启）——不在此集合中意味着
-// 存量 bots.json 值按「隐藏字段」原样保留。
-const RIFF_UI_EDITABLE_KEYS = new Set(['baseUrl', 'sandboxCluster', 'model', 'reasoningEffort', 'jwtEnv', 'systemPrompt', 'setupCommands']);
-
-/** 发给浏览器前脱敏：明文 jwt / env（可能含各类密钥）绝不进 dashboard 响应。 */
-function redactRiffForClient(riff: unknown): Record<string, unknown> | null {
-  if (!riff || typeof riff !== 'object') return null;
-  const { jwt: _jwt, env: _env, ...safe } = riff as Record<string, unknown>;
-  return safe;
-}
-
-ipcRoute('PUT', '/api/bot-riff', async (req, res) => {
-  if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
-  let body: { riff?: unknown };
-  try { body = await readJsonBody<{ riff?: unknown }>(req); }
-  catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
-
-  const spec = findConfigField('riff');
-  if (!spec) return jsonRes(res, 500, { ok: false, error: 'spec_missing' });
-  const raw = typeof body.riff === 'string' ? body.riff : '';
-  let value: Record<string, unknown> | null;
-  if (!raw.trim()) {
-    value = null;  // 清除（显式清空整份 riff 配置，含隐藏字段）
-  } else {
-    const coerced = coerceConfigValue(spec, raw);
-    if (!coerced.ok) return jsonRes(res, 400, { ok: false, error: coerced.reason });
-    value = coerced.value as Record<string, unknown>;
-    // 合并保存：dashboard 只回写 UI 展示的字段；接口支持但 UI 未展示的字段
-    // （templateId / jwt / env / logLevel / repos…）必须原样保留，否则用户只改
-    // 一个 model 就会静默删掉认证等隐藏配置。
-    const prev = (getBot(cachedLarkAppId).config.riff ?? {}) as Record<string, unknown>;
-    const preserved = Object.fromEntries(Object.entries(prev).filter(([k]) => !RIFF_UI_EDITABLE_KEYS.has(k)));
-    // Older dashboard clients do not send sandboxCluster. Preserve a valid
-    // existing selection for them; a brand-new config follows Riff's BOE
-    // default. New clients always submit the explicit dropdown value.
-    const sandboxCluster = value.sandboxCluster ?? prev.sandboxCluster ?? 'boe';
-    if (!isValidRiffSandboxCluster(sandboxCluster)) {
-      return jsonRes(res, 400, { ok: false, error: 'invalid_sandbox_cluster' });
-    }
-    value = { ...preserved, ...value, sandboxCluster };
-    if (!isValidRiffBaseUrl(value.baseUrl)) {
-      return jsonRes(res, 400, { ok: false, error: 'invalid_base_url' });
-    }
-  }
-  const r = await applyConfigField(cachedLarkAppId, spec, value);
-  if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
-  jsonRes(res, 200, { ok: true, riff: value ? JSON.stringify(redactRiffForClient(value), null, 2) : '' });
 });
 
 // Per-bot 最大同时活跃会话数 maxLiveWorkers。Body `{ maxLiveWorkers: number | null }`:
@@ -4420,10 +4345,10 @@ export function startIpcServer(opts: {
   /** Upward-probe span on EADDRINUSE. Default DEFAULT_PROBE_SPAN (fleet daemons
    * step to the next free port so a port race can't crash boot). Core-only
    * (single in-sandbox service) sets 0 to BIND-OR-FAIL on the exact requested
-   * port — riff's task-runner is told a fixed port and must not have the service
+   * port. An embedded task runner is told a fixed port and must not have the service
    * silently drift to another one. */
   maxProbe?: number;
-  /** Core-only: additionally treat the tight riff-facing route allowlist
+  /** Core-only: additionally treat the embedded route allowlist
    * (routeIsCoreOnlyPublic) as public (no HMAC). Every OTHER route still requires
    * the trusted-host HMAC — this does NOT disable auth wholesale (codex P1). */
   coreOnlyPublicRoutes?: boolean;

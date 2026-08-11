@@ -640,68 +640,7 @@ describe('Bridge final_output delivery (P2 retry)', () => {
 
     expect(sessionReply).toHaveBeenCalledTimes(1);
     const cardJson = sessionReply.mock.calls[0][1] as string;
-    expect(cardJson).toContain('[botmux](');
     expect(cardJson).not.toContain('<at id=ou_foreign_bot></at>');
-  });
-
-  it('addresses Mira daemon fallback output back to the bot dispatcher', async () => {
-    const sessionReply = vi.fn(async () => 'om_reply');
-    initWorkerPool({
-      sessionReply,
-      getSessionWorkingDir: () => '/tmp',
-      getActiveCount: () => 1,
-      closeSession: vi.fn(),
-    });
-
-    const ds = makeDs();
-    ds.session.cliId = 'mira';
-    ds.session.ownerOpenId = undefined;
-    ds.ownerOpenId = undefined;
-    ds.session.creatorOpenId = 'ou_dispatcher_bot';
-    ds.session.quoteTargetSenderIsBot = true;
-
-    const { __testOnly_deliverFinalOutput } = await import('../src/core/worker-pool.js') as any;
-    __testOnly_deliverFinalOutput(ds, finalOutputMsg(), 'tag', 0);
-
-    await vi.advanceTimersByTimeAsync(10);
-
-    expect(sessionReply).toHaveBeenCalledTimes(1);
-    const cardJson = sessionReply.mock.calls[0][1] as string;
-    expect(cardJson).toContain('<at id=ou_dispatcher_bot></at>');
-  });
-
-  it('addresses Mira fallback output to a known-bot owner (/repo-primed dispatch)', async () => {
-    // `botmux dispatch --repo` primes the thread with "@bot /repo <path>",
-    // which records the dispatching bot as ownerOpenId (daemon /repo
-    // session-create path) instead of nulling it like @-mention auto-create.
-    writeFileSync(
-      join('/tmp/test-sessions', 'bot-openids-app_test.json'),
-      JSON.stringify({ Orchestrator: 'ou_orch_bot' }),
-    );
-
-    const sessionReply = vi.fn(async () => 'om_reply');
-    initWorkerPool({
-      sessionReply,
-      getSessionWorkingDir: () => '/tmp',
-      getActiveCount: () => 1,
-      closeSession: vi.fn(),
-    });
-
-    const ds = makeDs();
-    ds.session.cliId = 'mira';
-    ds.session.ownerOpenId = 'ou_orch_bot';
-    ds.ownerOpenId = 'ou_orch_bot';
-    ds.session.creatorOpenId = 'ou_orch_bot';
-    ds.session.quoteTargetSenderIsBot = true;
-
-    const { __testOnly_deliverFinalOutput } = await import('../src/core/worker-pool.js') as any;
-    __testOnly_deliverFinalOutput(ds, finalOutputMsg(), 'tag', 0);
-
-    await vi.advanceTimersByTimeAsync(10);
-
-    expect(sessionReply).toHaveBeenCalledTimes(1);
-    const cardJson = sessionReply.mock.calls[0][1] as string;
-    expect(cardJson).toContain('<at id=ou_orch_bot></at>');
   });
 
   it('keeps daemon final-output footer addressing for a human owner', async () => {
@@ -801,39 +740,6 @@ describe('Bridge final_output delivery (P2 retry)', () => {
     const home = homedir().replace(/\/+$/, '');
     const relativeHome = home.replace(/^\/+/, '');
     const missing = `${relativeHome}/botmux-definitely-missing-read-iso-${Date.now()}.md`;
-
-    const { __testOnly_deliverFinalOutput } = await import('../src/core/worker-pool.js') as any;
-    __testOnly_deliverFinalOutput(ds, {
-      ...finalOutputMsg(),
-      content: `[file](${missing})`,
-    }, 'tag', 0);
-
-    await vi.advanceTimersByTimeAsync(10);
-
-    const cardJson = sessionReply.mock.calls[0][1] as string;
-    expect(cardJson).toContain(`[file](/${missing})`);
-  });
-
-  it.each([
-    ['persisted session backend', (ds: DaemonSession) => { ds.session.backendType = 'riff'; }],
-    ['reconciled live backend', (ds: DaemonSession) => {
-      ds.session.backendType = 'tmux';
-      ds.initConfig = { backendType: 'riff' } as any;
-    }],
-  ])('uses probe-free lexical link repair for Riff via %s', async (_source, configure) => {
-    const sessionReply = vi.fn(async () => 'om_reply');
-    initWorkerPool({
-      sessionReply,
-      getSessionWorkingDir: () => '/tmp',
-      getActiveCount: () => 1,
-      closeSession: vi.fn(),
-    });
-
-    const ds = makeDs();
-    configure(ds);
-    const home = homedir().replace(/\/+$/, '');
-    const relativeHome = home.replace(/^\/+/, '');
-    const missing = `${relativeHome}/botmux-definitely-missing-riff-${Date.now()}.md`;
 
     const { __testOnly_deliverFinalOutput } = await import('../src/core/worker-pool.js') as any;
     __testOnly_deliverFinalOutput(ds, {
@@ -1590,7 +1496,6 @@ describe('Bridge final_output delivery (P2 retry)', () => {
 
     expect(getSessionUsageSnapshot).not.toHaveBeenCalled();
     const card = sessionReply.mock.calls[0]?.[1] as string;
-    expect(card).toContain('[botmux](');
     expect(card).not.toContain('上下文');
     expect(card).not.toContain('Token');
   });

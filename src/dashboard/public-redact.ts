@@ -64,7 +64,6 @@ export function redactSchedulesForPublic(schedules: unknown[]): unknown[] {
 
 const PRIVATE_SESSION_FIELDS = new Set([
   'gitBranch',
-  'riffAccessUrl',
   // Concrete distribution identity is operator configuration, not anonymous
   // watch-board data. Public rows retain protocol-level `cliId`, which is
   // sufficient for the existing fallback label.
@@ -87,14 +86,9 @@ function omitPrivateSessionFields(record: Record<string, unknown>): Record<strin
   return out;
 }
 
-/** Branch names often carry issue/customer identifiers. `riffAccessUrl` is the
- * Riff AIO Sandbox **write** capability — a bearer URL whose unique subdomain is
- * itself the credential (riff-backend.ts:hashUrlForLog), so an anonymous read-only
- * visitor must never receive it (they'd gain write access to the sandbox). Read
- * access on the dashboard goes through the local worker log terminal (webPort),
- * which stays; only the sandbox write URL is stripped. `/api/sessions` and
- * `/events` are both public-read surfaces, so keep one non-mutating projection
- * for their shared session row shape. */
+/** Branch names often carry issue or customer identifiers. `/api/sessions` and
+ * `/events` are public-read surfaces, so keep one non-mutating projection for
+ * their shared session row shape. */
 export function redactSessionForPublic(session: unknown): unknown {
   if (!session || typeof session !== 'object' || Array.isArray(session)) return session;
   return omitPrivateSessionFields(session as Record<string, unknown>);

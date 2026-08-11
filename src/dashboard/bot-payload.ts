@@ -58,7 +58,7 @@ export function botDefaultsPayload(bot: DashboardBotDescriptor, j?: any, error?:
     ...(bot.wrapperCli ? { wrapperCli: bot.wrapperCli } : {}),
     ...(bot.model ? { model: bot.model } : {}),
     // 「修改 CLI」下拉的当前选中项（cliId+wrapperCli → 选择键），wrapper 网关形态
-    // （aiden×claude / ttadk×codex 等）据此才能高亮回对应选项，否则前端回落到裸
+    // wrapper 组合据此才能高亮回对应选项，否则前端回落到裸
     // cliId、丢失 wrapper 语义（重载后下拉复位、再保存会把 wrapper 剥掉）。
     ...(bot.cliId ? { agentSelectionKey: selectionKeyForBot(bot.cliId, bot.wrapperCli) } : {}),
     online: true,
@@ -132,7 +132,6 @@ export function botDefaultsPayload(bot: DashboardBotDescriptor, j?: any, error?:
     canTalkDaemonCommands: typeof j?.canTalkDaemonCommands === 'string' ? j.canTalkDaemonCommands : '',
     launchShell: typeof j?.launchShell === 'string' ? j.launchShell : '',
     env: typeof j?.env === 'string' ? j.env : '',
-    riff: j?.riff && typeof j.riff === 'object' ? j.riff : null,
     skills: j?.skills && typeof j.skills === 'object' ? j.skills : null,
   };
 }

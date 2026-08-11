@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Core-only (headless / apiOnly) entrypoint. A SINGLE-PROCESS botmux daemon that
 // serves the HTTP control API on 127.0.0.1:<BOTMUX_API_PORT> with NO Feishu
-// credentials, NO bots.json, and NO pm2/dashboard sibling. Designed for riff's
+// credentials, no bots.json, and no pm2/dashboard sibling. Designed for an
 // sandbox: the in-sandbox task-runner spawns this, waits for the ready line (or
 // GET /healthz → 200), then drives codex via POST /api/trigger + poll
 // /api/sessions/:id/trigger-result | /insight. Same daemon IPC contract; the
-// trusted-host HMAC stays ON, with ONLY those riff-facing routes (+ /healthz)
+// trusted-host HMAC stays on, with only the required routes plus /healthz
 // allowlisted as no-HMAC — every other IPC route still requires it (see daemon.ts).
 //
 // vs `botmux start` (the fleet path): that spawns pm2 + dashboard + a daemon per
@@ -55,7 +55,7 @@ delete process.env.BOTMUX_WORKER_HOST; // legacy alias — must not shadow the f
 // above confines where the worker web server BINDS; this confines the host
 // baked into the read-only terminal URL that buildTerminalUrl() advertises.
 // Without it, config.web.externalHost falls back to getWebExternalHost() →
-// getLocalIp() (a LAN IP like 10.x.x.x), so the URL handed to riff would point
+// getLocalIp() (a LAN IP like 10.x.x.x), so the advertised URL would point
 // at an interface the proxy doesn't even listen on (proxy is 127.0.0.1-only in
 // core-only) — an in-sandbox VNC browser opening that URL would fail to connect.
 // core-only is single-tenant loopback, so the terminal is only ever reached via
@@ -76,7 +76,7 @@ process.env.WEB_EXTERNAL_HOST = '127.0.0.1';
 //     from the fleet's ~/.botmux/data and from any sibling core-only bot.
 // The ambient SESSION_DATA_DIR value is discarded either way.
 {
-  const coreBotId = process.env.BOTMUX_API_ONLY_BOT || 'local_riff';
+  const coreBotId = process.env.BOTMUX_API_ONLY_BOT || 'local_agent';
   const explicitStateDir = process.env.BOTMUX_CORE_STATE_DIR?.trim();
   const frozenStateDir = explicitStateDir
     ? explicitStateDir
@@ -118,7 +118,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  // Surface the exact bind failure (e.g. EADDRINUSE on the fixed port) so riff's
+  // Surface the exact bind failure (e.g. EADDRINUSE on the fixed port) so the
   // launcher sees WHY it never got the ready line, instead of a generic hang.
   console.error(`[core-only] fatal: ${err instanceof Error ? err.message : err}`);
   process.exit(1);

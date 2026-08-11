@@ -200,10 +200,10 @@ describe('buildBotFromAddFlags', () => {
     expect(() => buildBotFromAddFlags({})).toThrow(/--app-id --app-secret --allowed-users/);
   });
 
-  it('resolves gateway cli selection keys into cliId + wrapperCli', () => {
-    const bot = buildBotFromAddFlags({ ...REQUIRED, cli: 'aiden-x-claude' });
+  it('resolves native CLI selection keys', () => {
+    const bot = buildBotFromAddFlags({ ...REQUIRED, cli: 'claude-code' });
     expect(bot.cliId).toBe('claude-code');
-    expect(bot.wrapperCli).toBe('aiden x claude');
+    expect(bot.wrapperCli).toBeUndefined();
   });
 
   it('builds a Codex-compatible runtime from --cli-runtime JSON', () => {
@@ -242,10 +242,10 @@ describe('buildBotFromAddFlags', () => {
     })).toThrow(/cliRuntime conflicts with cliPathOverride/);
   });
 
-  it('lets an explicit --wrapper-cli override the --cli derived prefix, and "-" clear it', () => {
-    const overridden = buildBotFromAddFlags({ ...REQUIRED, cli: 'aiden-x-claude', wrapperCli: 'ccr code' });
-    expect(overridden.wrapperCli).toBe('ccr code');
-    const cleared = buildBotFromAddFlags({ ...REQUIRED, cli: 'aiden-x-claude', wrapperCli: '-' });
+  it('accepts an explicit --wrapper-cli and lets "-" clear it', () => {
+    const overridden = buildBotFromAddFlags({ ...REQUIRED, cli: 'claude-code', wrapperCli: 'custom-wrapper code' });
+    expect(overridden.wrapperCli).toBe('custom-wrapper code');
+    const cleared = buildBotFromAddFlags({ ...REQUIRED, cli: 'claude-code', wrapperCli: '-' });
     expect(cleared.wrapperCli).toBeUndefined();
   });
 
@@ -294,19 +294,14 @@ describe('editInputFromFlags', () => {
     });
   });
 
-  it('clears wrapperCli when switching to a plain cli, keeps it for gateway keys', () => {
+  it('clears wrapperCli when switching to a plain cli', () => {
     expect(editInputFromFlags({ cli: 'codex' })).toEqual({ cliChoice: 'codex', wrapperCli: null, cliRuntime: null });
-    expect(editInputFromFlags({ cli: 'ttadk-x-codex' })).toEqual({
-      cliChoice: 'codex',
-      wrapperCli: 'ttadk codex',
-      cliRuntime: null,
-    });
   });
 
   it('lets an explicit --wrapper-cli outrank the --cli derived value', () => {
-    expect(editInputFromFlags({ cli: 'codex', wrapperCli: 'cjadk codex' })).toEqual({
+    expect(editInputFromFlags({ cli: 'codex', wrapperCli: 'custom-wrapper codex' })).toEqual({
       cliChoice: 'codex',
-      wrapperCli: 'cjadk codex',
+      wrapperCli: 'custom-wrapper codex',
       cliRuntime: null,
     });
   });

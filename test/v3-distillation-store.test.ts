@@ -285,7 +285,7 @@ describe('v3 distillation proposal store', () => {
     });
   });
 
-  it.runIf(process.platform !== 'win32')('recovers the writer-owned hard-link publication crash window', () => {
+  it('recovers the writer-owned hard-link publication crash window', () => {
     const proposed = prepareAndPublish();
     const dir = v3DistillationProposalDir(dataDir, proposed.prepared.proposalId);
     const target = join(dir, 'proposal.json');
@@ -625,7 +625,7 @@ describe('v3 distillation proposal store', () => {
     }
   });
 
-  it.runIf(process.platform !== 'win32')('rejects symlinks, non-private files, and tampered content without reflecting it', () => {
+  it('rejects symlinks, non-private files, and tampered content without reflecting it', () => {
     const proposed = prepareAndPublish();
     const id = proposed.prepared.proposalId;
     const dir = v3DistillationProposalDir(dataDir, id);

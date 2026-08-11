@@ -50,8 +50,6 @@ export function buildClosedSessionCard(ds: DaemonSession, locale: Locale): strin
   const frozenPath = runtimePathOverride(frozenRuntime);
   const frozenWrapper = ds.session.wrapperCli
     ?? (ds.session.agentFrozen ? undefined : botCfg.wrapperCli);
-  const frozenModel = ds.session.model
-    ?? (ds.session.agentFrozen ? undefined : botCfg.model);
   // `cliPathOverride` historically changed only the executable, never the
   // product copy. Preserve that contract for legacy snapshots; only an
   // explicitly configured runtime opts into a distinct display identity.
@@ -65,11 +63,9 @@ export function buildClosedSessionCard(ds: DaemonSession, locale: Locale): strin
         sessionId: closedSessionId,
         cliSessionId: ds.session.cliSessionId,
       }) ?? null;
-      // ttadk 网关：resume 命令必须带 `-m <model> --skip-check`（模型取 bot.model），
-      // 否则用户复制粘贴这条命令会卡在 ttadk 的交互式选模型菜单（CoCo 不带 -m）。
       if (!raw) return null;
       return frozenWrapper
-        ? decorateResumeForWrapper(raw, frozenWrapper, { ttadkModel: frozenModel })
+        ? decorateResumeForWrapper(raw, frozenWrapper)
         : frozenPath
           ? replaceResumeExecutable(raw, frozenPath)
           : raw;

@@ -187,9 +187,6 @@ export function buildConfigTextCard(data: ConfigCardData, locale?: Locale): stri
 
 const cliDisplayNames: Record<CliId, string> = {
   'claude-code': 'Claude',
-  'seed': 'Seed',
-  'relay': 'Relay',
-  'aiden': 'Aiden',
   'coco': 'CoCo',
   'codex': 'Codex',
   'codex-app': 'Codex App',
@@ -200,8 +197,6 @@ const cliDisplayNames: Record<CliId, string> = {
   'antigravity': 'Antigravity',
   'mtr': 'MTR',
   'hermes': 'Hermes',
-  'mira': 'Mira',
-  'mir': 'Mir CLI',
   'traex': 'TRAE',
   'pi': 'Pi',
   'copilot': 'Copilot',
@@ -209,7 +204,6 @@ const cliDisplayNames: Record<CliId, string> = {
   'kimi': 'Kimi',
   'grok': 'Grok Build',
   'kiro-cli': 'Kiro',
-  'riff': 'Riff',
   'reasonix': 'Reasonix',
 };
 
@@ -908,9 +902,7 @@ export function buildStreamingCard(
 
   // ── Quick-action keys (only when the screenshot is visible — in text mode
   //    there's no visible cursor/input, so these keys would fire blindly) ──
-  // riff：远端任务后端没有可驱动的终端，PTY 快捷键只会变成内容为控制字符的
-  // follow-up 任务（worker 侧也有同款拒绝守卫），整排隐藏。
-  if (displayMode === 'screenshot' && cliId !== 'riff') {
+  if (displayMode === 'screenshot') {
     const mkKey = (label: string, key: string) => ({
       tag: 'button',
       text: { tag: 'plain_text', content: label },

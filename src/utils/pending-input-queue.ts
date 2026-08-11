@@ -152,8 +152,6 @@ export function resolveInitialPromptDelivery(opts: {
  * Whether this spawn baked a non-empty first prompt into argv (not the write
  * queue). Shared base for both Grok pre-exec busy arming and the card-off
  * "seed working before first idle" path for quiescence argv adapters.
- *
- * Riff has passesInitialPromptViaArgs=false → false (queue-after-spawn).
  */
 export function shouldTrackArgvBakedFirstPrompt(opts: {
   passesInitialPromptViaArgs: boolean;
@@ -178,8 +176,8 @@ export function shouldTrackArgvBakedFirstPrompt(opts: {
  *  - turn terminal is authoritative (`reliableTurnTerminal`) so a later
  *    assistant_final/fireIdle will produce a real idle edge
  *
- * Riff (and any queue-after-spawn adapter) has passesInitialPromptViaArgs=false
- * — must return false, or the first markPromptReady would clear isPromptReady
+ * Any queue-after-spawn adapter has passesInitialPromptViaArgs=false and must
+ * return false, or the first markPromptReady would clear isPromptReady
  * and leave the post-spawn queue flush never firing.
  * Gemini/Pi/MTR/OpenCode pass prompt via argv but use quiescence as the sole
  * idle signal — first ready IS completion; must return false or they stick

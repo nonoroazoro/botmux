@@ -148,15 +148,15 @@ describe('isForkCapableSession', () => {
     } as any);
   });
 
-  it('accepts claude-code / seed / relay / codex (terminal)', () => {
-    for (const cliId of ['claude-code', 'seed', 'relay', 'codex'] as const) {
+  it('accepts claude-code and codex terminal sessions', () => {
+    for (const cliId of ['claude-code', 'codex'] as const) {
       const ds = makeSourceDs({ cliId });
       expect(isForkCapableSession(ds)).toBe(true);
     }
   });
 
-  it('refuses aiden because its adapter has no native fork contract', () => {
-    const ds = makeSourceDs({ cliId: 'aiden' });
+  it('refuses gemini because its adapter has no native fork contract', () => {
+    const ds = makeSourceDs({ cliId: 'gemini' });
     expect(isForkCapableSession(ds)).toBe(false);
   });
 
@@ -259,7 +259,7 @@ describe('forkSession — frozen launch posture inheritance', () => {
         update: { provider: 'self' },
       },
       cliPathOverride: '/opt/custom/claude',
-      wrapperCli: 'ttadk',
+      wrapperCli: 'custom-wrapper',
       agentFrozen: true,
     });
     registry.set(sessionKey('om_source_root', 'cli_app_test'), src);
@@ -272,7 +272,7 @@ describe('forkSession — frozen launch posture inheritance', () => {
     expect(child.cliRuntime).toEqual(src.session.cliRuntime);
     expect(child.cliRuntime).not.toBe(src.session.cliRuntime);
     expect(child.cliPathOverride).toBe('/opt/custom/claude');
-    expect(child.wrapperCli).toBe('ttadk');
+    expect(child.wrapperCli).toBe('custom-wrapper');
     expect(child.agentFrozen).toBe(true);
   });
 

@@ -7,7 +7,6 @@ import { sanitizePerBotEnv } from '../core/per-bot-env.js';
 
 export const CLI_ID_CHOICES: Record<string, CliId> = {
   '1': 'claude-code',
-  '2': 'aiden',
   '3': 'coco',
   '4': 'codex',
   '5': 'cursor',
@@ -17,21 +16,16 @@ export const CLI_ID_CHOICES: Record<string, CliId> = {
   '9': 'mtr',
   '10': 'hermes',
   '11': 'codex-app',
-  '12': 'mira',
-  '13': 'seed',
   '14': 'traex',
   '15': 'pi',
   '16': 'copilot',
   '17': 'oh-my-pi',
-  '18': 'relay',
-  '19': 'mir',
   '20': 'kimi',
   // 新增 CLI 一律追加到尾部：序号是脚本化 setup（非 TTY 管道喂数字）的稳定接口，
   // 插位会让老脚本静默选错 CLI。
   '21': 'genius',
   '22': 'grok',
   '23': 'kiro-cli',
-  '24': 'riff',
   '25': 'reasonix',
 };
 
@@ -44,7 +38,6 @@ const VALID_CLI_IDS: ReadonlySet<string> = new Set(Object.values(CLI_ID_CHOICES)
  */
 const CLI_DISPLAY_LABELS: Record<CliId, string> = {
   'claude-code': 'Claude',
-  'aiden': 'Aiden',
   'coco': 'CoCo',
   'codex': 'Codex',
   'cursor': 'Cursor',
@@ -55,18 +48,13 @@ const CLI_DISPLAY_LABELS: Record<CliId, string> = {
   'mtr': 'MTR',
   'hermes': 'Hermes',
   'codex-app': 'Codex App',
-  'mira': 'Mira',
-  'seed': 'Seed',
   'traex': 'TRAE',
   'pi': 'Pi',
   'copilot': 'Copilot',
   'oh-my-pi': 'Oh My Pi',
-  'relay': 'Relay',
-  'mir': 'Mir CLI',
   'kimi': 'Kimi',
   'grok': 'Grok Build',
   'kiro-cli': 'Kiro',
-  'riff': 'Riff',
   'reasonix': 'Reasonix',
 };
 
@@ -92,7 +80,7 @@ export function resolveCliId(input: string | undefined): CliId | undefined {
   if (mapped) return mapped;
   if (VALID_CLI_IDS.has(raw)) return raw as CliId;
   // 序号上界从 CLI_ID_CHOICES 派生, 新增 CLI 时自动跟随, 不再手写硬编码区间.
-  const maxChoice = Object.keys(CLI_ID_CHOICES).length;
+  const maxChoice = Math.max(...Object.keys(CLI_ID_CHOICES).map(Number));
   throw new Error(
     `Unknown CLI 适配器 "${raw}"。请输入序号 1-${maxChoice} 或合法 ID 之一: ${[...VALID_CLI_IDS].join(', ')}`,
   );
@@ -201,10 +189,10 @@ export interface BotConfigEditInput {
    */
   cliRuntime?: CliRuntimeConfig | null;
   /**
-   * 通用启动前缀（如 "aiden x claude"）。三态：
+   * 通用启动前缀（如 "custom-wrapper claude"）。三态：
    *   - undefined → 不动
    *   - string    → 设置（空串 / "-" 视为清空）
-   *   - null      → 清空（选了普通 CLI 时清掉旧的 aiden×* 前缀）
+   *   - null      → 清空（选了普通 CLI 时清掉旧的 wrapper 前缀）
    * 调用方（setup picker / dashboard）用 resolveCliSelection 解析选择项后传入，
    * 避免 bot-config-editor 反向依赖 cli-selection（会成循环 import）。
    */
@@ -523,8 +511,8 @@ export function applyBotConfigEdits<T extends Record<string, any>>(
     if (backendType === '-') {
       delete out.backendType;
     } else if (backendType) {
-      if (backendType !== 'pty' && backendType !== 'tmux' && backendType !== 'herdr' && backendType !== 'zellij' && backendType !== 'zmx' && backendType !== 'riff') {
-        throw new Error(`backendType must be "pty", "tmux", "herdr", "zellij", "zmx", or "riff": ${backendType}`);
+      if (backendType !== 'pty' && backendType !== 'tmux' && backendType !== 'herdr' && backendType !== 'zellij' && backendType !== 'zmx') {
+        throw new Error(`backendType must be "pty", "tmux", "herdr", "zellij", or "zmx": ${backendType}`);
       }
       out.backendType = backendType;
     }

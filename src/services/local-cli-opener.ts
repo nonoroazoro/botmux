@@ -12,9 +12,6 @@ import { readGlobalConfig, type LocalCliOpenMode } from '../global-config.js';
 
 export const LOCAL_CLI_IDS = [
   'claude-code',
-  'seed',
-  'relay',
-  'aiden',
   'coco',
   'codex',
   'cursor',
@@ -37,9 +34,6 @@ const LOCAL_CLI_ID_SET = new Set<CliId>(LOCAL_CLI_IDS);
 
 const RESUME_COMMAND_PREFIXES: Record<Exclude<LocalCliId, 'oh-my-pi'>, string> = {
   'claude-code': 'claude --resume',
-  'seed': 'seed --resume',
-  'relay': 'relay --resume',
-  'aiden': 'aiden --resume',
   'coco': 'coco --resume',
   'codex': 'codex resume',
   'cursor': 'cursor-agent --resume',

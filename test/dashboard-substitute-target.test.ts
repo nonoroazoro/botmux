@@ -6,41 +6,41 @@ import { buildSubstituteTarget } from '../src/dashboard/web/bot-defaults-page.js
 // open_id, so it would substitute the previous person while the UI shows "saved").
 describe('buildSubstituteTarget', () => {
   it('drops a stale resolved open_id when a just-resolved email target is re-edited (same session)', () => {
-    // add alice@corp.com → Save resolved it to ou_alice, so persisted now carries both;
+    // add alice@example.com → Save resolved it to ou_alice, so persisted now carries both;
     // originalIdField is undefined because the row was added this session (never reloaded).
     const target = buildSubstituteTarget({
       idField: 'email',
-      idValue: 'bob@corp.com', // user re-typed a different email before the 2nd Save
+      idValue: 'bob@example.com', // user re-typed a different email before the 2nd Save
       name: '',
-      persisted: { openId: 'ou_alice', email: 'alice@corp.com', name: 'Alice' },
+      persisted: { openId: 'ou_alice', email: 'alice@example.com', name: 'Alice' },
       originalIdField: undefined,
     });
-    expect(target?.email).toBe('bob@corp.com');
+    expect(target?.email).toBe('bob@example.com');
     expect(target?.openId).toBeUndefined(); // must re-resolve the new email, not the stale id
   });
 
   it('keeps the resolved open_id when the row is unchanged (stable id preserved)', () => {
     const target = buildSubstituteTarget({
       idField: 'email',
-      idValue: 'alice@corp.com', // unchanged
+      idValue: 'alice@example.com', // unchanged
       name: 'Alice',
-      persisted: { openId: 'ou_alice', email: 'alice@corp.com', name: 'Alice' },
+      persisted: { openId: 'ou_alice', email: 'alice@example.com', name: 'Alice' },
       originalIdField: undefined,
     });
     expect(target?.openId).toBe('ou_alice');
-    expect(target?.email).toBe('alice@corp.com');
+    expect(target?.email).toBe('alice@example.com');
     expect(target?.name).toBe('Alice');
   });
 
   it('drops the previous id field when the id field is switched', () => {
     const target = buildSubstituteTarget({
       idField: 'email',
-      idValue: 'carol@corp.com',
+      idValue: 'carol@example.com',
       name: '',
       persisted: { openId: 'ou_carol', name: 'Carol' },
       originalIdField: 'openId',
     });
-    expect(target?.email).toBe('carol@corp.com');
+    expect(target?.email).toBe('carol@example.com');
     expect(target?.openId).toBeUndefined();
   });
 

@@ -20,7 +20,7 @@ export interface CodexAppFinalMarker {
   appTurnId?: string;
   /** botmux/Lark message id, used to select the Feishu reply destination. */
   replyTurnId?: string;
-  /** Pre-steer Codex App and Mira markers used one id for both domains. */
+  /** Legacy markers used one id for both protocol domains. */
   legacyTurnId?: string;
   /** Per-turn token usage (four mutually-exclusive buckets), when the turn's
    *  thread/tokenUsage/updated notifications yielded a coherent total. Omitted

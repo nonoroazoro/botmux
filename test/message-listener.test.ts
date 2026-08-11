@@ -36,7 +36,7 @@ function interactiveMessage(overrides: Record<string, unknown> = {}) {
           { tag: 'text', text: '规则名称：成片任务执行成功率 < 90%' },
         ],
         [
-          { tag: 'text', text: 'PSM：ecom.alliance.ai' },
+          { tag: 'text', text: 'Service: api.example.invalid' },
         ],
       ],
     }),
@@ -242,7 +242,7 @@ describe('message listener evaluation', () => {
             header: { title: { content: '[critical] ABase 写流量告警' } },
             body: {
               elements: [
-                { tag: 'div', text: { content: '服务: bytedance.abase2.ecom_alliance_ai' } },
+                { tag: 'div', text: { content: 'Service: api.example.com.order_processor' } },
               ],
             },
           }),
@@ -261,7 +261,7 @@ describe('message listener evaluation', () => {
       messageId: 'om_card',
       messageTitle: '[critical] ABase 写流量告警',
       senderName: 'Argos',
-      messageText: expect.stringContaining('服务: bytedance.abase2.ecom_alliance_ai'),
+      messageText: expect.stringContaining('Service: api.example.com.order_processor'),
     });
   });
 
@@ -721,7 +721,7 @@ describe('message listener evaluation', () => {
     });
     expect(match?.messageText).toContain('[卡片: Argos平台报警]');
     expect(match?.messageText).toContain('规则名称：成片任务执行成功率 < 90%');
-    expect(match?.messageText).toContain('PSM：ecom.alliance.ai');
+    expect(match?.messageText).toContain('Service: api.example.invalid');
   });
 
   it('extracts rendered interactive alert cards from message history format', () => {
@@ -745,9 +745,9 @@ describe('message listener evaluation', () => {
       chatId: 'oc_chat',
       message: interactiveMessage({
         content: [
-          '<card title="[critical] abase2 写流量使用率超过阈值">',
-          '服务: bytedance.abase2.ecom_alliance_ai',
-          '集群: China-North: ecom_alliance_ai',
+          '<card title="[critical] database write utilization exceeded threshold">',
+          'Service: api.example.com.order_processor',
+          'Cluster: region-1: order_processor',
           'WriteRUUsage: 88.677',
           '<font color="grey">[·](https://github.com/deepcoldy/botmux#reply-card-footer-v1)</font>',
           '</card>',
@@ -758,8 +758,8 @@ describe('message listener evaluation', () => {
       explicitlyMentionedThisBot: false,
     });
 
-    expect(match?.messageText).toContain('[卡片: [critical] abase2 写流量使用率超过阈值]');
-    expect(match?.messageText).toContain('服务: bytedance.abase2.ecom_alliance_ai');
+    expect(match?.messageText).toContain('[卡片: [critical] database write utilization exceeded threshold]');
+    expect(match?.messageText).toContain('Service: api.example.com.order_processor');
     expect(match?.messageText).toContain('WriteRUUsage: 88.677');
     // The botmux reply-card footer signature (grey-font marker anchor) is stripped.
     expect(match?.messageText).not.toContain('reply-card-footer');

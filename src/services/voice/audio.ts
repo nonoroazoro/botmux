@@ -2,7 +2,7 @@
  * Audio helpers for the voice feature: spoken-text cleanup, PCM→WAV framing,
  * and WAV→opus encoding via `opusenc` (opus-tools).
  *
- * Why PCM as the engine interchange format: TTS engines (SAMI in particular)
+ * Why PCM as the engine interchange format: some TTS engines
  * stream audio back as multiple ogg chunks; naively concatenating those yields
  * a *chained* ogg stream that confuses duration probes and may not play fully
  * in Feishu. Requesting raw PCM and encoding a single clean opus ourselves

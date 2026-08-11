@@ -68,8 +68,6 @@ function isCodexFamily(cliId: string): boolean {
 function defaultLocalExecutable(cliId: CliId, adapterResolvedBin: string, cliPathOverride?: string): string | null {
   if (cliPathOverride?.trim()) return cliPathOverride.trim();
   if (cliId === 'codex-app') return 'codex';
-  if (cliId === 'mira') return null;
-  if (cliId === 'mir') return 'mircli';
   return adapterResolvedBin;
 }
 
@@ -82,9 +80,9 @@ function shellJoin(parts: ReadonlyArray<string>): string {
   return parts.map(shellQuote).join(' ');
 }
 
-function commandForWrapperLaunch(wrapperCli: string, args: ReadonlyArray<string>, model?: string): { command: string; executable: string } {
+function commandForWrapperLaunch(wrapperCli: string, args: ReadonlyArray<string>): { command: string; executable: string } {
   const tokens = parseWrapperCli(wrapperCli);
-  const launch = buildWrappedLaunch(wrapperCli, args, (bin) => bin, { ttadkModel: model });
+  const launch = buildWrappedLaunch(wrapperCli, args, (bin) => bin);
   return {
     command: shellJoin([launch.bin, ...launch.args]),
     executable: tokens[0] ?? launch.bin,
@@ -112,7 +110,7 @@ export function localCliCommandForSession(ds: DaemonSession): LocalCliCommandRes
   }) ?? null;
 
   if (rawResume) {
-    const decorated = decorateResumeForWrapper(rawResume, cfg.wrapperCli, { ttadkModel: cfg.model });
+    const decorated = decorateResumeForWrapper(rawResume, cfg.wrapperCli);
     if (cfg.wrapperCli?.trim()) {
       const executable = parseWrapperCli(cfg.wrapperCli)[0];
       if (!executable || !onPath(executable)) {
@@ -128,7 +126,7 @@ export function localCliCommandForSession(ds: DaemonSession): LocalCliCommandRes
   }
 
   if (cfg.wrapperCli?.trim()) {
-    const { command, executable } = commandForWrapperLaunch(cfg.wrapperCli, [], cfg.model);
+    const { command, executable } = commandForWrapperLaunch(cfg.wrapperCli, []);
     if (!executable || !onPath(executable)) {
       return { ok: false, error: 'cli_unavailable', cliId: cfg.cliId, executable };
     }

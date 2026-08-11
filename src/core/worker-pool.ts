@@ -26,11 +26,10 @@ import {
 } from '../services/message-listener-run-preview-store.js';
 import { persistStreamCardState, rememberLastCliInput } from './session-manager.js';
 import { fallbackTurnId, isSubstituteTurn } from './reply-target.js';
-import { updateMessage, deleteMessage, sendEphemeralCard, sendUserMessage, addReaction, removeReaction, getMessageChatId, MessageWithdrawnError } from '../im/lark/client.js';
+import { updateMessage, deleteMessage, sendEphemeralCard, sendUserMessage, addReaction, removeReaction, MessageWithdrawnError } from '../im/lark/client.js';
 import { buildStreamingCard, buildPrivateSnapshotCard, buildSessionCard, buildTuiPromptCard, buildTuiPromptResolvedCard, buildTuiPromptFailedCard, buildRelayedFrozenCard, getCliDisplayName } from '../im/lark/card-builder.js';
 import { codexServiceTierBadge } from '../services/codex-service-tier.js';
 import { loadFrozenCards, saveFrozenCards } from '../services/frozen-card-store.js';
-import { hashUrlForLog, cancelRiffTaskById } from '../adapters/backend/riff-backend.js';
 import { logger } from '../utils/logger.js';
 import { createCliAdapterSync } from '../adapters/cli/registry.js';
 import {
@@ -115,11 +114,10 @@ function daemonCardLocalHomeLinkMode(ds: DaemonSession): LocalHomeLinkMode {
   // The daemon is outside file/read isolation. Never use its host namespace
   // to disambiguate isolated or remote output; lexical repair performs no
   // filesystem I/O. initConfig.backendType is the backend frozen for the live
-  // worker after riff reconciliation; fall back to persisted session metadata
+  // worker after backend reconciliation; fall back to persisted session metadata
   // while restoring sessions that do not yet have an initConfig.
   const backendType = ds.initConfig?.backendType ?? ds.session.backendType;
-  return backendType === 'riff'
-    || ds.session.sandbox === true
+  return ds.session.sandbox === true
     || ds.initConfig?.readIsolation === true
     || sandboxEnabled()
     ? 'lexical'
@@ -252,7 +250,6 @@ import { isLocalCliOpenEnabled, isLocalCliOpenReady } from '../services/local-cl
 import { sessionConfiguredRuntimeDisplayName } from './cli-runtime-display.js';
 import { isSilentScheduledTurn } from './silent-schedule-turns.js';
 import { isTriggerFinalSuppressed } from './trigger-final-suppression.js';
-import { writeDeferredTopicBinding } from './deferred-topic-binding.js';
 import {
   currentDeviceIsolationFreezeLease,
   deferWorkerSpawnDuringDeviceIsolation,
@@ -573,8 +570,6 @@ export function writableTerminalLinkFor(ds: DaemonSession): string | undefined {
   try {
     if (getBot(ds.larkAppId).config.writableTerminalLinkInCard !== true) return undefined;
   } catch { return undefined; }
-  // Riff backend: the sandbox URL is the writable link — no local worker needed.
-  if (ds.riffAccessUrl) return ds.riffAccessUrl;
   if (!ds.workerPort || !ds.workerToken) return undefined;
   return buildTerminalUrl(ds, { write: true });
 }
@@ -782,59 +777,6 @@ function clearUsageRefreshTimer(ds: DaemonSession): void {
   }
 }
 
-/**
- * PATCH the live streaming card with the freshest riff sandbox URL. Mirrors
- * {@link scheduleLocalCliOpenReadinessPatch}: when the card POST is still
- * in-flight (streamCardId === sentinel) the refresh is parked on
- * `pendingRiffUrlCardRefresh` and flushed once the POST lands — the riff
- * accessUrl typically arrives inside exactly that window (task-execute returns
- * within ~1s of the initial card POST), and without the pending flag the
- * in-card writable link would stay stale until the next status-edge PATCH.
- */
-export function scheduleRiffAccessUrlPatch(ds: DaemonSession): void {
-  if (streamingCardDisabled(ds) || ds.suppressRecoveryCard) {
-    ds.pendingRiffUrlCardRefresh = undefined;
-    return;
-  }
-  if (ds.streamCardId === CARD_POSTING_SENTINEL) {
-    ds.pendingRiffUrlCardRefresh = true;
-    return;
-  }
-  if (!ds.streamCardId || !ds.riffAccessUrl || !ds.workerPort) return;
-  ds.pendingRiffUrlCardRefresh = undefined;
-  const botCfg = getBot(ds.larkAppId).config;
-  const effectiveCliId = sessionCliId(ds, botCfg);
-  const status = ds.usageLimit ? 'limited' : (ds.lastScreenStatus ?? 'starting');
-  const cardJson = buildStreamingCard(
-    ds.session.sessionId,
-    sessionAnchorId(ds),
-    buildTerminalUrl(ds),
-    ds.currentTurnTitle || ds.session.title || sessionCliDisplayName(ds, botCfg),
-    ds.lastScreenContent ?? '',
-    status,
-    effectiveCliId,
-    ds.displayMode ?? 'hidden',
-    ds.streamCardNonce,
-    ds.currentImageKey,
-    !!ds.adoptedFrom,
-    false,
-    localeForBot(ds.larkAppId),
-    status === 'limited' ? ds.usageLimit : undefined,
-    writableTerminalLinkFor(ds),
-    isLocalCliOpenReady(ds, { cliId: effectiveCliId }),
-    getDaemonStreamingCardUsageSnapshot(ds, effectiveCliId),
-    sessionRuntimeDisplayName(ds, botCfg),
-    codexServiceTierBadge(effectiveCliId, ds.codexServiceTier),
-  );
-  scheduleCardPatch(ds, cardJson);
-}
-
-function flushPendingRiffUrlPatch(ds: DaemonSession): void {
-  if (!ds.pendingRiffUrlCardRefresh) return;
-  ds.pendingRiffUrlCardRefresh = undefined;
-  scheduleRiffAccessUrlPatch(ds);
-}
-
 function clearPendingLocalCliOpenReadinessPatch(ds: DaemonSession): void {
   ds.pendingLocalCliButtonRefresh = undefined;
 }
@@ -887,7 +829,7 @@ function sessionAgentConfig(
   // fields existed has `cliId` stamped historically but no frozen wrapper/model,
   // yet it was launching off the live bot config — so its first post-upgrade
   // resume must back-fill the still-missing fields from botCfg to keep launching
-  // identically (e.g. a `ttadk codex` wrapper bot must not silently drop to bare
+  // identically (a wrapper bot must not silently drop to the bare
   // `codex`, losing its gateway). `??` preserves whatever is already frozen and
   // only fills the gaps; the marker disambiguates "legacy, never frozen" from
   // "frozen as no-wrapper", so a genuinely wrapper-less session never inherits a
@@ -972,34 +914,14 @@ function loadKnownBotOpenIdsForApp(larkAppId: string): Set<string> {
   return knownBotOpenIdsFromCrossRef(crossRef, botEntries, larkAppId);
 }
 
-/** CLIs whose model→Lark delivery is the daemon's stdout-runner fallback card
- *  (NOT the model calling `botmux send`): mira (Web API runner) and mir (local
- *  mircli runner). They can't @-trigger a peer bot themselves, so for bot-to-bot
- *  handoffs the fallback card must carry the real <at> back to the dispatcher. */
-function isRunnerDeliveryCli(cliId?: string): boolean {
-  return cliId === 'mira' || cliId === 'mir';
-}
-
-function daemonCardFooterRecipientOpenId(ds: DaemonSession, effectiveCliId?: string): string | undefined {
+function daemonCardFooterRecipientOpenId(ds: DaemonSession, _effectiveCliId?: string): string | undefined {
   const owner = ds.session.ownerOpenId;
-  if (!owner) {
-    // Mira / Mir run through botmux's stdout-runner and cannot execute
-    // `botmux send` to @-trigger a peer bot. For bot-to-bot handoffs, address
-    // the daemon fallback card back to the original dispatcher so orchestration
-    // resumes (the card's real <at> is what re-wakes the dispatching bot).
-    if (isRunnerDeliveryCli(effectiveCliId) && ds.session.quoteTargetSenderIsBot && ds.session.creatorOpenId) {
-      return ds.session.creatorOpenId;
-    }
-    return undefined;
-  }
+  if (!owner) return undefined;
   try {
     if (loadKnownBotOpenIdsForApp(ds.larkAppId).has(owner)) {
       // `/repo`-primed dispatch records the dispatching bot as owner (unlike
-      // the @-mention auto-create path, which nulls ownerOpenId for bot
-      // senders). Same constraint for the stdout-runner CLIs (mira/mir): the
-      // daemon fallback card is their only @-trigger channel, so address the
-      // dispatcher bot here too.
-      return isRunnerDeliveryCli(effectiveCliId) ? owner : undefined;
+      // the @-mention auto-create path, which nulls ownerOpenId for bot senders).
+      return undefined;
     }
     return owner;
   } catch {
@@ -1266,7 +1188,6 @@ export async function postFreshStreamingCard(
     persistStreamCardState(ds);
     recallFrozenCards(ds);
     flushPendingLocalCliOpenReadinessPatch(ds);
-    flushPendingRiffUrlPatch(ds);
     flushPendingCodexServiceTierPatch(ds);
     // Manual /card during a working turn lands a live card whose subsequent
     // screen_updates are working→working (no status edge) — arm the periodic
@@ -1279,7 +1200,6 @@ export async function postFreshStreamingCard(
     ds.streamCardNonce = prevNonce;
     ds.streamCardPending = prevPending;
     flushPendingLocalCliOpenReadinessPatch(ds);
-    flushPendingRiffUrlPatch(ds);
     flushPendingCodexServiceTierPatch(ds);
     // Rolled back to the prior card identity — re-sync so a restored still-live
     // working card keeps (or resumes) its refresh rather than losing the timer.
@@ -1411,23 +1331,6 @@ export interface WriteLinkOwnerDelivery {
  */
 export function buildWritableTerminalCard(ds: DaemonSession): string | null {
   if (!sessionSupportsWebTerminal(ds)) return null;
-  // Riff backend: the sandbox URL is the writable link — no local worker/token needed.
-  if (ds.riffAccessUrl) {
-    const botCfg = getBot(ds.larkAppId).config;
-    const effectiveCliId = sessionCliId(ds, botCfg);
-    return buildSessionCard(
-      ds.session.sessionId,
-      sessionAnchorId(ds),
-      ds.riffAccessUrl,
-      ds.session.title || sessionCliDisplayName(ds, botCfg),
-      effectiveCliId,
-      true,
-      !!ds.adoptedFrom,
-      localeForBot(ds.larkAppId),
-      false,
-      sessionRuntimeDisplayName(ds, botCfg),
-    );
-  }
   const port = ds.workerPort ?? ds.session.webPort;
   if (!port || !ds.workerToken) return null;
   const botCfg = getBot(ds.larkAppId).config;
@@ -1887,12 +1790,7 @@ export function killWorker(ds: DaemonSession): void {
   const w = ds.worker;
   trackLifecycleRetirement(ds, w);
   armCloseFence(ds, w);
-  // riff：worker close 分支要有界 await 远端 task-cancel（destroySession 5s×2 重试，
-  // 外层 race 8s）。默认 2s SIGTERM backstop 会在取消发出前掐死进程，已关闭话题
-  // 的远端任务照跑——冻结为 riff 的会话放宽到 24s（层级：destroy 20s < worker 22s
-  // < SIGTERM 24s < SIGKILL 29s；正常路径 worker 自行 exit，不会等满）。
-  const closeFrozenType = ds.initConfig?.backendType ?? ds.session.backendType;
-  armWorkerKillBackstop(w, tag(ds), closeFrozenType === 'riff' ? 24_000 : WORKER_SIGTERM_BACKSTOP_MS);
+  armWorkerKillBackstop(w, tag(ds), WORKER_SIGTERM_BACKSTOP_MS);
   ds.worker = null;
   ds.workerPort = null;
   ds.workerToken = null;
@@ -2065,10 +1963,8 @@ export function shouldDestroyPaneBeforeRestart(
  * success. A fully reattach-proof path (forceFresh signal into spawnCli) is a
  * larger, separate change — tracked as a follow-up, not blocking this fix.
  *
- * Scope: persistent panes only (getSessionPersistentBackendType excludes riff,
- * which never reattaches — it always builds a fresh RiffBackend — and whose
- * remote task must survive a restart to preserve follow-up lineage). Adopt
- * sessions are skipped: botmux never owned the user's pane.
+ * Scope: persistent panes only. Adopt sessions are skipped because botmux never
+ * owned the user's pane.
  */
 function destroyLivePaneBeforeRestart(ds: DaemonSession): void {
   if (!shouldDestroyPaneBeforeRestart(ds)) return;
@@ -2185,25 +2081,6 @@ export function __testOnly_resetRestartCoordinator(): void {
 function destroyOrphanedBackingSession(ds: DaemonSession): void {
   if (ds.initConfig?.adoptMode || ds.adoptedFrom) return;
   reclaimParkedCrashDiagnostic(ds);
-  // riff：worker 已死时 /close 仍要取消持久化血缘指向的远端任务——否则已关闭
-  // 话题的远端 agent 继续拿着注入凭证发消息。fire-and-forget（内部有界+重试）。
-  const frozenType = ds.initConfig?.backendType ?? ds.session.backendType;
-  if (frozenType === 'riff') {
-    const taskId = ds.session.riffParentTaskId;
-    if (taskId) {
-      try {
-        const riffCfg = getBot(ds.larkAppId).config.riff;
-        if (riffCfg?.baseUrl) {
-          void cancelRiffTaskById(riffCfg, taskId).then((ok) => {
-            if (ok) logger.info(`[${tag(ds)}] killWorker: orphan riff task ${taskId} cancelled`);
-          });
-        }
-      } catch { /* bot deregistered — nothing to cancel with */ }
-      ds.session.riffParentTaskId = undefined;
-      sessionStore.updateSession(ds.session);
-    }
-    return;
-  }
   const backendType = getSessionPersistentBackendType(ds);
   if (!backendType) return;
   try {
@@ -2501,7 +2378,7 @@ function teardownAuthoritativePersistentBackingBeforeCloseImpl(
     // Explicit close wins over relay. The old worker may already be handling
     // detach_for_transfer concurrently, so daemon-side teardown is the only
     // deterministic way to prevent that detach path from skipping ordinary
-    // close cleanup (notably a surviving tmux/Herdr/ZMX pane or Riff task).
+    // close cleanup for a surviving persistent pane.
     destroyOrphanedBackingSession(ds);
   }
   const backendType = ds ? getSessionPersistentBackendType(ds) : session.backendType;
@@ -3451,7 +3328,6 @@ export async function transferSession(
     cliSessionId: sourceSession.cliSessionId,
     backendType: sourceSession.backendType,
     persistentBackendTarget: sourceSession.persistentBackendTarget,
-    riffParentTaskId: sourceSession.riffParentTaskId,
     workingDir: sourceSession.workingDir,
     adoptedFrom: sourceSession.adoptedFrom,
     runtimeWorkingDir: ds.workingDir,
@@ -3479,7 +3355,6 @@ export async function transferSession(
         cliSessionId: ds.session.cliSessionId,
         backendType: ds.session.backendType,
         persistentBackendTarget: ds.session.persistentBackendTarget,
-        riffParentTaskId: ds.session.riffParentTaskId,
         workingDir: ds.session.workingDir,
         adoptedFrom: ds.session.adoptedFrom,
         runtimeWorkingDir: ds.workingDir,
@@ -3600,8 +3475,8 @@ export async function transferSession(
   const oldAnchor = sessionAnchorId(ds);
   const oldChatId = ds.chatId;
 
-  // Detach only the worker/observer. Persistent backends and Riff keep the
-  // owned CLI/task alive so the replacement can reattach below. PTY cannot
+  // Detach only the worker/observer. Persistent backends keep the
+  // owned CLI alive so the replacement can reattach below. PTY cannot
   // survive a worker exit and therefore retains its historical cold-resume.
   const sourceWorker = ds.worker ?? undefined;
   let detached: boolean;
@@ -3765,10 +3640,9 @@ export async function transferSession(
  *  can drive at cold spawn (Claude family: `--fork-session`; Codex terminal:
  *  `codex fork <id>`). App-server backends (codex-app, or a codex CLI running in
  *  Hybrid RPC mode) keep state in a live app-server process + SQLite and have no
- *  byte-level fork we can reproduce — they are refused. Riff / other pure-remote
- *  backends have no local rollout to fork either. */
+ *  byte-level fork we can reproduce, so they are refused. */
 const FORK_CAPABLE_CLI_IDS: ReadonlySet<CliId> = new Set<CliId>([
-  'claude-code', 'seed', 'relay', 'codex',
+  'claude-code', 'codex',
 ]);
 
 /** True when this session can be byte-level forked via a CLI-native primitive.
@@ -4567,9 +4441,6 @@ export function forkWorker(
     // Shared Herdr is not derivable from sessionId: preserve the exact host +
     // managed-agent affinity across daemon/worker replacement.
     persistentBackendTarget: ds.session.persistentBackendTarget,
-    backendConfig: botCfg.riff,
-    riffParentTaskId: ds.session.riffParentTaskId,
-    riffRepoDirs: ds.session.riffRepoDirs,
     deferredScheduleRun: ds.session.deferredScheduleRun,
     ...(nativeSessionTitle ? { nativeSessionTitle } : {}),
     ...(nativeSessionTitlePrompt ? { nativeSessionTitlePrompt } : {}),
@@ -5215,8 +5086,7 @@ function setupWorkerHandlers(
         // Send streaming card to group thread (read-only link, will be PATCHed with live output)
         // Set sentinel BEFORE await so concurrent screen_update messages
         // (which can arrive while the POST is in-flight) don't POST a duplicate card.
-        // Guard: a concurrent screen_update (e.g. riff's markPromptReady fires
-        // screen_update + ready in quick succession) may already have a card POST
+        // Guard: concurrent screen_update and ready events may already have a card POST
         // in-flight. In that case CARD_POSTING_SENTINEL is already set — don't
         // POST a second card; the in-flight POST becomes this turn's card.
         if (ds.streamCardId === CARD_POSTING_SENTINEL) break;
@@ -5277,7 +5147,6 @@ function setupWorkerHandlers(
           // card without a successor visible to the user.
           recallFrozenCards(ds);
           flushPendingLocalCliOpenReadinessPatch(ds);
-          flushPendingRiffUrlPatch(ds);
           flushPendingCodexServiceTierPatch(ds);
           // Fresh ready POST: if this turn is already `working` (e.g. relay
           // resume where the CLI kept running), arm here — same authorized arm
@@ -5629,7 +5498,6 @@ function setupWorkerHandlers(
               // thread.
               recallFrozenCards(ds);
               flushPendingLocalCliOpenReadinessPatch(ds);
-              flushPendingRiffUrlPatch(ds);
               flushPendingCodexServiceTierPatch(ds);
               // New-turn POST is the FIRST working screen_update of the turn —
               // the else (same-turn PATCH) branch never runs for it, so arm the
@@ -6220,83 +6088,6 @@ function setupWorkerHandlers(
         // during init, but can also follow a previously-ready worker whose CLI
         // recovery/restart fails; that later failure must remain user-visible.
         await notifyStartupFailure(msg.message, msg.turnId, msg.dispatchAttempt);
-        break;
-      }
-
-      case 'riff_access_url': {
-        if (ds.worker !== worker) {
-          logger.warn(`[${t}] Ignored riff_access_url from stale worker: ${msg.accessUrl}`);
-          break;
-        }
-        if (ds.riffAccessUrl === msg.accessUrl) break;
-        ds.riffAccessUrl = msg.accessUrl;
-        logger.info(`[${t}] Riff sandbox access URL updated (urlhash: ${hashUrlForLog(msg.accessUrl)})`);
-        // Dashboard: refresh the session row's Web 终端 link immediately.
-        dashboardEventBus.publish({
-          type: 'session.update',
-          body: { sessionId: ds.session.sessionId, patch: { riffAccessUrl: msg.accessUrl } },
-        });
-        // Refresh the live streaming card (writable/AIO link) — parks a pending
-        // flag when the card POST is still in-flight and flushes once it lands.
-        if (!managedAuxUiSuppressed(msg.turnId, msg.dispatchAttempt)) scheduleRiffAccessUrlPatch(ds);
-        break;
-      }
-
-      case 'riff_task_id': {
-        if (ds.worker !== worker) break;
-        if (msg.taskId === null) {
-          // follow-up 血缘断裂：清掉持久化锚点，否则 daemon 重启会复活已判坏的 parent。
-          if (ds.session.riffParentTaskId) {
-            ds.session.riffParentTaskId = undefined;
-            sessionStore.updateSession(ds.session);
-          }
-          break;
-        }
-        if (ds.session.riffParentTaskId === msg.taskId) break;
-        // Persist the follow-up lineage anchor: after a daemon restart the
-        // rebuilt RiffBackend resumes from this id (resumeParentTaskId) so the
-        // next message continues the riff conversation in the warm sandbox
-        // instead of cold-booting a context-less fresh task (4-5 min).
-        ds.session.riffParentTaskId = msg.taskId;
-        sessionStore.updateSession(ds.session);
-        break;
-      }
-
-      case 'deferred_topic_materialized': {
-        if (ds.worker !== worker || msg.sessionId !== ds.session.sessionId) {
-          logger.warn(`[${t}] Dropped deferred topic binding from stale/wrong worker`);
-          break;
-        }
-        // Local backends claim through the host-visible sidecar directly. Only
-        // Riff needs the terminal-output relay, and terminal text is agent-
-        // controlled, so never let a fabricated local line create a binding.
-        if ((ds.initConfig?.backendType ?? ds.session.backendType) !== 'riff') {
-          logger.warn(`[${t}] Dropped deferred topic relay from non-Riff backend`);
-          break;
-        }
-        const run = ds.session.deferredScheduleRun;
-        if (!run || msg.turnId !== run.turnId || !msg.rootMessageId.startsWith('om_')) {
-          logger.warn(`[${t}] Dropped deferred topic binding with mismatched run identity`);
-          break;
-        }
-        // Defense in depth for the remote stdout relay: prove the claimed
-        // message actually exists in this run's target chat before persisting
-        // the host-side binding. This fences fabricated/cross-chat message ids.
-        const claimedChatId = await getMessageChatId(ds.larkAppId, msg.rootMessageId);
-        if (claimedChatId !== ds.chatId) {
-          logger.warn(`[${t}] Dropped deferred topic binding outside target chat`);
-          break;
-        }
-        writeDeferredTopicBinding(config.session.dataDir, {
-          sessionId: ds.session.sessionId,
-          turnId: run.turnId,
-          chatId: ds.chatId,
-          larkAppId: ds.larkAppId,
-          routingAnchor: run.routingAnchor,
-          rootMessageId: msg.rootMessageId,
-          createdAt: new Date().toISOString(),
-        });
-        logger.info(`[${t}] Deferred topic root recorded ${msg.rootMessageId.substring(0, 12)}`);
         break;
       }
 
@@ -7359,7 +7150,7 @@ export function forkAdoptWorker(ds: DaemonSession, opts?: { restoredFromMetadata
   // sessionId up front for the common case, but it can still come back empty:
   //   • herdr `agent list` exposes no pid, so a claude with no agent_session
   //     binding has nothing to key ~/.claude/sessions/<pid>.json off;
-  //   • tmux discovery can record a launcher pid (node/ttadk/aiden wrapping
+  //   • tmux discovery can record a launcher pid (node or another wrapper
   //     claude) when the real-CLI-pid resolver hasn't found the child yet.
   // In BOTH cases fall back to the unique claude session for this cwd. Applies
   // to every adopt source (not just herdr) since the tmux path hits the same
@@ -7449,7 +7240,7 @@ export function forkAdoptWorker(ds: DaemonSession, opts?: { restoredFromMetadata
     // session-discovery couldn't probe sessionId up-front). zellij adopt ALSO
     // needs the pid unconditionally: ZellijObserveBackend's liveness watches
     // the CLI pid (process.kill(pid,0)) so the worker onExit's when a user-typed
-    // CLI exits back to a shell — without it, aiden/gemini/opencode/hermes would
+    // CLI exits back to a shell; without it, gemini/opencode/hermes would
     // fall back to pane-only liveness and keep routing input into the shell.
     adoptCliPid: hasCliPid && (adoptedCliId === 'claude-code' || isStructuredBridge || !!adopted.zellijPaneId) ? adopted.originalCliPid : undefined,
     adoptCwd: hasCliPid && (adoptedCliId === 'claude-code' || isStructuredBridge || !!adopted.zellijPaneId) ? adopted.cwd : undefined,

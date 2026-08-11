@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { runSkillSessionCommand } from '../src/core/skills/cli-session-command.js';
 import { writeSessionSkillManifest } from '../src/core/skills/manifest-store.js';
+
+const CLI_PATH = join(__dirname, '..', 'dist', 'cli.js');
 
 function write(file: string, content: string): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -57,6 +60,38 @@ describe('botmux skill session command', () => {
 
   it('reads relative resources', () => {
     expect(runSkillSessionCommand(['read', 'deploy', 'references/release.md'], { BOTMUX_SESSION_ID: 's1' }).stdout).toContain('# Release');
+  });
+
+  it('lists relative resources', () => {
+    expect(runSkillSessionCommand(['resources', 'deploy'], { BOTMUX_SESSION_ID: 's1' }).stdout)
+      .toContain('references/release.md');
+  });
+
+  it('runs list, show, read, and resources through the compiled CLI', () => {
+    const run = (args: string[]) => spawnSync(process.execPath, [CLI_PATH, 'skill', ...args], {
+      env: {
+        ...process.env,
+        SESSION_DATA_DIR: dataDir,
+        BOTMUX_SESSION_ID: 's1',
+      },
+      encoding: 'utf-8',
+    });
+
+    const list = run(['list']);
+    expect(list.status).toBe(0);
+    expect(list.stdout).toContain('deploy');
+
+    const show = run(['show', 'deploy']);
+    expect(show.status).toBe(0);
+    expect(show.stdout).toContain('# Deploy');
+
+    const read = run(['read', 'deploy', 'references/release.md']);
+    expect(read.status).toBe(0);
+    expect(read.stdout).toContain('# Release');
+
+    const resources = run(['resources', 'deploy']);
+    expect(resources.status).toBe(0);
+    expect(resources.stdout).toContain('references/release.md');
   });
 
   it('refuses to run without a session id', () => {

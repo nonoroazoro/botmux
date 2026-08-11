@@ -55,7 +55,6 @@ describe('sanitizePerBotEnv()', () => {
         CODEX_HOME: '/tmp/evil-codex',
         GROK_HOME: '/tmp/evil-grok',
         CLAUDE_CODE_RESUME_TOKEN_THRESHOLD: '1',
-        CJADK_INTERACTIVE: '1',
         IS_SANDBOX: '1',
         SESSION_DATA_DIR: '/tmp',
         __OWNER_OPEN_ID: 'ou_x',
@@ -83,7 +82,6 @@ describe('isReservedPerBotEnvKey()', () => {
       'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID',
       'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_PID',
       'CODEX_HOME', 'GROK_HOME',
-      'CJADK_INTERACTIVE', 'IS_SANDBOX', 'SESSION_DATA_DIR', '__OWNER_OPEN_ID',
     ]) {
       expect(isReservedPerBotEnvKey(k), k).toBe(true);
     }

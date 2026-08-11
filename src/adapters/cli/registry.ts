@@ -5,9 +5,6 @@ import { isAbsolute, join } from 'node:path';
 import { locateExecutable } from '../../utils/executable.js';
 import type { CliAdapter, CliId } from './types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
-import { createSeedAdapter } from './seed.js';
-import { createRelayAdapter } from './relay.js';
-import { createAidenAdapter } from './aiden.js';
 import { createCocoAdapter } from './coco.js';
 import { createCodexAdapter } from './codex.js';
 import { createCodexAppAdapter } from './codex-app.js';
@@ -18,8 +15,6 @@ import { createOpenCodeAdapter } from './opencode.js';
 import { createAntigravityAdapter } from './antigravity.js';
 import { createMtrAdapter } from './mtr.js';
 import { createHermesAdapter } from './hermes.js';
-import { createMiraAdapter } from './mira.js';
-import { createMirAdapter } from './mir.js';
 import { createTraexAdapter } from './traex.js';
 import { createPiAdapter } from './pi.js';
 import { createCopilotAdapter } from './copilot.js';
@@ -27,7 +22,6 @@ import { createOhMyPiAdapter } from './oh-my-pi.js';
 import { createKimiAdapter } from './kimi.js';
 import { createGrokAdapter } from './grok.js';
 import { createKiroCliAdapter } from './kiro-cli.js';
-import { createRiffAdapter } from './riff.js';
 import { createReasonixAdapter } from './reasonix.js';
 
 /**
@@ -38,9 +32,6 @@ import { createReasonixAdapter } from './reasonix.js';
  */
 const RAW_CLI_EXECUTABLES: Readonly<Record<CliId, string | undefined>> = {
   'claude-code': 'claude',
-  seed: 'seed',
-  relay: 'relay',
-  aiden: 'aiden',
   coco: 'coco',
   codex: 'codex',
   // The adapter itself launches a bundled Node runner; codex is its real
@@ -53,11 +44,6 @@ const RAW_CLI_EXECUTABLES: Readonly<Record<CliId, string | undefined>> = {
   antigravity: 'agy',
   mtr: 'mtr',
   hermes: 'hermes',
-  // API-backed; no local executable is required.
-  mira: undefined,
-  // The adapter itself launches a bundled Node runner; mircli is its real
-  // second-stage dependency.
-  mir: 'mircli',
   traex: 'traex',
   pi: 'pi',
   copilot: 'copilot',
@@ -65,8 +51,6 @@ const RAW_CLI_EXECUTABLES: Readonly<Record<CliId, string | undefined>> = {
   kimi: 'kimi',
   grok: 'grok',
   'kiro-cli': 'kiro-cli',
-  // API-backed; no local executable is required.
-  riff: undefined,
   reasonix: 'reasonix',
 };
 
@@ -161,15 +145,12 @@ export async function createCliAdapter(id: CliId, pathOverride?: string): Promis
   return adapter;
 }
 
-export { createClaudeCodeAdapter, createSeedAdapter, createRelayAdapter, createAidenAdapter, createCocoAdapter, createCodexAdapter, createCodexAppAdapter, createCursorAdapter, createGeminiAdapter, createGeniusAdapter, createOpenCodeAdapter, createAntigravityAdapter, createMtrAdapter, createHermesAdapter, createMiraAdapter, createMirAdapter, createTraexAdapter, createPiAdapter, createCopilotAdapter, createOhMyPiAdapter, createKimiAdapter, createGrokAdapter, createKiroCliAdapter, createRiffAdapter, createReasonixAdapter };
+export { createClaudeCodeAdapter, createCocoAdapter, createCodexAdapter, createCodexAppAdapter, createCursorAdapter, createGeminiAdapter, createGeniusAdapter, createOpenCodeAdapter, createAntigravityAdapter, createMtrAdapter, createHermesAdapter, createTraexAdapter, createPiAdapter, createCopilotAdapter, createOhMyPiAdapter, createKimiAdapter, createGrokAdapter, createKiroCliAdapter, createReasonixAdapter };
 
 /** Synchronous version for use in worker process. */
 export function createCliAdapterSync(id: CliId, pathOverride?: string): CliAdapter {
   switch (id.toLowerCase() as CliId) {
     case 'claude-code': return createClaudeCodeAdapter(pathOverride);
-    case 'seed': return createSeedAdapter(pathOverride);
-    case 'relay': return createRelayAdapter(pathOverride);
-    case 'aiden': return createAidenAdapter(pathOverride);
     case 'coco': return createCocoAdapter(pathOverride);
     case 'codex': return createCodexAdapter(pathOverride);
     case 'codex-app': return createCodexAppAdapter(pathOverride);
@@ -180,8 +161,6 @@ export function createCliAdapterSync(id: CliId, pathOverride?: string): CliAdapt
     case 'antigravity': return createAntigravityAdapter(pathOverride);
     case 'mtr': return createMtrAdapter(pathOverride);
     case 'hermes': return createHermesAdapter(pathOverride);
-    case 'mira': return createMiraAdapter(pathOverride);
-    case 'mir': return createMirAdapter(pathOverride);
     case 'traex': return createTraexAdapter(pathOverride);
     case 'pi': return createPiAdapter(pathOverride);
     case 'copilot': return createCopilotAdapter(pathOverride);
@@ -189,7 +168,6 @@ export function createCliAdapterSync(id: CliId, pathOverride?: string): CliAdapt
     case 'kimi': return createKimiAdapter(pathOverride);
     case 'grok': return createGrokAdapter(pathOverride);
     case 'kiro-cli': return createKiroCliAdapter(pathOverride);
-    case 'riff': return createRiffAdapter(pathOverride);
     case 'reasonix': return createReasonixAdapter(pathOverride);
     default: throw new Error(`Unknown CLI adapter: ${id}`);
   }

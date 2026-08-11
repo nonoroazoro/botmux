@@ -165,7 +165,7 @@ describe('v3 host execution artifacts', () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')('rejects final-file and parent-directory symlinks without touching outside paths', () => {
+  it('rejects final-file and parent-directory symlinks without touching outside paths', () => {
     const root = mkdtempSync(join(tmpdir(), 'v3-host-symlink-'));
     const runDir = join(root, 'run');
     const outside = join(root, 'outside');

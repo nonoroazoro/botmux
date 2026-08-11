@@ -414,7 +414,7 @@ describe('prepareFeishuWebSession', () => {
     const result = await prepareFeishuWebSession({
       sessionFilePath: join(dir, 'missing-session.json'),
       disableQrLogin: true,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       fetchImpl,
       onQrCode,
     });
@@ -424,10 +424,10 @@ describe('prepareFeishuWebSession', () => {
     expect(onQrCode).not.toHaveBeenCalled();
   });
 
-  it('uses old bytedcli session file only as fallback after built-in QR login fails', async () => {
+  it('uses a configured external session file only after built-in QR login fails', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-'));
     const sessionFile = join(dir, 'feishu-session.json');
-    const fallbackSessionFile = join(dir, 'bytedcli-feishu-session.json');
+    const fallbackSessionFile = join(dir, 'external-feishu-session.json');
     writeFileSync(fallbackSessionFile, JSON.stringify({ cookies: [cookie()] }));
     const fetchImpl = (async (url: string | URL | Request) => {
       const href = String(url);
@@ -438,12 +438,12 @@ describe('prepareFeishuWebSession', () => {
 
     const result = await prepareFeishuWebSession({
       sessionFilePath: sessionFile,
-      bytedcliFallbackSessionFilePath: fallbackSessionFile,
+      externalSessionFallbackFilePath: fallbackSessionFile,
       fetchImpl,
       onQrCode: () => {},
     });
 
-    expect(result.ok && result.source).toBe('bytedcli_fallback');
+    expect(result.ok && result.source).toBe('external_session_fallback');
     expect(readStoredCookiesFromSessionFile(sessionFile)?.map(c => c.name)).toContain('session');
   });
 });
@@ -493,7 +493,7 @@ describe('createFeishuOpenPlatformApp', () => {
     const result = await createFeishuOpenPlatformApp({
       name: 'botmux-4',
       sessionFilePath: sessionFile,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       fetchImpl,
       onQrCode: () => { qrCount += 1; },
     });
@@ -554,7 +554,7 @@ describe('createFeishuOpenPlatformApp', () => {
     const result = await createFeishuOpenPlatformApp({
       name: 'botmux-5',
       sessionFilePath: sessionFile,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       fetchImpl,
     });
 
@@ -596,7 +596,7 @@ describe('createFeishuOpenPlatformApp', () => {
     const result = await createFeishuOpenPlatformApp({
       name: 'botmux-6',
       sessionFilePath: sessionFile,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       // code=0 但响应缺 ClientID:应用可能已建成,禁止再走 app/create 重建
       fetchImpl: outcomeUnknownFetchImpl(calls, () => Response.json({ code: 0, data: {} })),
     });
@@ -614,7 +614,7 @@ describe('createFeishuOpenPlatformApp', () => {
     const result = await createFeishuOpenPlatformApp({
       name: 'botmux-7',
       sessionFilePath: sessionFile,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       // 传输错误(如 ECONNRESET):服务端可能已 commit,结果未知,不得重建
       fetchImpl: outcomeUnknownFetchImpl(calls, () => { throw new Error('socket hang up (ECONNRESET)'); }),
     });
@@ -631,7 +631,7 @@ describe('createFeishuOpenPlatformApp', () => {
     const result = await createFeishuOpenPlatformApp({
       name: 'botmux-8',
       sessionFilePath: sessionFile,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       // 5xx:服务端内部错误,可能已部分落库,结果未知
       fetchImpl: outcomeUnknownFetchImpl(calls, () => new Response('oops', { status: 502 })),
     });
@@ -657,7 +657,7 @@ describe('createFeishuOpenPlatformApp', () => {
       name: 'must-not-exist',
       sessionFilePath: sessionFile,
       disableQrLogin: true,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       expectedIdentity: { userId: 'u_1', tenantId: 'another_tenant' },
       fetchImpl,
     });
@@ -707,7 +707,7 @@ describe('automateOpenPlatformSetup', () => {
       appId: 'cli_x',
       sessionFilePath: sessionFile,
       forceQrLogin: true,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       fetchImpl,
       pollIntervalMs: 0,
       maxWaitMs: 1000,
@@ -769,7 +769,7 @@ describe('automateOpenPlatformSetup', () => {
     const result = await automateOpenPlatformSetup({
       appId: 'cli_x',
       sessionFilePath: join(tmpdir(), `botmux-missing-${Date.now()}.json`),
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
       fetchImpl,
       scopeManifest: { scopes: { tenant: ['im:message'], user: [] } },
       onQrCode: () => {},

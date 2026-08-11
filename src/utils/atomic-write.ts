@@ -3,7 +3,7 @@
  *
  * 为什么需要它：裸 writeFileSync 在「写一半时被并发读 / 进程崩溃」下会让读者
  * 看到半截内容（torn read），对跨进程共享的 JSON 状态文件、被 watcher 当触发
- * 器消费的文件、被并发 exec 的脚本都是真实事故源（参考 cjadk settings.json
+ * 器消费的文件、被并发 exec 的脚本都是真实事故源（例如 settings.json
  * 覆盖事故）。POSIX rename(2) 同文件系统内原子替换：读者要么看到旧文件、要么
  * 看到完整新文件，永远不会看到中间态。
  *

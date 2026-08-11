@@ -68,7 +68,7 @@ const MAX_OVERVIEW_LIMIT = 500;
 const DEFAULT_SLOW_THRESHOLD_MS = 60_000;
 const DIAGNOSTIC_TARGET_CAP = 100;
 const SEVERITY_ORDER: Record<InsightSeverity, number> = { bad: 0, warn: 1, info: 2 };
-const SUPPORTED_CLI_IDS = new Set(['claude-code', 'seed', 'relay', 'aiden', 'codex', 'traex', 'antigravity']);
+const SUPPORTED_CLI_IDS = new Set(['claude-code', 'codex', 'traex', 'antigravity']);
 // Sized above MAX_OVERVIEW_LIMIT so a single overview pass doesn't evict its own
 // earlier sessions (FIFO thrash), defeating the parse-cache amortization.
 const PARSE_CACHE_MAX = 600;
@@ -900,7 +900,7 @@ function buildTurnTimeline(
   });
   // A fully tool-less turn (pure Q&A / clarification / text-only reply) has no
   // span, so keying turns off `grouped` alone would drop it from the timeline and
-  // the conversation replay. Union in turn indices that carry a prompt / context /
+  // the conversation history. Union in turn indices that carry a prompt / context /
   // narration — but ONLY when the turn is genuinely span-less (absent from
   // `allSpanTurnIndexes`, the full un-capped span set). A turn whose spans exist
   // but were trimmed by the maxSpans cap must NOT be re-added as an events:[] turn:

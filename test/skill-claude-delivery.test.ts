@@ -89,4 +89,33 @@ describe('Claude scoped skill delivery', () => {
     expect(prepared.fatal).toBe(true);
     expect(prepared.diagnostics).toContain('native_skill_delivery_not_supported');
   });
+
+  it('exposes the exact session manifest and selected skill roots to prompt-delivery sandboxes', () => {
+    const skillRoot = join(root, 'example-team-context');
+    write(join(skillRoot, 'SKILL.md'), '# Example Team Context');
+    const manifest: SessionSkillManifest = {
+      sessionId: 'sandbox-session',
+      cliId: 'codex',
+      workingDir: '/repo',
+      policyMode: 'priority',
+      prioritySkills: [{
+        id: 'example-team-context',
+        name: 'example-team-context',
+        tags: [],
+        rootDir: skillRoot,
+        entrypoint: 'SKILL.md',
+        source: { type: 'user', root: skillRoot },
+        priorityReason: 'bot:include',
+      }],
+      diagnostics: [],
+      generatedAt: '2026-08-10T00:00:00.000Z',
+    };
+
+    const prepared = prepareSkillDelivery(createCliAdapterSync('codex'), manifest, 'prompt');
+
+    expect(prepared.readonlyRoots).toEqual([
+      join(dataDir, 'skill-manifests', 'sandbox-session.json'),
+      skillRoot,
+    ]);
+  });
 });

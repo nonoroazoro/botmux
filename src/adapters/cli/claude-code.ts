@@ -859,13 +859,11 @@ export function createClaudeFamilyAdapter(variant: ClaudeFamilyVariant, rawBin: 
       // bypass 权限相关键（仅 !disableCliBypass）。
       //
       // SessionStart 就绪 hook（→ `botmux session-ready`）**不**再注入这里，改走全局
-      // settings.json（见下方 hookInstall.sessionStartCommand）。原因有二：
-      //   1. wrapperCli=`aiden x claude` 会剥掉本 --settings（aiden 硬拒），进程级那份它拿
-      //      不到；全局是它唯一能读到就绪 hook 的渠道。
-      //   2. 避免重复执行同一 botmux hook。项目级的其它 SessionStart hook 仍会按
+      // settings.json（见下方 hookInstall.sessionStartCommand）。这样可避免重复执行同一
+      // botmux hook。项目级的其它 SessionStart hook 仍会按
       //      Claude 语义并行执行；worker 把本 hook 当 selector 边界，并等待 hook 后
       //      新 prompt 证据，所以慢项目 hook 不会让首条消息提前落地。
-      // 全局即足够：Claude（含 cjadk / aiden 等启动器跑的真 claude）默认读 ~/.claude/settings.json，
+      // 全局即足够：Claude（含 wrapper 启动器跑的真 claude）默认读 ~/.claude/settings.json，
       // 与 askUserQuestion hook 同源同渠道，比进程级更稳（还覆盖 adopt / 剥 --settings 的场景）。
       const inlineSettings: Record<string, unknown> = {};
       if (!disableCliBypass) {
@@ -1183,14 +1181,12 @@ export function createClaudeFamilyAdapter(variant: ClaudeFamilyVariant, rawBin: 
     // askUserQuestion hook 写各 variant 的 settings.json（matcher='AskUserQuestion' 的
     // PreToolUse），把事件转发到 `botmux hook <id>`。Claude 用全局 ~/.claude/settings.json
     // 是为了 adopt 模式（接管的 claude 会话拿不到进程级 --settings，只读全局那条）；hook
-    // 客户端缺 BOTMUX_* env 时直接 passthrough 放行，不破坏非 botmux 的会话。Seed 写自己
-    // 的 .claude-runtime/settings.json，只作用于走该 CLAUDE_CONFIG_DIR 的 seed 会话。
+    // 客户端缺 BOTMUX_* env 时直接 passthrough 放行，不破坏非 botmux 的会话。
     hookInstall: {
       configPath: join(variant.dataDir, 'settings.json'),
       format: 'claude-settings',
-      // SessionStart 就绪 hook 也写全局：进程级 --settings 那份会被 wrapperCli=`aiden x
-      // claude` 剥掉（aiden 硬拒 --settings），全局这条是它唯一能拿到就绪信号的渠道，
-      // 避免首条 prompt 空等 45s；原生 Claude 也只从这一个来源读取 ready hook。
+      // SessionStart 就绪 hook 写全局，避免首条 prompt 空等；原生 Claude
+      // 也只从这一个来源读取 ready hook。
       sessionStartCommand: sessionReadyHookCommand(),
     },
     asksViaHook: true,

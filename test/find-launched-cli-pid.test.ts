@@ -11,13 +11,13 @@ function makeScheduler() {
   };
 }
 
-// findLaunchedCliPid sees through a wrapperCli launcher (`aiden x claude`) to the
+// findLaunchedCliPid sees through a wrapperCli launcher to the
 // real CLI process it forks. The OS-probing is injected so the BFS is tested
-// deterministically. Models the real tree: launcher(aiden,node) → claude child.
+// deterministically. Models a launcher process with a Claude child.
 describe('findLaunchedCliPid()', () => {
   // tree: 100 launcher → [200 claude child, 201 auth-rpc child], 200 → 300 (bash)
   const tree: Record<number, number[]> = { 100: [200, 201], 200: [300], 201: [], 300: [] };
-  const comm: Record<number, string> = { 100: 'node', 200: 'claude', 201: 'bytecloud-auth', 300: 'bash' };
+  const comm: Record<number, string> = { 100: 'node', 200: 'claude', 201: 'auth-helper', 300: 'bash' };
   const probes = {
     childrenOf: (pid: number) => tree[pid] ?? [],
     commOf: (pid: number) => comm[pid],
@@ -31,7 +31,7 @@ describe('findLaunchedCliPid()', () => {
     // The launcher (pid 100) comm is "node"; "claude" only lives in its argv.
     // comm-only matching means the launcher is never mistaken for the CLI.
     // (Regression guard: argv-scanning would have returned 100 here.)
-    const launcherCommIsBin = { ...comm, 100: 'aiden' }; // even if comm mapped, BFS starts at children
+    const launcherCommIsBin = { ...comm, 100: 'custom-wrapper' }; // even if comm mapped, BFS starts at children
     expect(findLaunchedCliPid(100, 'claude-code', 6, { childrenOf: probes.childrenOf, commOf: (p) => launcherCommIsBin[p] }))
       .toBe(200);
   });
@@ -53,7 +53,7 @@ describe('findLaunchedCliPid()', () => {
     expect(findLaunchedCliPid(100, 'claude-code', 6, p)).toBe(250);
   });
 
-  it('resolves the wrapperCli=aiden x codex case to the codex child', () => {
+  it('resolves a wrapped Codex process to the Codex child', () => {
     const t: Record<number, number[]> = { 1: [2], 2: [] };
     const c: Record<number, string> = { 1: 'node', 2: 'codex' };
     expect(findLaunchedCliPid(1, 'codex', 6, { childrenOf: (pid) => t[pid] ?? [], commOf: (pid) => c[pid] })).toBe(2);

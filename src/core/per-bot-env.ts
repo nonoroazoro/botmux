@@ -61,7 +61,6 @@ const RESERVED_ENV_KEYS = new Set<string>([
   // CLI and split-brain path resolution (see grok-paths header).
   'GROK_HOME',
   'CLAUDE_CODE_RESUME_TOKEN_THRESHOLD',
-  'CJADK_INTERACTIVE',
 ]);
 
 /** Whether `key` is botmux-controlled and therefore rejected from per-bot env. */

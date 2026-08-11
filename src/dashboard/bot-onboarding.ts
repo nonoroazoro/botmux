@@ -149,7 +149,7 @@ export interface BotOnboardingInput {
   sessionMode?: 'reuse' | 'qr';
   expectedIdentity?: Pick<FeishuWebSessionIdentity, 'userId' | 'tenantId'>;
   cliId?: CliId;
-  /** 通用启动前缀（如 "aiden x claude"）；aiden×* 选项解析所得，普通 CLI 为空。 */
+  /** 通用启动前缀；普通 CLI 为空。 */
   wrapperCli?: string;
   workingDir?: string;
   /**
@@ -1613,7 +1613,7 @@ export class BotOnboardingManager {
         ...(input.sessionMode === 'reuse'
           ? { disableQrLogin: true, expectedIdentity: input.expectedIdentity }
           : { forceQrLogin: true }),
-        disableBytedcliFallback: true,
+        disableExternalSessionFallback: true,
         onQrCode: info => {
           this.patch(id, {
             status: 'waiting_for_scan',
@@ -1668,19 +1668,22 @@ export class BotOnboardingManager {
       return;
     }
 
-    // CLI / model come from the dashboard form. The working directory remains
-    // available to setup automation, but is not persisted as a shared runtime
-    // directory because new bots use per-user isolation by default.
+    // CLI, model, and working-directory mode come from the dashboard form.
     const cliId: CliId = input.cliId ?? 'claude-code';
     const workingDir = input.workingDir?.trim() || '~';
     const bot: Record<string, any> = {
       larkAppId: result.appId,
       larkAppSecret: result.appSecret,
       cliId,
-      // aiden × claude/codex 等启动前缀；普通 CLI 不写此字段。
+      // wrapper 启动前缀；普通 CLI 不写此字段。
       ...(input.wrapperCli ? { wrapperCli: input.wrapperCli } : {}),
       multiUserIsolation: createDefaultMultiUserIsolationConfig(result.appId),
     };
+    if (input.dirMode === 'fixed') {
+      bot.defaultWorkingDir = workingDir;
+    } else {
+      bot.workingDir = workingDir;
+    }
     if (input.model && input.model.trim()) bot.model = input.model.trim();
     // brand 落盘：只在国际版写字段，feishu 留空（向后兼容，见 normalizeBrand）。
     if (result.brand === 'lark') {
@@ -1893,7 +1896,7 @@ export class BotOnboardingManager {
         // QR. It reuses the session created moments earlier or falls back to
         // manual recovery. Only explicit compatibility mode may scan again.
         disableQrLogin: meta.registrationMode === 'web',
-        disableBytedcliFallback: meta.registrationMode === 'web',
+        disableExternalSessionFallback: meta.registrationMode === 'web',
         requireVerifiedEvents: meta.requireVerifiedEvents,
         ...callbacks,
       });
@@ -2000,7 +2003,7 @@ export class BotOnboardingManager {
         sessionFilePath,
         forceQrLogin: true,
         disableQrLogin: false,
-        disableBytedcliFallback: true,
+        disableExternalSessionFallback: true,
         requireVerifiedEvents,
         ...callbacks,
       });

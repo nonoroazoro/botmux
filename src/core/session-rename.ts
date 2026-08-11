@@ -34,12 +34,6 @@ export function requestAgentSessionRename(
     return { status: 'not_running', ...(cliId ? { cliId } : {}) };
   }
 
-  // Riff's write() creates a remote task per call; a TUI command split into
-  // text + Enter would create two unrelated tasks. It has no local TUI anyway.
-  if ((ds.initConfig?.backendType ?? ds.session.backendType) === 'riff') {
-    return { status: 'unsupported', ...(cliId ? { cliId } : {}) };
-  }
-
   if (!cliId) return { status: 'unsupported' };
   try {
     const adapter = createCliAdapterSync(

@@ -36,5 +36,21 @@ describe('skill prompt catalog', () => {
     expect(block).toContain('<botmux_skills mode="priority">');
     expect(block).toContain('name="deploy"');
     expect(block).toContain('botmux skill show deploy');
+    expect(block).toContain('must read it');
+  });
+
+  it('normalizes generated catalog metadata and drops invalid skills', () => {
+    const block = renderSkillCatalogBlock({
+      ...manifest(),
+      prioritySkills: [
+        { ...manifest().prioritySkills[0], name: '  deploy  ', description: '  Deploy services  ', tags: [' sre ', ' '] },
+        { ...manifest().prioritySkills[0], id: 'blank', name: '   ', description: 'ignored' },
+      ],
+    });
+
+    expect(block).toContain('name="deploy" tags="sre"');
+    expect(block).toContain('<description>Deploy services</description>');
+    expect(block).not.toContain('name="   "');
+    expect(block.match(/<skill /g)).toHaveLength(1);
   });
 });

@@ -215,8 +215,7 @@ export async function pickChoice(
 }
 
 /**
- * 级联 CLI 选择器：顶层列出所有 CLI（Aiden 带 ▸），选 Aiden 进二级菜单
- * （原生 / × Claude / × Codex）。返回选择键（CLI_SELECT_OPTIONS 的 key），
+ * 级联 CLI 选择器。返回选择键（CLI_SELECT_OPTIONS 的 key），
  * 取消返回 null。
  *
  * 非 TTY 回退：打印带序号的扁平列表，用 readline 读「序号 / key」。
@@ -248,7 +247,7 @@ export async function pickCliSelection(
       hint: g.children ? '' : g.option?.key,
       submenu: !!g.children,
     }));
-    const ti = await interactiveSelect({ title, items: topItems, footer: '选 Aiden 进入子菜单（× Claude / × Codex）' });
+    const ti = await interactiveSelect({ title, items: topItems });
     if (ti === null) return null;
     const group = CLI_SELECT_TREE[ti];
     if (group.option) return group.option.key;

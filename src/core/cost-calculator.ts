@@ -1,13 +1,11 @@
 /**
  * Session cost calculator — computes token usage from JSONL logs.
  */
-import { existsSync, readFileSync, statSync, type Stats } from 'node:fs';
+import { existsSync, statSync, type Stats } from 'node:fs';
 import { logger } from '../utils/logger.js';
 import type { CliId } from '../adapters/cli/types.js';
-import { findAidenLatestCheckpointByBotmuxSessionId, findAidenLatestCheckpointBySessionId } from '../services/aiden-checkpoints.js';
 import {
   __resetTranscriptResolverCacheForTest,
-  cachedTranscriptPathLookup,
   resolveSessionTranscriptPath,
 } from '../services/transcript-resolver.js';
 import { scanJsonlFromOffset } from '../services/jsonl-cursor.js';
@@ -221,15 +219,13 @@ type UsageKind = 'claude' | 'codex' | 'coco' | 'pi' | 'generic';
 function usageKindForCli(cliId: SessionTokenUsageQuery['cliId']): UsageKind {
   switch (cliId) {
     case 'claude-code':
-    case 'seed':
-    case 'relay':
       return 'claude';
     case 'codex':
     // TRAE rollouts are byte-identical to Codex (see traex-transcript.ts):
     // token_count events carry the cumulative totals, and the active model
     // rides on turn_context/session_meta payloads. The generic fold picked up
     // the tokens but never the model, so traex ledger records shipped with
-    // model "" (consumers like kaboo fall back to "unknown").
+    // model "" (consumers can fall back to "unknown").
     case 'traex':
       return 'codex';
     case 'coco':
@@ -453,7 +449,7 @@ function finalizeTokenUsage(aggregate: TokenUsageAggregate): SessionTokenUsage |
 // once per throttle interval, and (c) for append-only JSONL folds only the
 // newly appended bytes instead of rereading the whole file.
 
-type CachedUsageKind = UsageKind | 'aiden';
+type CachedUsageKind = UsageKind;
 
 interface UsageFileCacheEntry {
   mtimeMs: number;
@@ -477,9 +473,6 @@ const USAGE_REPARSE_MIN_INTERVAL_MS = 15_000;
  *  scan pathological multi-GB transcripts. */
 export const MAX_USAGE_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 
-/** Aiden checkpoint paths move as the session progresses (latest.json points
- *  at a new checkpoint id per turn), so positive hits expire quickly too. */
-const AIDEN_PATH_HIT_TTL_MS = 15_000;
 const warnedOversizedUsageFiles = new Set<string>();
 
 export function __resetSessionUsageCachesForTest(): void {
@@ -525,10 +518,6 @@ function readSessionTokenAggregateCached(path: string, kind: CachedUsageKind, op
   if (!st) {
     // Unstat-able (file gone, or mocked fs in unit tests): parse directly, uncached.
     usageFileCache.delete(key);
-    if (kind === 'aiden') {
-      const result = readTokenUsageFromAidenCheckpoint(path);
-      return result ? { agg: newTokenUsageAggregate(), result } : null;
-    }
     const agg = readTokenUsageAggregate(path, kind);
     return agg ? { agg, result: finalizeTokenUsage(agg) } : null;
   }
@@ -560,23 +549,6 @@ function readSessionTokenAggregateCached(path: string, kind: CachedUsageKind, op
   if (usageFileCache.size >= USAGE_FILE_CACHE_MAX_ENTRIES && !usageFileCache.has(key)) {
     const oldest = usageFileCache.keys().next().value;
     if (oldest !== undefined) usageFileCache.delete(oldest);
-  }
-
-  if (kind === 'aiden') {
-    // Checkpoints are rewritten whole — nothing incremental to exploit.
-    const result = readTokenUsageFromAidenCheckpoint(path);
-    const blank = newTokenUsageAggregate();
-    usageFileCache.set(key, {
-      mtimeMs: st.mtimeMs,
-      size: st.size,
-      offset: -1,
-      state: blank,
-      seenMessageIds: new Set(),
-      previewAgg: blank,
-      result,
-      parsedAtMs: now,
-    });
-    return { agg: blank, result };
   }
 
   let state: TokenUsageAggregate;
@@ -638,75 +610,7 @@ export function readSessionTokenUsageFile(path: string, kind: CachedUsageKind, o
   return readSessionTokenAggregateCached(path, kind, opts)?.result ?? null;
 }
 
-function readTokenUsageFromAidenCheckpoint(path: string): SessionTokenUsage | null {
-  let rawInputTokens = 0;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheReadTokens = 0;
-  let cacheCreateTokens = 0;
-  let model = '';
-  let turns = 0;
-
-  try {
-    const checkpoint = JSON.parse(readFileSync(path, 'utf-8'));
-    const messages = checkpoint?.checkpoint?.channel_values?.messages;
-    if (!Array.isArray(messages)) return null;
-    for (const msg of messages) {
-      // LangGraph checkpoints only attribute usage to AI messages; human/tool
-      // entries occasionally echo usage metadata and must not be counted.
-      if (msg?.type === 'human' || msg?.type === 'tool') continue;
-      const u = msg?.usage_metadata ?? msg?.usage;
-      if (!u || typeof u !== 'object') continue;
-      const rawInput = pickNum(u, ['input_tokens', 'inputTokens', 'prompt_tokens', 'promptTokens']);
-      const output = pickNum(u, ['output_tokens', 'outputTokens', 'completion_tokens', 'completionTokens']);
-      const reportedCacheRead =
-        pickNum(u?.input_token_details, ['cache_read', 'cached_tokens', 'cacheRead']) +
-        pickNum(u?.input_tokens_details, ['cache_read', 'cached_tokens', 'cacheRead']);
-      const reportedCacheCreate =
-        pickNum(u?.input_token_details, ['cache_creation', 'cache_write', 'cacheCreate']) +
-        pickNum(u?.input_tokens_details, ['cache_creation', 'cache_write', 'cacheCreate']);
-      const partitioned = partitionInclusiveInputTokens(rawInput, reportedCacheRead, reportedCacheCreate);
-      rawInputTokens += partitioned.rawInputTokens;
-      inputTokens += partitioned.inputTokens;
-      outputTokens += output;
-      cacheReadTokens += partitioned.cacheReadTokens;
-      cacheCreateTokens += partitioned.cacheCreateTokens;
-      if (!model && typeof msg?.response_metadata?.model_name === 'string') model = msg.response_metadata.model_name;
-      turns++;
-    }
-  } catch (err: any) {
-    logger.error(`Failed to read Aiden checkpoint token usage: ${err.message}`);
-    return null;
-  }
-
-  if (turns === 0) return null;
-  return {
-    in: rawInputTokens,
-    out: outputTokens,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheCreateTokens,
-    model,
-    turns,
-  };
-}
-
 function readSessionUsage(q: SessionTokenUsageQuery): UsageReadResult | null {
-  if (q.cliId === 'aiden') {
-    const sid = q.cliSessionId || q.sessionId;
-    const checkpointPath = cachedTranscriptPathLookup(
-      `aiden:${q.sessionId}:${sid}:${q.cwd ?? ''}`,
-      AIDEN_PATH_HIT_TTL_MS,
-      () =>
-        findAidenLatestCheckpointBySessionId(sid, undefined, q.cwd) ??
-        findAidenLatestCheckpointByBotmuxSessionId(q.sessionId, undefined, q.cwd) ??
-        null,
-      { retryMiss: q.fresh, refreshHit: q.fresh },
-    );
-    if (!checkpointPath || !existsSync(checkpointPath)) return null;
-    return readSessionTokenAggregateCached(checkpointPath, 'aiden', { fresh: q.fresh });
-  }
   const resolved = resolveSessionTranscriptPath(q);
   if (!resolved || !existsSync(resolved.path)) return null;
   return readSessionTokenAggregateCached(resolved.path, usageKindForCli(q.cliId), { fresh: q.fresh });

@@ -21,7 +21,7 @@ describe('VC meeting consumer managed side-effect isolation', () => {
     })).toMatchObject({ ok: false, reason: 'sandbox_required' });
   });
 
-  it.each(['riff', 'herdr', 'zellij'] as const)(
+  it.each(['herdr', 'zellij'] as const)(
     'rejects the %s backend even when sandbox=true',
     (backendType) => {
       expect(evaluateVcMeetingConsumerIsolation({

@@ -108,7 +108,7 @@ describe('feishu group @mention routing', () => {
     await scrollThreadToBottom(agent);
     await agent.aiAssert(
       '主内容区正在显示的测试话题里只有 Claude 一个机器人的回复和卡片，' +
-        '没有看到 CoCo、Codex、OpenCode 或 Aiden 的回复消息或卡片',
+        '没有看到 CoCo、Codex 或 OpenCode 的回复消息或卡片',
     );
   }, 420_000);
 });

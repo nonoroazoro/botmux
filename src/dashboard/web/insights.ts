@@ -241,7 +241,7 @@ export function cliIdOf(rec: InsightRecord): string {
   return String(rec.session.cliId ?? 'unknown');
 }
 
-const CLI_FILTER_ORDER = ['claude-code', 'seed', 'relay', 'aiden', 'codex', 'traex', 'antigravity'];
+const CLI_FILTER_ORDER = ['claude-code', 'codex', 'traex', 'antigravity'];
 export function cliCounts(records: InsightRecord[]): Array<{ id: string; count: number }> {
   const m = new Map<string, number>();
   for (const rec of records) {

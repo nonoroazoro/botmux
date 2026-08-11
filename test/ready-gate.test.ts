@@ -3,7 +3,7 @@
  *
  * Ready-gate state machine — holds the FIRST prompt for Claude-family CLIs until
  * a SessionStart hook fires a "真就绪" signal (or a fallback timeout elapses), so
- * a cjadk-style startup selector's ❯ (which falsely matches readyPattern) can't
+ * a wrapper startup selector's ❯ (which falsely matches readyPattern) cannot
  * trip an early flush that the selector eats.
  *
  * Scenarios pinned (per the task brief): signal-first, signal-after, timeout
@@ -55,10 +55,7 @@ describe('shouldArmReadyGate', () => {
     })).toBe(false);
   });
 
-  it('KEEPS arming for aiden x claude: --settings is stripped but the SessionStart hook is installed globally', () => {
-    // wrapperCli "aiden x claude" drops process-level --settings, yet the ready
-    // hook is ALSO in ~/.claude/settings.json (hookInstall.sessionStartCommand),
-    // which aiden's real Claude still reads → the signal fires → keep the gate.
+  it('keeps arming when the SessionStart hook is installed globally', () => {
     expect(shouldArmReadyGate(base)).toBe(true);
   });
 });

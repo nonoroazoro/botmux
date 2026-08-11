@@ -53,8 +53,6 @@ type OnboardingJob = {
 type CliOption = {
   id: string;
   label: string;
-  gateway?: 'ttadk';
-  acceptsModel?: boolean;
   available?: boolean;
   command?: string;
   availabilityReason?: string;
@@ -62,8 +60,6 @@ type CliOption = {
 
 type CliOptionsState = {
   options: CliOption[];
-  ttadkModelDefault: string;
-  ttadkModelSuggestions: string[];
   suggestedAppName: string;
   webSession:
     | { status: 'checking' }
@@ -94,13 +90,10 @@ type ViewState =
   | { kind: 'job'; job: OnboardingJob; ownerError?: string };
 
 const DEFAULT_CLI_OPTION: CliOption = { id: 'claude-code', label: 'Claude' };
-const DEFAULT_TTADK_MODEL = 'glm-5.1';
 
 function defaultCliOptionsState(): CliOptionsState {
   return {
     options: [DEFAULT_CLI_OPTION],
-    ttadkModelDefault: DEFAULT_TTADK_MODEL,
-    ttadkModelSuggestions: [],
     suggestedAppName: 'botmux-0',
     webSession: { status: 'checking' },
   };
@@ -167,12 +160,6 @@ async function fetchCliOptions(): Promise<CliOptionsState> {
     const res = await fetch('/api/cli-options');
     const body = await res.json();
     if (res.ok && Array.isArray(body?.options)) {
-      const ttadkModelDefault = typeof body.ttadkModelDefault === 'string' && body.ttadkModelDefault.trim()
-        ? body.ttadkModelDefault.trim()
-        : DEFAULT_TTADK_MODEL;
-      const ttadkModelSuggestions = Array.isArray(body.ttadkModelSuggestions)
-        ? body.ttadkModelSuggestions.filter((item: unknown): item is string => typeof item === 'string')
-        : [];
       const suggestedAppName = typeof body.suggestedAppName === 'string' && body.suggestedAppName.trim()
         ? body.suggestedAppName.trim()
         : 'botmux-0';
@@ -196,8 +183,6 @@ async function fetchCliOptions(): Promise<CliOptionsState> {
         : { status: 'scan_required', ...(typeof body?.webSession?.reason === 'string' ? { reason: body.webSession.reason } : {}) };
       return {
         options: body.options as CliOption[],
-        ttadkModelDefault,
-        ttadkModelSuggestions,
         suggestedAppName,
         webSession,
       };
@@ -211,18 +196,8 @@ function syncModelForCli(
   cliId: string,
   cliState: CliOptionsState,
 ): OnboardingFormState {
-  const option = cliState.options.find(item => item.id === cliId);
-  const isTtadk = option?.gateway === 'ttadk';
-  const acceptsModel = isTtadk && option?.acceptsModel !== false;
-  let model = form.model;
-  if (isTtadk && !acceptsModel) {
-    model = '';
-  } else if (acceptsModel && !model.trim()) {
-    model = cliState.ttadkModelDefault;
-  } else if (!acceptsModel && model.trim() === cliState.ttadkModelDefault) {
-    model = '';
-  }
-  return { ...form, cliId, model };
+  void cliState;
+  return { ...form, cliId };
 }
 
 function normalizeFormForOptions(form: OnboardingFormState, cliState: CliOptionsState): OnboardingFormState {
@@ -424,11 +399,7 @@ function OnboardingForm(props: {
   onClose(): void;
 }): React.JSX.Element {
   const selectedCli = props.cliState.options.find(option => option.id === props.form.cliId);
-  const acceptsModel = selectedCli?.gateway === 'ttadk' && selectedCli.acceptsModel !== false;
-  const modelDisabled = selectedCli?.gateway === 'ttadk' && selectedCli.acceptsModel === false;
-  const modelPlaceholder = acceptsModel
-      ? t('botOnboarding.modelTtadkPlaceholder').replace('{model}', props.cliState.ttadkModelDefault)
-      : t('botOnboarding.modelPlaceholder');
+  const modelPlaceholder = t('botOnboarding.modelPlaceholder');
   const dirLabel = props.form.dirMode === 'card' ? t('botOnboarding.dirLabelCard') : t('botOnboarding.dirLabelFixed');
   const dirPlaceholder = props.form.dirMode === 'card'
     ? t('botOnboarding.dirPlaceholderCard')
@@ -546,24 +517,18 @@ function OnboardingForm(props: {
           onChange={event => props.onFormChange({ ...props.form, workingDir: event.currentTarget.value })}
         />
       </label>
-      {!modelDisabled ? <label className="onboarding-field">
+      <label className="onboarding-field">
         <span>{t('botOnboarding.modelLabel')}</span>
         <input
           id="ob-model"
           type="text"
-          list={acceptsModel ? 'ob-model-suggestions' : undefined}
           placeholder={modelPlaceholder}
           autoComplete="off"
           spellCheck={false}
           value={props.form.model}
           onChange={event => props.onFormChange({ ...props.form, model: event.currentTarget.value })}
         />
-        {acceptsModel ? (
-          <datalist id="ob-model-suggestions">
-            {props.cliState.ttadkModelSuggestions.map(model => <option value={model} key={model} />)}
-          </datalist>
-        ) : null}
-      </label> : null}
+      </label>
       {props.error ? <p className="form-error">{props.error}</p> : null}
       <div className="actions onboarding-actions">
         <button type="button" id="ob-cancel" disabled={props.submitting} onClick={props.onClose}>{t('botOnboarding.cancel')}</button>

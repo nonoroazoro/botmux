@@ -142,7 +142,7 @@ function isPersistentBackend(value: InventoryBackend): value is LocalPersistentB
   return value === 'tmux' || value === 'herdr' || value === 'zellij' || value === 'zmx';
 }
 
-function isLocalBackend(value: InventoryBackend): value is Exclude<BackendType, 'riff'> {
+function isLocalBackend(value: InventoryBackend): value is BackendType {
   return value === 'pty' || isPersistentBackend(value);
 }
 
@@ -311,17 +311,6 @@ function classifySession(session: DeviceIsolationRuntimeSession): DeviceIsolatio
       return blockerEntry(session, backendType, 'process_identity_unavailable');
     }
   }
-  if (backendType === 'riff') {
-    return {
-      sessionId: session.sessionId,
-      backendType,
-      disposition: 'safe_remote',
-      ...(session.workerGeneration !== undefined
-        ? { workerGeneration: session.workerGeneration }
-        : {}),
-    };
-  }
-
   const persistentTarget = isPersistentBackend(backendType)
     ? resolvePersistentBackendTarget(
       backendType,

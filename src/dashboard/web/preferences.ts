@@ -161,7 +161,7 @@ export function writeStoredKanbanGroupBy(storage: Storage | undefined, mode: Kan
 
 // ── Skin (visual identity, orthogonal to light/dark) ──────────────────────────
 // `default` = the regular botmux look (honours the light/dark theme mode).
-// Every other id is a self-contained palette distilled from the kaboo webui; each
+// Every other id is a self-contained palette; each
 // ships its own light/dark palette and ignores the light/dark theme mode.
 // `cyber` additionally layers on animated neon FX (the "2077" skin).
 export type SkinId =

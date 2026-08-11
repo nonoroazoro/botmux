@@ -1,4 +1,4 @@
-// Decorative motion layer for the "2077" cyberpunk skin, distilled from the kaboo
+// Decorative motion layer for the "2077" cyberpunk skin.
 // webui (frontend/src/components/shared/CyberpunkEffects.tsx + cyberpunk.css):
 //
 //   • ambient (behind content, #cyber-fx)  — neon grid, scanlines, vignette,
@@ -151,7 +151,7 @@ function stopBoot(): void {
 // Once you're at the bottom of the page, keep pulling further down; the
 // accumulated over-scroll past the end detonates a full-screen RGB-split glitch
 // storm (so simply reaching the bottom never sets it off). Re-arms after you
-// scroll away. Ported from kaboo's CyberpunkBreach.
+// scroll away.
 const BREACH_OVERSCROLL = 320;
 const BREACH_SHARDS = 16;
 let breachArmed = true;

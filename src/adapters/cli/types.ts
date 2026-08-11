@@ -202,7 +202,7 @@ export interface CliAdapter {
     cliSessionId?: string;
   }): string | null;
 
-  /** Write user input to PTY. May fire writes asynchronously (e.g. Aiden delayed Enter).
+  /** Write user input to PTY. May fire writes asynchronously.
    *  Resolves when all writes are complete.
    *
    *  Return value is optional: adapters that can verify the submit (e.g. Claude
@@ -390,7 +390,7 @@ export interface CliAdapter {
    *  free-text option, so this list is curation, not a hard whitelist. */
   readonly modelChoices?: readonly string[];
 
-  /** Claude-family CLIs only (claude-code, seed). The data root holding
+  /** Claude-family CLIs only. The data root holding
    *  `projects/<hash>/<id>.jsonl`, `sessions/<pid>.json`, `tasks/`,
    *  `keybindings.json` and `settings.json`. When set, the worker drives the
    *  JSONL submit-confirmation, bridge fallback and pid resolution against this
@@ -407,7 +407,7 @@ export interface CliAdapter {
    *  REAL + writable inside the file sandbox. The sandbox isolates the filesystem
    *  to a deny-by-default whitelist (so the agent only sees the rule paths), but a
    *  CLI's token refresh / login must PERSIST to the real auth — otherwise the
-   *  sandboxed CLI loses its login (see seed's `bytecloud-auth`). The sandbox binds
+   *  sandboxed CLI loses its login. The sandbox binds
    *  each existing path rw (real host path) so auth reads/refreshes/logins hit the
    *  real files. `~` is expanded. Default to NARROW (auth only) so session history
    *  stays out of the sandbox — but widen to the CLI's whole state dir when it keeps
@@ -445,7 +445,7 @@ export interface CliAdapter {
   sandboxReadonlyPaths?(): readonly string[];
 
   /** Extra env merged into the spawned child's environment. Used by Claude-family
-   *  forks to point the CLI at its data root (e.g. Seed's `CLAUDE_CONFIG_DIR`).
+   *  variants to point the CLI at a non-default data root.
    *  Keys placed here are also forwarded through the tmux backend (see
    *  BOTMUX_INJECTED_ENV_KEYS). undefined → inherit the worker env unchanged. */
   readonly spawnEnv?: Readonly<Record<string, string>>;
@@ -512,4 +512,4 @@ export interface CliAdapter {
   buildSessionRenameCommand?(title: string): string;
 }
 
-export type CliId = 'claude-code' | 'seed' | 'relay' | 'aiden' | 'coco' | 'codex' | 'codex-app' | 'cursor' | 'gemini' | 'genius' | 'opencode' | 'antigravity' | 'mtr' | 'hermes' | 'mira' | 'mir' | 'traex' | 'pi' | 'copilot' | 'oh-my-pi' | 'kimi' | 'grok' | 'kiro-cli' | 'riff' | 'reasonix';
+export type CliId = 'claude-code' | 'coco' | 'codex' | 'codex-app' | 'cursor' | 'gemini' | 'genius' | 'opencode' | 'antigravity' | 'mtr' | 'hermes' | 'traex' | 'pi' | 'copilot' | 'oh-my-pi' | 'kimi' | 'grok' | 'kiro-cli' | 'reasonix';

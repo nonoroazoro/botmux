@@ -5,7 +5,7 @@ import { safePromptPreview } from './prompt.js';
 import { safeCommandPreview, safeOutputPreview, safeTextPreview } from './safe-detail.js';
 import type { AgentSay, InsightParseResult, InsightReaderOptions, RawInsightSpan, TurnContextPoint } from './types.js';
 
-// Per-turn agent narration cap. Generous (conversation replay wants the agent's
+// Per-turn agent narration cap. Generous because conversation history needs the agent's
 // reasoning), still bounded — the scrubber also caps + redacts secrets.
 const AGENT_SAY_MAX = 1500;
 

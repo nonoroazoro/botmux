@@ -57,7 +57,7 @@ function writeIfChanged(filePath: string, content: string, mode?: number): boole
     }
     mkdirSync(dirname(filePath), { recursive: true });
     // 原子写：目标是 ~/.claude/settings.json 这类被 CLI 并发读写的热配置，
-    // 裸写半截会让并发读者拿到坏 JSON 再整文件覆写回来（cjadk 事故同类）。
+    // 裸写半截会让并发读者拿到坏 JSON，再整文件覆写回来。
     atomicWriteFileSync(filePath, content, mode !== undefined ? { mode } : {});
     return true;
   } catch (err: any) {
@@ -238,7 +238,7 @@ export function hasInstalledSessionReadyHook(hookInstall: HookInstallConfig): bo
  *
  * 若提供 sessionStartCommand，再把 SessionStart「真就绪」hook 写进 settings.json。
  * 这是 Claude-family 的单一 ready-hook 来源，也覆盖会剥掉进程级 --settings 的
- * wrapperCli=`aiden x claude`。
+ * wrapper 启动的 Claude。
  */
 function installClaudeSettings(
   configPath: string,

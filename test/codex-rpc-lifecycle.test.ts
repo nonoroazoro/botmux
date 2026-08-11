@@ -53,7 +53,7 @@ describe('codexRpcEligible — every fail-closed gate degrades to paste', () => 
     ['sandbox', { sandbox: true }],
     ['disableCliBypass (approval-gated — must not become dangerFullAccess)', { disableCliBypass: true }],
     ['has startupCommands (/effort ordering)', { startupCommands: ['/effort high'] }],
-    ['wrapperCli launcher', { wrapperCli: 'aiden x codex' }],
+    ['wrapperCli launcher', { wrapperCli: 'custom-wrapper codex' }],
     ['cliPathOverride launcher', { cliPathOverride: '/opt/wrap/codex' }],
     ['no prompt and not a resume', { prompt: '' }],
     ['resume flag but no cliSessionId', { prompt: '', resume: true }],

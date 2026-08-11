@@ -3,8 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 /**
  * Behavioral tests for PR D · API-only (core-only) transport boundary.
  *
- * Complements the source-lock in api-only-mode-wiring.test.ts with real
- * invariant checks:
+ * Covers the transport boundary with real invariant checks:
  *  - larkTransportEnabled: the central "no Feishu side effects" predicate;
  *  - triggerSessionTurn fail-closes an apiOnly bot's request SHAPE (codex P1-2)
  *    so it can never be steered into a real Feishu chat/root or skip a response
@@ -29,12 +28,12 @@ import { triggerSessionTurn } from '../src/core/trigger-session.js';
 import type { TriggerRequest } from '../src/services/trigger-types.js';
 import { larkTransportEnabled, isHttpVirtualSession, type DaemonSession } from '../src/core/types.js';
 
-const APP = 'local_riff';
+const APP = 'local_api';
 
 function apiOnlyBot() {
   mockGetBot.mockReturnValue({
     config: { apiOnly: true, cliId: 'codex-app', larkAppId: APP },
-    botName: 'Riff',
+    botName: 'API Bot',
     botOpenId: `bot_${APP}`,
   });
 }
@@ -44,7 +43,7 @@ function req(overrides: Partial<TriggerRequest['target']> & { options?: TriggerR
   return {
     source: { type: 'ui', requestId: 'r1' },
     target: { kind: 'turn', botId: APP, ...target },
-    envelope: { format: 'botmux.ui.v1', sourceName: 'riff', trusted: false, payload: {} },
+    envelope: { format: 'botmux.ui.v1', sourceName: 'external', trusted: false, payload: {} },
     options,
   };
 }
@@ -103,7 +102,7 @@ describe('triggerSessionTurn — apiOnly request-shape fail-closed', () => {
   });
 
   it('accepts a well-formed apiOnly async trigger (dry-run) — fail-closed does not over-reject', async () => {
-    // asyncReturnSessionId + no real chat target is the canonical riff call.
+    // asyncReturnSessionId + no real chat target is the canonical API-only call.
     // dry-run stops before forkWorker but after the apiOnly shape gate, proving
     // the gate admits the legitimate request instead of rejecting everything.
     const res = await triggerSessionTurn(

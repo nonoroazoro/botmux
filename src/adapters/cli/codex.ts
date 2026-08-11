@@ -395,7 +395,7 @@ export function createCodexAdapter(pathOverride?: string): CliAdapter {
     // that menu as the composer and lets botmux's queued first message select
     // the update. Keep accepting the composer marker anywhere in a TUI redraw,
     // but reject numbered menu choices. This remains necessary for wrappers
-    // such as Aiden that cannot forward the startup-update config override.
+    // that cannot forward the startup-update config override.
     readyPattern: /›(?!\s*\d+\.)|\d+% left/,
     // Codex cold starts can exceed the worker's 15s soft first-prompt timeout.
     // Wait for the real composer marker so the bare-shell guard does not treat

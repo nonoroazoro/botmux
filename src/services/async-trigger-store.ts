@@ -5,8 +5,8 @@
  * Background: async trigger state normally lives only in memory on the active
  * DaemonSession (`asyncTriggerResults`). A daemon restart (or idle-suspend)
  * drops that Map, which would make a poller see `session_not_found` for a turn
- * that in fact already completed — a false "task lost" for programmatic callers
- * (e.g. the riff task runner) that reconcile purely off this endpoint.
+ * that in fact already completed, which would be a false "task lost" result for
+ * programmatic callers that reconcile purely off this endpoint.
  *
  * This store mirrors frozen-card-store's on-disk contract (atomic tmp+rename
  * under {dataDir}/async-triggers/{sessionId}.json). It holds the final output

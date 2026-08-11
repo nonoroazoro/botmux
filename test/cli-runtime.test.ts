@@ -211,8 +211,8 @@ describe('runtime snapshots and identity', () => {
       id: 'vendor', displayName: 'Renamed Vendor', executable: '/opt/b', source: 'configured',
       update: { provider: 'none' },
     };
-    const left = { cliId: 'codex', cliRuntime: leftRuntime, wrapperCli: '  aiden x codex  ' };
-    const right = { cliId: 'codex', cliRuntime: rightRuntime, wrapperCli: 'aiden x codex' };
+    const left = { cliId: 'codex', cliRuntime: leftRuntime, wrapperCli: '  custom-wrapper codex  ' };
+    const right = { cliId: 'codex', cliRuntime: rightRuntime, wrapperCli: 'custom-wrapper codex' };
     expect(sameRuntimeIdentity(left, right)).toBe(true);
     expect(runtimeIdentityKey(left)).toBe(runtimeIdentityKey(right));
 

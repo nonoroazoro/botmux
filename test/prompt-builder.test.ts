@@ -236,10 +236,10 @@ describe('buildNewTopicPrompt', () => {
       'codex',
       undefined,
       undefined,
-      [{ name: 'Finder Master', openId: 'ou_finder' }],
+      [{ name: 'Example Bot', openId: 'ou_example' }],
       undefined,
       undefined,
-      { name: 'Finder Master', openId: 'ou_finder' },
+      { name: 'Example Bot', openId: 'ou_example' },
     );
 
     expect(prompt).not.toContain('<mentions>');
@@ -277,6 +277,111 @@ describe('buildNewTopicPrompt', () => {
     expect(prompt.indexOf('<botmux_routing>')).toBeLessThan(prompt.indexOf('<identity>'));
     expect(prompt.indexOf('<identity>')).toBeLessThan(prompt.indexOf('<user_message>'));
     expect(prompt.indexOf(`<session_id>${SESSION_ID}</session_id>`)).toBeLessThan(prompt.indexOf('<user_message>'));
+  });
+
+  it('injects an escaped bot description only in the opening identity', () => {
+    const description = 'Example assistant for <engineering> & product tasks.';
+    const opening = buildNewTopicPrompt(
+      'hello',
+      SESSION_ID,
+      'codex',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { name: 'Example Bot', description, openId: 'ou_example' },
+    );
+    const followUp = buildFollowUpContent('again', SESSION_ID, { cliId: 'codex' });
+
+    expect(opening).toContain('<description>Example assistant for &lt;engineering&gt; &amp; product tasks.</description>');
+    expect(opening.indexOf('<description>')).toBeLessThan(opening.indexOf('<user_message>'));
+    expect(followUp).not.toContain('<description>');
+  });
+
+  it('omits blank or missing identity fields instead of injecting placeholders', () => {
+    const nameOnly = buildNewTopicPrompt(
+      'hello',
+      SESSION_ID,
+      'codex',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { name: '  Example Bot  ', description: '   ', openId: '' },
+    );
+    const empty = buildNewTopicPrompt(
+      'hello',
+      SESSION_ID,
+      'codex',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { name: ' ', description: '\n', openId: '\t' },
+    );
+
+    expect(nameOnly).toContain('<name>Example Bot</name>');
+    expect(nameOnly).not.toContain('<description>');
+    expect(nameOnly).not.toContain('<open_id>');
+    expect(nameOnly).not.toContain('unknown');
+    expect(empty).not.toContain('<identity>');
+  });
+
+  it('omits invalid generated metadata while preserving an empty user message', () => {
+    const prompt = buildNewTopicPrompt(
+      '',
+      '   ',
+      'claude-code',
+      undefined,
+      [{ type: 'image', path: ' \n ', name: 'ignored' }],
+      [{ key: '', name: ' ', openId: '\t' }],
+      [{ name: 'peer', displayName: ' ', openId: 'ou_peer' }],
+      undefined,
+      { name: ' ', description: ' ', openId: ' ' },
+      undefined,
+      { openId: ' ', name: ' ', type: 'user' },
+      {
+        substituteTrigger: { target: { name: ' ', openId: '\t' } },
+        chatContext: {
+          chatId: ' ',
+          name: '\n',
+          description: '\t',
+          mode: 'group',
+          fetchStatus: 'ok',
+        },
+      },
+    );
+
+    expect(prompt).toContain('<user_message>\n\n</user_message>');
+    expect(prompt).not.toContain('<session_id>');
+    expect(prompt).not.toContain('<identity>');
+    expect(prompt).not.toContain('<sender ');
+    expect(prompt).not.toContain('<mentions>');
+    expect(prompt).not.toContain('<attachments');
+    expect(prompt).not.toContain('<available_bots');
+    expect(prompt).not.toContain('<substitute_trigger>');
+    expect(prompt).not.toContain('<chat_context');
+  });
+
+  it('puts only the bot description in the opening prompt when the adapter injects the rest of identity', () => {
+    const prompt = buildNewTopicPrompt(
+      'hello',
+      SESSION_ID,
+      'claude-code',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { name: 'Example Bot', description: 'Example team assistant.', openId: 'ou_example' },
+    );
+
+    expect(prompt).toContain('<identity>\n  <description>Example team assistant.</description>\n</identity>');
+    expect(prompt).not.toContain('<name>Example Bot</name>');
+    expect(prompt).not.toContain('<open_id>ou_example</open_id>');
   });
 
   it.each([
@@ -395,6 +500,13 @@ describe('buildFollowUpContent', () => {
     expect(adoptContent).toContain('<user_message>\n请修复这个问题');
   });
 
+  it('preserves an empty follow-up while omitting a blank session id', () => {
+    const content = buildFollowUpContent('', '   ', { cliId: 'codex' });
+
+    expect(content).toContain('<user_message>\n\n</user_message>');
+    expect(content).not.toContain('<session_id>');
+  });
+
   it('should include attachment block when provided', () => {
     const attachments = [{ type: 'image' as const, path: '/tmp/img.jpg', name: 'img.jpg' }];
     const content = buildFollowUpContent('看这个图', SESSION_ID, { attachments });
@@ -479,7 +591,7 @@ describe('buildFollowUpContent', () => {
   it('routes Hermes through the shared anti-resend branch when noVisibleOutputHint is ON', () => {
     // Codex-review guard for #653: prove Hermes really lands in the shared
     // noVisibleOutputHint branch (not a special-cased bypass), so the toggle
-    // reaches it just like every other non-Mira CLI.
+    // reaches it just like every other CLI.
     (config as { noVisibleOutputHint?: boolean }).noVisibleOutputHint = true;
     try {
       const content = buildFollowUpContent('hello', SESSION_ID, { cliId: 'hermes' });
@@ -524,16 +636,6 @@ describe('buildFollowUpContent', () => {
     });
     expect(content).not.toContain('<session_id>');
     expect(content).toContain('path="/tmp/img.jpg"');
-  });
-
-  it('omits botmux_reminder for Mira follow-ups', () => {
-    const content = buildFollowUpContent('继续', SESSION_ID, {
-      isAdoptMode: false,
-      cliId: 'mira',
-    });
-
-    expect(content).not.toContain('<botmux_reminder>');
-    expect(content).not.toContain('botmux send');
   });
 
   it('injects <sender_note> for cursor follow-ups carrying a sender', () => {
@@ -616,14 +718,6 @@ describe('buildReforkPrompt', () => {
     expect(out).not.toContain('<session_id>');
     expect(out).toContain('<user_message>');
     expect(out).toContain('<botmux_reminder>');
-  });
-
-  it('omits botmux_reminder for Mira re-fork prompts', () => {
-    const ds = makeDs();
-    const out = buildReforkPrompt(ds, 'hello', { cliId: 'mira' });
-    expect(out).toContain('<user_message>');
-    expect(out).not.toContain('<session_id>');
-    expect(out).not.toContain('<botmux_reminder>');
   });
 
   it('places the whiteboard hint after <botmux_reminder> and before <user_message> on re-fork', () => {
@@ -720,7 +814,7 @@ describe('renderCursorSenderNote', () => {
   });
 
   it('returns empty for every non-cursor CLI', () => {
-    for (const cli of ['claude-code', 'codex', 'gemini', 'opencode', 'coco', 'aiden'] as const) {
+    for (const cli of ['claude-code', 'codex', 'gemini', 'opencode', 'coco'] as const) {
       expect(renderCursorSenderNote(cli, true)).toBe('');
     }
   });
@@ -749,7 +843,7 @@ describe('renderBufferedSenderBlock', () => {
   });
 
   it('renders the bare <sender> tag (no note) for non-cursor CLIs', () => {
-    for (const cli of ['claude-code', 'codex', 'gemini', 'opencode', 'coco', 'aiden'] as const) {
+    for (const cli of ['claude-code', 'codex', 'gemini', 'opencode', 'coco'] as const) {
       const out = renderBufferedSenderBlock(SENDER, cli);
       expect(out).toContain('open_id="ou_bob"');
       expect(out).not.toContain('<sender_note>');

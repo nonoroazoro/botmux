@@ -51,11 +51,6 @@ vi.mock('../src/services/pi-transcript.js', () => ({
   findPiTranscriptBySessionId: vi.fn(() => undefined),
 }));
 
-vi.mock('../src/services/aiden-checkpoints.js', () => ({
-  findAidenLatestCheckpointBySessionId: vi.fn(() => undefined),
-  findAidenLatestCheckpointByBotmuxSessionId: vi.fn(() => undefined),
-}));
-
 vi.mock('../src/services/jsonl-cursor.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/services/jsonl-cursor.js')>();
   return {
@@ -74,16 +69,7 @@ vi.mock('../src/services/jsonl-cursor.js', async (importOriginal) => {
   };
 });
 
-// Seed/Relay data root resolution goes through the adapter (binary realpath →
-// <pkg>/.claude-runtime). Mock it to a deterministic package-local root so the
-// path assertion below proves we no longer read from ~/.claude-runtime.
-const FORK_DATA_DIR = '/fake/pkg/.claude-runtime';
-vi.mock('../src/adapters/cli/registry.js', () => ({
-  createCliAdapterSync: vi.fn(() => ({ claudeDataDir: FORK_DATA_DIR })),
-}));
-
 import { existsSync, readFileSync } from 'node:fs';
-import { findAidenLatestCheckpointByBotmuxSessionId, findAidenLatestCheckpointBySessionId } from '../src/services/aiden-checkpoints.js';
 import { findCodexRolloutBySessionId, findCodexSessionIdByBotmuxSessionId } from '../src/services/codex-transcript.js';
 import { findTraexRolloutBySessionId } from '../src/services/traex-transcript.js';
 import { findPiTranscriptBySessionId } from '../src/services/pi-transcript.js';
@@ -140,10 +126,6 @@ beforeEach(() => {
   vi.mocked(findTraexRolloutBySessionId).mockReturnValue(undefined);
   vi.mocked(findPiTranscriptBySessionId).mockReset();
   vi.mocked(findPiTranscriptBySessionId).mockReturnValue(undefined);
-  vi.mocked(findAidenLatestCheckpointBySessionId).mockReset();
-  vi.mocked(findAidenLatestCheckpointBySessionId).mockReturnValue(undefined);
-  vi.mocked(findAidenLatestCheckpointByBotmuxSessionId).mockReset();
-  vi.mocked(findAidenLatestCheckpointByBotmuxSessionId).mockReturnValue(undefined);
 });
 
 // ── getSessionJsonlPath ──────────────────────────────────────────────────
@@ -560,37 +542,6 @@ describe('getSessionTokenUsage', () => {
     })).toBeNull();
   });
 
-  it('resolves relay usage under the adapter\'s package-local .claude-runtime (not ~/.claude-runtime)', () => {
-    delete process.env.CLAUDE_CONFIG_DIR;
-    setupJsonl(assistantLine({ input: 100, output: 50, model: 'ark/relay-code' }));
-
-    const usage = getSessionTokenUsage({ cliId: 'relay', sessionId: 's1', cwd: '/tmp' });
-
-    expect(usage).toMatchObject({ inputTokens: 100, outputTokens: 50, turns: 1 });
-    // The jsonl path must sit under the adapter-derived package root, never the
-    // old ~/.claude-runtime fallback that the daemon's unset env produced.
-    const readPaths = vi.mocked(readFileSync).mock.calls.map((c) => String(c[0]));
-    expect(readPaths.some((p) => p.startsWith(`${FORK_DATA_DIR}/projects/`))).toBe(true);
-    expect(readPaths.every((p) => !p.startsWith('/home/testuser/.claude-runtime/'))).toBe(true);
-  });
-
-  it('ignores the daemon CLAUDE_CONFIG_DIR for seed/relay, matching the worker (adapter-forced dataDir)', () => {
-    // worker.ts spawns seed/relay with spawnEnv={CLAUDE_CONFIG_DIR: <adapter dataDir>},
-    // overriding any inherited env — so the transcript is ALWAYS under the package
-    // .claude-runtime. The calculator must read that same root, not the daemon's env,
-    // else usage reads diverge from where the CLI actually wrote.
-    process.env.CLAUDE_CONFIG_DIR = '/explicit/config-dir';
-    setupJsonl(assistantLine({ input: 10, output: 5 }));
-    try {
-      getSessionTokenUsage({ cliId: 'seed', sessionId: 's1', cwd: '/tmp', fresh: true });
-      const readPaths = vi.mocked(readFileSync).mock.calls.map((c) => String(c[0]));
-      expect(readPaths.some((p) => p.startsWith(`${FORK_DATA_DIR}/projects/`))).toBe(true);
-      expect(readPaths.every((p) => !p.startsWith('/explicit/config-dir/'))).toBe(true);
-    } finally {
-      delete process.env.CLAUDE_CONFIG_DIR;
-    }
-  });
-
   it('reports Codex token_count totals without double-counting cached input', () => {
     vi.mocked(findCodexSessionIdByBotmuxSessionId).mockReturnValue('codex-sid');
     vi.mocked(findCodexRolloutBySessionId).mockReturnValue('/home/testuser/.codex/sessions/rollout-codex-sid.jsonl');
@@ -932,103 +883,6 @@ describe('getSessionTokenUsage', () => {
     });
   });
 
-  it('partitions Aiden raw input into bounded uncached/cache buckets while preserving dashboard in', () => {
-    vi.mocked(findAidenLatestCheckpointBySessionId).mockReturnValue('/home/testuser/.aiden/checkpoints/ws/aiden-sid/latest-checkpoint.json');
-    setupJsonl(JSON.stringify({
-      checkpoint: {
-        channel_values: {
-          messages: [
-            {
-              type: 'human',
-              content: 'hello',
-            },
-            {
-              type: 'ai',
-              response_metadata: { model_name: 'aiden-model' },
-              usage_metadata: {
-                input_tokens: 100,
-                output_tokens: 20,
-                total_tokens: 120,
-                input_token_details: { cache_read: 40, cache_creation: 70 },
-              },
-            },
-            {
-              type: 'ai',
-              usage_metadata: {
-                input_tokens: 150,
-                output_tokens: 30,
-                total_tokens: 180,
-                input_token_details: { cache_read: 60, cache_creation: 20 },
-              },
-            },
-          ],
-        },
-      },
-    }));
-
-    expect(getSessionTokenUsage({
-      cliId: 'aiden',
-      sessionId: 'aiden-sid',
-    })).toEqual({
-      in: 250,
-      out: 50,
-      inputTokens: 70,
-      outputTokens: 50,
-      cacheReadTokens: 100,
-      cacheCreateTokens: 80,
-      turns: 2,
-      model: 'aiden-model',
-    });
-    expect(findAidenLatestCheckpointBySessionId).toHaveBeenCalledWith('aiden-sid', undefined, undefined);
-  });
-
-  it('Aiden skips human/tool messages even when they carry usage metadata', () => {
-    vi.mocked(findAidenLatestCheckpointBySessionId).mockReturnValue('/home/testuser/.aiden/checkpoints/ws/aiden-sid/checkpoint.json');
-    setupJsonl(JSON.stringify({
-      checkpoint: {
-        channel_values: {
-          messages: [
-            { type: 'human', content: 'hi', usage_metadata: { input_tokens: 999, output_tokens: 999 } },
-            { type: 'tool', content: 'result', usage_metadata: { input_tokens: 888, output_tokens: 888 } },
-            { type: 'ai', usage_metadata: { input_tokens: 100, output_tokens: 20 } },
-          ],
-        },
-      },
-    }));
-
-    expect(getSessionTokenUsage({ cliId: 'aiden', sessionId: 'aiden-sid' })).toEqual({
-      in: 100,
-      out: 20,
-      inputTokens: 100,
-      outputTokens: 20,
-      cacheReadTokens: 0,
-      cacheCreateTokens: 0,
-      turns: 1,
-      model: '',
-    });
-  });
-
-  it('falls back to locating Aiden checkpoint by botmux session id', () => {
-    vi.mocked(findAidenLatestCheckpointByBotmuxSessionId).mockReturnValue('/home/testuser/.aiden/checkpoints/ws/native-sid/checkpoint.json');
-    setupJsonl(JSON.stringify({
-      checkpoint: {
-        channel_values: {
-          messages: [
-            { type: 'ai', usage_metadata: { input_tokens: 10, output_tokens: 5 } },
-          ],
-        },
-      },
-    }));
-
-    expect(getSessionTokenUsage({
-      cliId: 'aiden',
-      sessionId: 'botmux-sid',
-      cwd: '/workspace/current',
-    })?.in).toBe(10);
-    expect(findAidenLatestCheckpointBySessionId).toHaveBeenCalledWith('botmux-sid', undefined, '/workspace/current');
-    expect(findAidenLatestCheckpointByBotmuxSessionId).toHaveBeenCalledWith('botmux-sid', undefined, '/workspace/current');
-  });
-
   it('Codex only counts token_count snapshots and picks up the rollout model', () => {
     vi.mocked(findCodexSessionIdByBotmuxSessionId).mockReturnValue('codex-sid');
     vi.mocked(findCodexRolloutBySessionId).mockReturnValue('/home/testuser/.codex/sessions/rollout-codex-sid.jsonl');
@@ -1191,37 +1045,6 @@ describe('getSessionTokenUsage', () => {
       in: 42,
       out: 7,
     });
-  });
-
-  it('caches the aiden checkpoint lookup briefly', () => {
-    vi.mocked(findAidenLatestCheckpointBySessionId).mockReturnValue('/home/testuser/.aiden/checkpoints/ws/aiden-sid/checkpoint.json');
-    setupJsonl(JSON.stringify({
-      checkpoint: { channel_values: { messages: [{ type: 'ai', usage_metadata: { input_tokens: 1, output_tokens: 1 } }] } },
-    }));
-
-    getSessionTokenUsage({ cliId: 'aiden', sessionId: 'aiden-sid' });
-    getSessionTokenUsage({ cliId: 'aiden', sessionId: 'aiden-sid' });
-
-    expect(findAidenLatestCheckpointBySessionId).toHaveBeenCalledTimes(1);
-  });
-
-  it('fresh aiden lookups bypass the positive hit TTL (checkpoints move per turn)', () => {
-    vi.mocked(findAidenLatestCheckpointBySessionId).mockReturnValue('/home/testuser/.aiden/checkpoints/ws/aiden-sid/cp-1.json');
-    setupJsonl(JSON.stringify({
-      checkpoint: { channel_values: { messages: [{ type: 'ai', usage_metadata: { input_tokens: 1, output_tokens: 1 } }] } },
-    }));
-
-    getSessionTokenUsage({ cliId: 'aiden', sessionId: 'aiden-sid' });
-    expect(findAidenLatestCheckpointBySessionId).toHaveBeenCalledTimes(1);
-
-    // Ledger (fresh) reads must re-resolve: latest.json points at a NEW
-    // checkpoint file every turn, and a 15s-stale path misses the last turn.
-    getSessionTokenUsage({ cliId: 'aiden', sessionId: 'aiden-sid', fresh: true });
-    expect(findAidenLatestCheckpointBySessionId).toHaveBeenCalledTimes(2);
-
-    // The dashboard (non-fresh) path keeps the TTL cache.
-    getSessionTokenUsage({ cliId: 'aiden', sessionId: 'aiden-sid' });
-    expect(findAidenLatestCheckpointBySessionId).toHaveBeenCalledTimes(2);
   });
 
   it('counts a multi-block Claude turn (same message.id) once', () => {

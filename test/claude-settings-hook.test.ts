@@ -8,7 +8,7 @@
  *   里 **不含** PreToolUse / AskUserQuestion）。
  * - 进程级 --settings 仅保留 bypassPermissions / skipDangerousMode；没有这些键时干脆不传 --settings。
  * - SessionStart hook（真就绪信号 → `botmux session-ready`）**改走全局** settings.json
- *   （hookInstall.sessionStartCommand），不再注入进程级 --settings。原因：① wrapperCli=aiden x
+ *   （hookInstall.sessionStartCommand），不再注入进程级 --settings。原因：① wrapperCli
  *   claude 会剥掉 --settings，全局是其唯一渠道；② 进程级+全局同时注入会让 Claude 等两条 hook
  *   退出才渲染输入框、而 worker 在第一条信号就放行首条 prompt → 抢跑触发 paste-burst → 软换行
  *   `\` 字面残留。单一全局来源消除竞态。
@@ -79,7 +79,7 @@ describe('claude-code —— hook 注入策略（adopt 兼容 + SessionStart 真
       configPath: join(homedir(), '.claude', 'settings.json'),
       format: 'claude-settings',
     });
-    // 同时把 SessionStart 就绪 hook 写全局（为 aiden x claude 这类剥 --settings 的启动器供信号）
+    // 同时把 SessionStart 就绪 hook 写全局，为不接受 --settings 的 wrapper 提供信号。
     expect(adapter.hookInstall?.sessionStartCommand).toMatch(/session-ready$/);
     // 仍标记 asksViaHook（驱动「不装 botmux-ask skill 兜底」）
     expect(adapter.asksViaHook).toBe(true);

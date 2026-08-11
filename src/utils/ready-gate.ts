@@ -2,7 +2,7 @@
  * Ready-gate state machine — holds the FIRST prompt for Claude-family CLIs until
  * a SessionStart hook proves the outer startup selector has been passed.
  *
- * Why this exists: a custom launcher (e.g. `cjadk claude`) shows an interactive
+ * Why this exists: a custom launcher can show an interactive
  * model/session selector at startup whose cursor is `❯` (U+276F). That glyph
  * precisely matches the claude adapter's `readyPattern: /❯/`, and the selector
  * sits silent → the IdleDetector declares the CLI idle far too early → the worker
@@ -55,11 +55,8 @@
  * Any of the negatives → don't arm; the gate stays open and the spawn behaves
  * exactly as before (readyPattern + quiescence).
  *
- * NB: `wrapperCli=aiden x claude` strips our process-level `--settings`, but the
- * SessionStart hook is installed in the effective settings.json (see
- * claude-code.ts hookInstall.sessionStartCommand), which aiden's Claude still
- * reads. So the real signal fires there too → we KEEP arming for that case
- * (no readyPattern fallback, which could misjudge).
+ * The SessionStart hook is installed in the effective settings.json, so wrapper
+ * presence alone is not a reason to skip this gate.
  */
 export function shouldArmReadyGate(state: {
   injectsReadyHook: boolean;

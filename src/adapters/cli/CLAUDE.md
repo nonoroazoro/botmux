@@ -20,6 +20,6 @@
 2. **daemon 的 transcript bridge 是否按真实路径读该 CLI 的会话/事件文件？** 窄 carve-out 下该目录未被 bind，bridge 在真实路径读不到 → 回复桥断链。claude 系有 `sandboxedClaudeDataDir`/BOT_HOME 重定向兜底，其它 CLI 没有。→ 让 bridge 读的目录也真实 `--bind`（如 coco 的 `~/.cache/coco`）。
 3. **`authPaths` 是目录级还是单文件？** 单文件 carve-out 在该文件尚不存在时会被存在性过滤整段跳过（bwrap 无法 bind 不存在的源，沙盒内首次登录写进短命 tmpfs、随沙盒销毁丢失），也覆盖不到同目录的 sibling 状态（sibling 能建但同样只在 tmpfs 里、不持久/桥不可见）。→ 优先目录级 bind。
 
-⚠️ 注意与「读隔离/重定向」的交互：claude 家族 + codex 若 `supportsReadIsolation`，沙盒开启时 CLI 数据会被重定向到 BOT_HOME（`CLAUDE_CONFIG_DIR`/`CODEX_HOME`），此时 worker 会把落在**宿主原数据根之内**的 `authPaths` 丢弃（见 `authPathsSurvivingCliDataRedirect`）——避免把 CLI 根本不读的宿主目录（如整个 `~/.codex` 的 history/sessions）暴露进沙盒；落在数据根之外的登录源（如 Seed/Relay 的 `~/.local/share/bytedcli`）才保留。新增声明 `authPaths` 的 claude 家族适配器需想清这条。
+⚠️ 注意与「读隔离/重定向」的交互：claude 家族 + codex 若 `supportsReadIsolation`，沙盒开启时 CLI 数据会被重定向到 BOT_HOME（`CLAUDE_CONFIG_DIR`/`CODEX_HOME`），此时 worker 会把落在**宿主原数据根之内**的 `authPaths` 丢弃（见 `authPathsSurvivingCliDataRedirect`）——避免把 CLI 根本不读的宿主目录（如整个 `~/.codex` 的 history/sessions）暴露进沙盒；落在数据根之外的显式登录源才保留。新增声明 `authPaths` 的 claude 家族适配器需想清这条。
 
 验证手段：用 `prepareDirectSandbox` 生成真实 bwrap argv + `node-pty` 拉起真 CLI 跑 ≥90s，观察是否崩、并核对写入是否落到真实目录（见 `test/sandbox.test.ts` 的 symlink 回归用例）。

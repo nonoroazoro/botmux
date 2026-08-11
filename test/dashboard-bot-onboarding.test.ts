@@ -93,7 +93,7 @@ describe('BotOnboardingManager', () => {
       botsJsonPath: join(dir, 'bots.json'),
       createApp: async (opts) => {
         expect(opts.forceQrLogin).toBe(true);
-        expect(opts.disableBytedcliFallback).toBe(true);
+        expect(opts.disableExternalSessionFallback).toBe(true);
         await opts.onQrCode?.({ qrText: 'ascii', qrPayload: '{"qrlogin":{"token":"one-scan"}}' });
         return pending.promise;
       },
@@ -101,7 +101,7 @@ describe('BotOnboardingManager', () => {
       validateCredentials: async () => ({ ok: true }),
       automateOpenPlatform: async opts => {
         expect(opts.disableQrLogin).toBe(true);
-        expect(opts.disableBytedcliFallback).toBe(true);
+        expect(opts.disableExternalSessionFallback).toBe(true);
         return autoOk();
       },
       renderQrDataUrl: (payload) => `data:image/svg+xml;base64,${Buffer.from(payload).toString('base64')}`,
@@ -137,7 +137,7 @@ describe('BotOnboardingManager', () => {
     const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-web-owner-'));
     batchGetIdMock.mockResolvedValueOnce({
       code: 0,
-      data: { user_list: [{ email: 'creator@corp.com', user_id: 'on_creator' }] },
+      data: { user_list: [{ email: 'creator@example.com', user_id: 'on_creator' }] },
     });
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
@@ -148,7 +148,7 @@ describe('BotOnboardingManager', () => {
         brand: 'feishu',
         sessionFile: '/tmp/feishu-session.json',
         sessionSource: 'botmux_cache',
-        sessionIdentity: { userId: 'u_1', userName: 'Alice', email: 'creator@corp.com', tenantId: 't_1', tenantName: 'Example' },
+        sessionIdentity: { userId: 'u_1', userName: 'Alice', email: 'creator@example.com', tenantId: 't_1', tenantName: 'Example' },
       }),
       validateCredentials: async () => ({ ok: true }),
       automateOpenPlatform: async () => autoOk(),
@@ -160,7 +160,7 @@ describe('BotOnboardingManager', () => {
     expect(manager.get(job.id)?.status).toBe('completed');
     expect(batchGetIdMock).toHaveBeenCalledWith({
       params: { user_id_type: 'union_id' },
-      data: { emails: ['creator@corp.com'], include_resigned: false },
+      data: { emails: ['creator@example.com'], include_resigned: false },
     });
     const bots = JSON.parse(readFileSync(join(dir, 'bots.json'), 'utf-8'));
     expect(bots[0]).toMatchObject({ larkAppId: 'cli_web_owner', allowedUsers: ['on_creator'] });
@@ -180,7 +180,7 @@ describe('BotOnboardingManager', () => {
         brand: 'feishu',
         sessionFile: '/tmp/feishu-session.json',
         sessionSource: 'botmux_cache',
-        sessionIdentity: { userId: 'u_1', userName: 'Alice', email: 'creator@corp.com', tenantId: 't_1', tenantName: 'Example' },
+        sessionIdentity: { userId: 'u_1', userName: 'Alice', email: 'creator@example.com', tenantId: 't_1', tenantName: 'Example' },
       }),
       validateCredentials: async () => ({ ok: true }),
       automateOpenPlatform: async () => autoOk(),
@@ -191,7 +191,7 @@ describe('BotOnboardingManager', () => {
 
     expect(manager.get(job.id)?.status).toBe('completed');
     const bots = JSON.parse(readFileSync(join(dir, 'bots.json'), 'utf-8'));
-    expect(bots[0]).toMatchObject({ larkAppId: 'cli_web_email', allowedUsers: ['creator@corp.com'] });
+    expect(bots[0]).toMatchObject({ larkAppId: 'cli_web_email', allowedUsers: ['creator@example.com'] });
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -411,16 +411,16 @@ describe('BotOnboardingManager', () => {
     // 该邮箱在本企业可解析 → usable → 通过。
     batchGetIdMock.mockResolvedValueOnce({
       code: 0,
-      data: { user_list: [{ email: 'owner@corp.com', user_id: 'ou_resolved' }] },
+      data: { user_list: [{ email: 'owner@example.com', user_id: 'ou_resolved' }] },
     });
-    const r = await manager.submitOwner(job.id, ['owner@corp.com']);
+    const r = await manager.submitOwner(job.id, ['owner@example.com']);
     expect(r.ok).toBe(true);
 
     expect(manager.get(job.id)?.status).toBe('completed');
     // 提交后才第一次落盘, 且带着非空 allowedUsers + 完整配置。
     const bots = JSON.parse(readFileSync(join(dir, 'bots.json'), 'utf-8'));
     expect(bots).toHaveLength(1);
-    expect(bots[0]).toMatchObject({ larkAppId: 'cli_new', cliId: 'claude-code', allowedUsers: ['owner@corp.com'] });
+    expect(bots[0]).toMatchObject({ larkAppId: 'cli_new', cliId: 'claude-code', allowedUsers: ['owner@example.com'] });
 
     rmSync(dir, { recursive: true, force: true });
   });
@@ -506,16 +506,16 @@ describe('BotOnboardingManager', () => {
 
     batchGetIdMock.mockResolvedValueOnce({
       code: 0,
-      data: { user_list: [{ email: 'owner@corp.com', user_id: 'ou_owner' }] },
+      data: { user_list: [{ email: 'owner@example.com', user_id: 'ou_owner' }] },
     });
-    expect(await restartedManager.submitOwner(job.id, ['owner@corp.com'])).toEqual({ ok: true });
+    expect(await restartedManager.submitOwner(job.id, ['owner@example.com'])).toEqual({ ok: true });
     expect(restartedManager.get(job.id)?.status).toBe('completed');
     expect(existsSync(pendingStorePath)).toBe(false);
     expect(JSON.parse(readFileSync(botsJsonPath, 'utf-8'))[0]).toMatchObject({
       larkAppId: 'cli_restart',
       cliId: 'codex',
       workingDir: dir,
-      allowedUsers: ['owner@corp.com'],
+      allowedUsers: ['owner@example.com'],
     });
 
     rmSync(dir, { recursive: true, force: true });
@@ -644,9 +644,9 @@ describe('BotOnboardingManager', () => {
     // 手动填一个可解析的 owner 后, 表单选的字段才随 bot 一起落盘。
     batchGetIdMock.mockResolvedValueOnce({
       code: 0,
-      data: { user_list: [{ email: 'admin@corp.com', user_id: 'ou_admin' }] },
+      data: { user_list: [{ email: 'admin@example.com', user_id: 'ou_admin' }] },
     });
-    const r = await manager.submitOwner(job.id, ['admin@corp.com']);
+    const r = await manager.submitOwner(job.id, ['admin@example.com']);
     expect(r.ok).toBe(true);
 
     const bots = JSON.parse(readFileSync(join(dir, 'bots.json'), 'utf-8'));
@@ -655,7 +655,7 @@ describe('BotOnboardingManager', () => {
       cliId: 'codex',
       workingDir: dir,
       model: 'gpt-5',
-      allowedUsers: ['admin@corp.com'],
+      allowedUsers: ['admin@example.com'],
     });
 
     rmSync(dir, { recursive: true, force: true });
@@ -676,9 +676,9 @@ describe('BotOnboardingManager', () => {
 
     batchGetIdMock.mockResolvedValueOnce({
       code: 0,
-      data: { user_list: [{ email: 'admin@corp.com', user_id: 'ou_admin' }] },
+      data: { user_list: [{ email: 'admin@example.com', user_id: 'ou_admin' }] },
     });
-    const r = await manager.submitOwner(job.id, ['admin@corp.com']);
+    const r = await manager.submitOwner(job.id, ['admin@example.com']);
     expect(r.ok).toBe(true);
 
     const bots = JSON.parse(readFileSync(join(dir, 'bots.json'), 'utf-8'));
@@ -758,7 +758,7 @@ describe('BotOnboardingManager', () => {
     expect(calls[0]).toMatchObject({
       forceQrLogin: true,
       disableQrLogin: false,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
     });
     expect(calls[0].sessionFilePath).toMatch(/onboarding-sessions\/[^/]+\.json$/);
     expect(manager.get(job.id)).toMatchObject({
@@ -831,7 +831,7 @@ describe('BotOnboardingManager', () => {
       appId: 'cli_existing_owner',
       forceQrLogin: true,
       disableQrLogin: false,
-      disableBytedcliFallback: true,
+      disableExternalSessionFallback: true,
     });
     expect(calls[0].sessionFilePath).toMatch(/onboarding-sessions\/[^/]+\.json$/);
     expect(manager.get(started.job.id)).toMatchObject({
@@ -1184,11 +1184,11 @@ describe('BotOnboardingManager', () => {
     // 手动填 owner 后才落盘——权限手动步骤不影响 bot 最终被加入（带 owner）。
     batchGetIdMock.mockResolvedValueOnce({
       code: 0,
-      data: { user_list: [{ email: 'admin@corp.com', user_id: 'ou_admin' }] },
+      data: { user_list: [{ email: 'admin@example.com', user_id: 'ou_admin' }] },
     });
-    expect((await manager.submitOwner(job.id, ['admin@corp.com'])).ok).toBe(true);
+    expect((await manager.submitOwner(job.id, ['admin@example.com'])).ok).toBe(true);
     const bots = JSON.parse(readFileSync(join(dir, 'bots.json'), 'utf-8'));
-    expect(bots[0]).toMatchObject({ larkAppId: 'cli_f', cliId: 'claude-code', allowedUsers: ['admin@corp.com'] });
+    expect(bots[0]).toMatchObject({ larkAppId: 'cli_f', cliId: 'claude-code', allowedUsers: ['admin@example.com'] });
 
     rmSync(dir, { recursive: true, force: true });
   });
@@ -2448,9 +2448,9 @@ describe('BotOnboardingManager', () => {
 
     batchGetIdMock.mockResolvedValueOnce({
       code: 0,
-      data: { user_list: [{ email: 'owner@corp.com', user_id: 'ou_resolved' }] },
+      data: { user_list: [{ email: 'owner@example.com', user_id: 'ou_resolved' }] },
     });
-    const r = await manager.submitOwner(job.id, ['owner@corp.com']);
+    const r = await manager.submitOwner(job.id, ['owner@example.com']);
     expect(r.ok).toBe(true);
 
     const status = manager.get(job.id);

@@ -1062,7 +1062,6 @@ describe('Card integration: full event flow', () => {
         },
         workerPort: 9090,
         workerToken: 'stale-write-token',
-        riffAccessUrl: 'https://stale-riff.example',
       });
       const sessions = new Map<string, DaemonSession>();
       sessions.set(sessionKey(ROOT_ID, APP_ID), ds);

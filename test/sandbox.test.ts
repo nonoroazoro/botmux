@@ -10,8 +10,8 @@
 import { describe, it, expect } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, existsSync, writeFileSync, readFileSync, symlinkSync, realpathSync } from 'node:fs';
-import { buildRelayHostEnv, validateRelayRequest, materializeOutboxFile, prepareDirectSandbox, coreOnlyPidNamespaceDegrade, bwrapCanUnsharePid, pidNsDualProbeCanUnshare, __testOnly_resetPidNamespaceProbe } from '../src/adapters/backend/sandbox.js';
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, symlinkSync, realpathSync } from 'node:fs';
+import { buildRelayHostEnv, validateRelayRequest, materializeOutboxFile, prepareDirectSandbox, canonicalSandboxPath, coreOnlyPidNamespaceDegrade, bwrapCanUnsharePid, pidNsDualProbeCanUnshare, __testOnly_resetPidNamespaceProbe } from '../src/adapters/backend/sandbox.js';
 import { createCodexAppAdapter } from '../src/adapters/cli/codex-app.js';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'sbx-'));
@@ -38,6 +38,17 @@ describe('prepareDirectSandbox platform gate', () => {
       chdir: '/x', home: '/home/u', cliBin: '/usr/bin/true', cliArgs: [],
     });
     expect(r).toBeNull();
+  });
+});
+
+describe('canonicalSandboxPath', () => {
+  it('resolves a lexical symlink path to the path mounted in the sandbox', () => {
+    const dir = tmp();
+    const realDir = join(dir, 'real');
+    const lexicalDir = join(dir, 'lexical');
+    mkdirSync(realDir);
+    symlinkSync(realDir, lexicalDir);
+    expect(canonicalSandboxPath(lexicalDir)).toBe(realpathSync(realDir));
   });
 });
 
@@ -125,8 +136,9 @@ describe('prepareDirectSandbox canonicalizes the exec bin (symlinked-$HOME)', ()
     writeFileSync(realBin, '#!/bin/sh\ntrue\n', { mode: 0o755 });
     const linkBin = join(dir, 'linked-cli');
     symlinkSync(realBin, linkBin);
+    const dataDir = tmp();
     const r = prepareDirectSandbox({
-      sessionId: 'binlink', dataDir: tmp(),
+      sessionId: 'binlink', dataDir,
       policy: { rules: [], net: true, writeRegexes: [] },
       chdir: dir, home: dir, cliBin: linkBin, cliArgs: ['--v'],
     });
@@ -139,6 +151,7 @@ describe('prepareDirectSandbox canonicalizes the exec bin (symlinked-$HOME)', ()
     expect(execTarget).toBe(realpathSync(linkBin)); // canonical, not the lexical symlink
     expect(execTarget).not.toBe(linkBin);
     expect(r.args.slice(dashDash + 2)).toEqual(['--v']); // cliArgs preserved verbatim
+    expect(r.env.SESSION_DATA_DIR).toBe(realpathSync(dataDir));
     r.cleanup();
   });
 });
@@ -172,7 +185,7 @@ describe('validateRelayRequest', () => {
       contentFile: 'c.content',
       preparedContentFile: 'c.card-content',
       attachments: ['a.png'],
-      videos: ['replay.mp4'],
+      videos: ['demo.mp4'],
       videoCovers: ['cover.png'],
       flags: ['--mention-back', '--mention', 'ou:X', '--voice'],
     });
@@ -181,7 +194,7 @@ describe('validateRelayRequest', () => {
     expect(r.value.contentName).toBe('c.content');
     expect(r.value.preparedContentName).toBe('c.card-content');
     expect(r.value.attachmentNames).toEqual(['a.png']);
-    expect(r.value.videoNames).toEqual(['replay.mp4']);
+    expect(r.value.videoNames).toEqual(['demo.mp4']);
     expect(r.value.videoCoverNames).toEqual(['cover.png']);
     expect(r.value.flags).toEqual(['--mention-back', '--mention', 'ou:X', '--voice']);
   });

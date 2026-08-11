@@ -345,7 +345,7 @@ describe('v3 deterministic parameter distillation compiler', () => {
       String.raw`研究上海；files,/root/private`,
       String.raw`研究上海；path=\\server\share`,
       '研究上海；使用 localhost',
-      '研究上海；访问 prod-db.corp.',
+      '研究上海；访问 prod-db.invalid.',
       '研究上海；访问 api.example.com:',
       '研究上海；访问 api.example.com...',
       '研究上海；访问 10.0.0.1:',

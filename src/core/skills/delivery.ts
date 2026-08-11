@@ -1,6 +1,7 @@
 import type { CliAdapter } from '../../adapters/cli/types.js';
 import type { SessionSkillManifest } from './types.js';
 import { prepareClaudeSkillPlugin } from './claude-plugin-delivery.js';
+import { sessionSkillManifestPath } from './manifest-store.js';
 
 export interface PreparedSkillDelivery {
   prompt: boolean;
@@ -18,10 +19,19 @@ export function prepareSkillDelivery(
   if (!manifest || manifest.prioritySkills.length === 0) {
     return { prompt: false, readonlyRoots: [], diagnostics: [] };
   }
-  if (requested === 'prompt') return { prompt: true, readonlyRoots: [], diagnostics: [] };
+  const promptReadonlyRoots = [
+    sessionSkillManifestPath(manifest.sessionId),
+    ...manifest.prioritySkills.map(skill => skill.rootDir),
+  ];
+  if (requested === 'prompt') return { prompt: true, readonlyRoots: promptReadonlyRoots, diagnostics: [] };
   if (adapter.skillDelivery?.nativeKind === 'claude-plugin') {
     const prepared = prepareClaudeSkillPlugin(manifest);
-    return { prompt: true, pluginDir: prepared.pluginDir, readonlyRoots: [prepared.pluginDir], diagnostics: [] };
+    return {
+      prompt: true,
+      pluginDir: prepared.pluginDir,
+      readonlyRoots: [prepared.pluginDir, ...promptReadonlyRoots],
+      diagnostics: [],
+    };
   }
   if (requested === 'native') {
     return {
@@ -31,5 +41,5 @@ export function prepareSkillDelivery(
       fatal: true,
     };
   }
-  return { prompt: true, readonlyRoots: [], diagnostics: [] };
+  return { prompt: true, readonlyRoots: promptReadonlyRoots, diagnostics: [] };
 }

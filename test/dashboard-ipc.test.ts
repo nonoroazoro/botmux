@@ -1,5 +1,5 @@
 // test/dashboard-ipc.test.ts
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, vi } from 'vitest';
 import { createHmac, randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,10 +9,6 @@ import { cliAuthBind, signCliAuth } from '../src/dashboard/auth.js';
 import { dashboardEventBus } from '../src/core/dashboard-events.js';
 import * as groupsStore from '../src/services/groups-store.js';
 import { setScheduleScope } from '../src/services/schedule-store.js';
-
-// Per-bot schedule stores: the daemon binds the store to its own bot before
-// serving IPC; the schedule endpoints under test assume that binding exists.
-setScheduleScope('cli_ipc_test_bot001');
 import * as larkClient from '../src/im/lark/client.js';
 import * as oncallStore from '../src/services/oncall-store.js';
 import * as sessionStore from '../src/services/session-store.js';
@@ -29,6 +25,14 @@ import {
   registerAsk,
   setCardDispatcher,
 } from '../src/core/ask-broker.js';
+
+const testStateRoot = mkdtempSync(join(tmpdir(), 'botmux-dashboard-ipc-'));
+const previousDataDir = config.session.dataDir;
+config.session.dataDir = join(testStateRoot, 'data');
+
+// Per-bot schedule stores: the daemon binds the store to its own bot before
+// serving IPC; the schedule endpoints under test assume that binding exists.
+setScheduleScope('cli_ipc_test_bot001');
 
 // Loopback-HMAC the write-link routes require. Inject a known secret per test
 // (setIpcAuthSecret) and sign with it, so the suite doesn't depend on a real
@@ -104,6 +108,11 @@ async function readSseEvent(
 }
 
 let handle: IpcServerHandle | null = null;
+
+afterAll(() => {
+  config.session.dataDir = previousDataDir;
+  rmSync(testStateRoot, { recursive: true, force: true });
+});
 
 afterEach(async () => {
   if (handle) await handle.close();
@@ -1535,7 +1544,6 @@ describe('GET /api/sessions/:sessionId/write-link', () => {
       session: { sessionId: 's-zmx', backendType: 'zmx', webPort: 4321 },
       workerPort: 4321,
       workerToken: 'stale-secret',
-      riffAccessUrl: 'https://stale-riff.example',
     } as any);
     handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
     const res = await fetch(`http://127.0.0.1:${handle.port}/api/sessions/s-zmx/write-link`, {
@@ -1937,21 +1945,20 @@ describe('PUT /api/bot-agent', () => {
       const res = await fetch(`http://127.0.0.1:${handle.port}/api/bot-agent`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cliId: 'ttadk-x-codex', model: 'kimi-k2.5' }),
+        body: JSON.stringify({ cliId: 'codex', model: 'kimi-k2.5' }),
       });
 
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({
         ok: true,
         cliId: 'codex',
-        wrapperCli: 'ttadk codex',
+        wrapperCli: null,
         model: 'kimi-k2.5',
-        selectionKey: 'ttadk-x-codex',
+        selectionKey: 'codex',
       });
       const stored = JSON.parse(readFileSync(configPath, 'utf-8'))[0];
       expect(stored).toMatchObject({
         cliId: 'codex',
-        wrapperCli: 'ttadk codex',
         model: 'kimi-k2.5',
       });
     } finally {
@@ -2112,7 +2119,7 @@ describe('PUT /api/bot-agent', () => {
     }
   });
 
-  it('rejects a custom runtime for non-Codex or wrapper selections', async () => {
+  it('rejects a custom runtime for non-Codex selections', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'botmux-runtime-reject-ipc-'));
     const configPath = join(dir, 'bots.json');
     const appId = 'test-runtime-reject-app';
@@ -2137,12 +2144,6 @@ describe('PUT /api/bot-agent', () => {
       expect(nonCodex.status).toBe(400);
       expect(await nonCodex.json()).toMatchObject({ error: 'runtime_requires_codex' });
 
-      const wrapper = await fetch(url, {
-        method: 'PUT', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cliId: 'ttadk-x-codex', cliRuntime }),
-      });
-      expect(wrapper.status).toBe(400);
-      expect(await wrapper.json()).toMatchObject({ error: 'runtime_wrapper_conflict' });
       expect(JSON.parse(readFileSync(configPath, 'utf-8'))[0]).not.toHaveProperty('cliRuntime');
     } finally {
       if (prevBotsConfig === undefined) delete process.env.BOTS_CONFIG;
@@ -2152,158 +2153,8 @@ describe('PUT /api/bot-agent', () => {
   });
 });
 
-describe('PUT /api/bot-riff config safety (finding H)', () => {
-  async function withRiffBot(fn: (base: string, configPath: string) => Promise<void>): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-riff-cfg-ipc-'));
-    const configPath = join(dir, 'bots.json');
-    const appId = 'test-riff-cfg-app';
-    const prevBotsConfig = process.env.BOTS_CONFIG;
-    try {
-      process.env.BOTS_CONFIG = configPath;
-      writeFileSync(configPath, JSON.stringify([{
-        larkAppId: appId,
-        larkAppSecret: 'secret',
-        cliId: 'riff',
-        backendType: 'riff',
-        riff: {
-          baseUrl: 'https://riff-old.example',
-          agent: 'aiden',
-          templateId: 'tpl-1',
-          jwt: 'SECRET-JWT',
-          env: { API_KEY: 'SECRET-ENV' },
-          logLevel: 'verbose',
-          // sandboxCluster 现在可编辑；旧 dashboard 保存省略时仍须兼容保留。
-          sandboxCluster: 'boe',
-          // 已移出 UI 的字段：UI 保存省略时旧值必须原样保留。
-          injectStatusLines: false,
-        },
-      }], null, 2));
-      loadBotConfigs().forEach((c: any) => registerBot(c));
-      setLarkAppId(appId);
-      handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
-      await fn(`http://127.0.0.1:${handle.port}`, configPath);
-    } finally {
-      if (prevBotsConfig === undefined) delete process.env.BOTS_CONFIG;
-      else process.env.BOTS_CONFIG = prevBotsConfig;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-
-  it('preserves hidden fields and an old-client sandbox selection on save, then redacts the response', async () => {
-    await withRiffBot(async (base, configPath) => {
-      const res = await fetch(`${base}/api/bot-riff`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ riff: JSON.stringify({ baseUrl: 'https://riff-new.example', reasoningEffort: 'high' }) }),
-      });
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      // 响应绝不携带明文 secret
-      expect(String(body.riff)).not.toContain('SECRET-JWT');
-      expect(String(body.riff)).not.toContain('SECRET-ENV');
-      // 落盘：UI 字段更新、隐藏字段原样保留
-      const stored = JSON.parse(readFileSync(configPath, 'utf-8'))[0].riff;
-      expect(stored).toMatchObject({
-        baseUrl: 'https://riff-new.example',
-        reasoningEffort: 'high',
-        // agent 已下线 UI（服务端写死 codex）——存量值按隐藏字段保留
-        agent: 'aiden',
-        templateId: 'tpl-1',
-        jwt: 'SECRET-JWT',
-        env: { API_KEY: 'SECRET-ENV' },
-        logLevel: 'verbose',
-        // 旧 dashboard 未回写 sandboxCluster 时兼容保留原选择。
-        sandboxCluster: 'boe',
-        // UI 已不回写 injectStatusLines——存量值按隐藏字段保留。
-        injectStatusLines: false,
-      });
-    });
-  });
-
-  it('updates sandboxCluster and rejects unsupported values', async () => {
-    await withRiffBot(async (base, configPath) => {
-      const update = await fetch(`${base}/api/bot-riff`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ riff: JSON.stringify({ baseUrl: 'https://riff-new.example', sandboxCluster: 'cn' }) }),
-      });
-      expect(update.status).toBe(200);
-      expect(JSON.parse(readFileSync(configPath, 'utf-8'))[0].riff.sandboxCluster).toBe('cn');
-
-      const invalid = await fetch(`${base}/api/bot-riff`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ riff: JSON.stringify({ baseUrl: 'https://riff-new.example', sandboxCluster: 'sg' }) }),
-      });
-      expect(invalid.status).toBe(400);
-      expect(await invalid.json()).toMatchObject({ ok: false, error: 'invalid_sandbox_cluster' });
-    });
-  });
-
-  it('rejects a save without a valid http(s) baseUrl', async () => {
-    await withRiffBot(async (base) => {
-      const res = await fetch(`${base}/api/bot-riff`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ riff: JSON.stringify({ agent: 'codex' }) }),
-      });
-      expect(res.status).toBe(400);
-      expect(await res.json()).toMatchObject({ ok: false, error: 'invalid_base_url' });
-    });
-  });
-
-  it('bot-defaults response never contains riff jwt/env', async () => {
-    await withRiffBot(async (base) => {
-      const res = await fetch(`${base}/api/bot-default-oncall`);
-      expect(res.status).toBe(200);
-      const text = await res.text();
-      expect(text).not.toContain('SECRET-JWT');
-      expect(text).not.toContain('SECRET-ENV');
-    });
-  });
-});
-
-describe('PUT /api/bot-agent riff backend pairing', () => {
-  it('clears the auto-paired backendType=riff when switching back to a non-riff CLI', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-agent-riff-ipc-'));
-    const configPath = join(dir, 'bots.json');
-    const appId = 'test-agent-riff-app';
-    const prevBotsConfig = process.env.BOTS_CONFIG;
-    try {
-      process.env.BOTS_CONFIG = configPath;
-      writeFileSync(configPath, JSON.stringify([{
-        larkAppId: appId,
-        larkAppSecret: 'secret',
-        cliId: 'riff',
-        backendType: 'riff',
-        riff: { baseUrl: 'https://riff.example' },
-      }], null, 2));
-      loadBotConfigs().forEach((c: any) => registerBot(c));
-      setLarkAppId(appId);
-      handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
-
-      const res = await fetch(`http://127.0.0.1:${handle.port}/api/bot-agent`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cliId: 'codex', model: '' }),
-      });
-      expect(res.status).toBe(200);
-
-      // riff→codex：自动配对的 backendType 必须清掉，否则 Codex adapter 会跑在
-      // RiffBackend 上（PTY 分块输入被当成一串 riff 任务）。
-      const stored = JSON.parse(readFileSync(configPath, 'utf-8'))[0];
-      expect(stored.cliId).toBe('codex');
-      expect(stored.backendType).toBeUndefined();
-      const { getBot } = await import('../src/bot-registry.js');
-      expect(getBot(appId).config.backendType).toBeUndefined();
-    } finally {
-      if (prevBotsConfig === undefined) delete process.env.BOTS_CONFIG;
-      else process.env.BOTS_CONFIG = prevBotsConfig;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps a manual non-riff backend override when switching CLIs', async () => {
+describe('PUT /api/bot-agent backend selection', () => {
+  it('keeps a manual backend override when switching CLIs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'botmux-agent-tmux-ipc-'));
     const configPath = join(dir, 'bots.json');
     const appId = 'test-agent-tmux-app';
@@ -3528,8 +3379,8 @@ describe('core-only public routes + readiness barrier (behavioral)', () => {
   });
 
   // Form C: trigger-result carries a read-only web-terminal URL while a live
-  // worker terminal exists, so an async caller (riff's task-runner) can open
-  // the visible CLI TUI in the sandbox browser.
+  // worker terminal exists, so an authorized async caller can open the visible
+  // CLI TUI in its browser.
   it('trigger-result exposes readOnlyUrl + viewToken when a live worker terminal is up (core-only)', async () => {
     setIpcAuthSecret(TEST_IPC_SECRET);
     setLarkAppId('local_smoke');

@@ -104,7 +104,7 @@ function loadAllBotClientConfigs(): Array<{ larkAppId: string; larkAppSecret: st
   try {
     return loadBotConfigs().filter(notApiOnly);
   } catch {
-    // riff sandbox：没有 bots.json，只有经 env 合成注册进 registry 的 bot——
+    // Embedded mode may register a bot directly without bots.json.
     // 降级用注册表里的配置，`botmux bots list` 等只读探测照常可用。
     return getAllBots().map((b) => b.config).filter(notApiOnly);
   }

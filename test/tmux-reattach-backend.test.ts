@@ -529,7 +529,7 @@ describe('backendSandboxCompatibilityError', () => {
     }
   });
 
-  it('allows unsandboxed persistent backends, wrapper-owned local backends, and remote Riff', () => {
+  it('allows unsandboxed persistent backends and wrapper-owned local backends', () => {
     expect(backendSandboxCompatibilityError({
       backendType: 'zmx',
       fileSandboxRequested: false,
@@ -542,11 +542,6 @@ describe('backendSandboxCompatibilityError', () => {
     })).toBeUndefined();
     expect(backendSandboxCompatibilityError({
       backendType: 'pty',
-      fileSandboxRequested: true,
-      effectiveReadIsolationRequested: true,
-    })).toBeUndefined();
-    expect(backendSandboxCompatibilityError({
-      backendType: 'riff',
       fileSandboxRequested: true,
       effectiveReadIsolationRequested: true,
     })).toBeUndefined();

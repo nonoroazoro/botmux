@@ -65,10 +65,6 @@ import { FeishuLoginManager } from './dashboard/feishu-login.js';
 import {
   CLI_SELECT_OPTIONS,
   resolveCliSelection,
-  isTtadkWrapper,
-  ttadkAcceptsModel,
-  TTADK_DEFAULT_MODEL,
-  TTADK_MODEL_SUGGESTIONS,
 } from './setup/cli-selection.js';
 import { checkCliAvailability } from './setup/cli-availability.js';
 import { invalidWorkingDirs } from './utils/working-dir.js';
@@ -3636,8 +3632,8 @@ const server = createServer(async (req, res) => {
     }
 
     // CLI 下拉选项 (id=选择键 + 展示名), 单一事实源在 cli-selection.CLI_SELECT_OPTIONS,
-    // 含 aiden×claude / aiden×codex 网关项——前端打开"添加机器人"表单时拉取填充下拉.
-    // id 既可能是普通 cliId, 也可能是 'aiden-x-claude' 这类选择键, 由 resolveCliSelection 解析.
+    // 前端打开"添加机器人"表单时拉取填充下拉。
+    // id 是 cliId 或内置选择键，由 resolveCliSelection 解析。
     if (req.method === 'GET' && url.pathname === '/api/cli-options') {
       const webSession = await botOnboarding.sessionStatus();
       return jsonRes(res, 200, {
@@ -3655,15 +3651,8 @@ const server = createServer(async (req, res) => {
             available: availability.available,
             command: availability.command,
             availabilityReason: availability.reason,
-            // ttadk 网关项: 前端据此把模型框默认成 glm-5.1 并挂候选下拉; CoCo 不接受 -m.
-            ...(isTtadkWrapper(o.wrapperCli)
-              ? { gateway: 'ttadk' as const, acceptsModel: ttadkAcceptsModel(o.wrapperCli) }
-              : {}),
           };
         }),
-        // ttadk 模型默认值 + 候选 (单一事实源在 cli-selection), 供前端模型框使用.
-        ttadkModelDefault: TTADK_DEFAULT_MODEL,
-        ttadkModelSuggestions: TTADK_MODEL_SUGGESTIONS,
         suggestedAppName: botOnboarding.suggestedAppName(),
         webSession,
       });
@@ -3689,7 +3678,7 @@ const server = createServer(async (req, res) => {
       } catch {
         return jsonRes(res, 400, { ok: false, error: 'bad_json' });
       }
-      // CLI: 把下拉传来的选择键 (普通 cliId 或 aiden-x-claude/codex) 解析成
+      // CLI: 把下拉传来的选择键解析成
       // { cliId, wrapperCli }——空 → 默认 claude-code; 非法键 → 400.
       let cliId: CliId;
       let wrapperCli: string | undefined;
@@ -4742,24 +4731,6 @@ const server = createServer(async (req, res) => {
       for await (const c of req) chunks.push(c as Buffer);
       const raw = Buffer.concat(chunks).toString('utf8') || '{}';
       const upstream = await proxyToDaemon(appId, `/api/bot-env`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: raw,
-      });
-      res.writeHead(upstream.status, { 'content-type': 'application/json' });
-      res.end(await upstream.text());
-      return;
-    }
-
-    // PUT /api/bots/:appId/riff — proxy to that bot's daemon. Body
-    // `{ riff: string }` (raw JSON text; '' = clear).
-    let mBotRiff: RegExpMatchArray | null;
-    if (req.method === 'PUT' && (mBotRiff = url.pathname.match(/^\/api\/bots\/([^/]+)\/riff$/))) {
-      const appId = decodeURIComponent(mBotRiff[1]);
-      const chunks: Buffer[] = [];
-      for await (const c of req) chunks.push(c as Buffer);
-      const raw = Buffer.concat(chunks).toString('utf8') || '{}';
-      const upstream = await proxyToDaemon(appId, `/api/bot-riff`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: raw,

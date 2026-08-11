@@ -18,10 +18,9 @@ export type VcMeetingConsumerIsolationResult =
  *
  * On macOS, `sandbox: true` can also add Seatbelt read isolation for supported
  * CLIs, but the ordinary sandbox still exposes this bot's own send credential
- * and has no host-authorized outbox relay. Riff injects the Lark app secret into
- * the remote task; herdr/zellij are not wrapped by the local bwrap
- * implementation. All are intentionally rejected instead of treating a prompt
- * instruction as a security boundary.
+ * and has no host-authorized outbox relay. Backends that are not wrapped by the
+ * local bwrap implementation are intentionally rejected instead of treating a
+ * prompt instruction as a security boundary.
  */
 export function evaluateVcMeetingConsumerIsolation(input: {
   sandbox: boolean | undefined;

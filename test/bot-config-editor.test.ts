@@ -210,17 +210,17 @@ describe('applyBotConfigEdits', () => {
     });
   });
 
-  it('sets wrapperCli (aiden gateway) and clears it when switching to a plain CLI', () => {
+  it('sets wrapperCli and clears it when switching to a plain CLI', () => {
     const gateway = applyBotConfigEdits({
       larkAppId: 'app',
       larkAppSecret: 'secret',
       cliId: 'claude-code',
     }, {
       cliChoice: 'claude-code',
-      wrapperCli: 'aiden x claude',
+      wrapperCli: 'custom-wrapper claude',
     });
     expect(gateway.cliId).toBe('claude-code');
-    expect(gateway.wrapperCli).toBe('aiden x claude');
+    expect(gateway.wrapperCli).toBe('custom-wrapper claude');
 
     // Switching to a plain CLI passes wrapperCli: null → the stale prefix is dropped.
     const plain = applyBotConfigEdits(gateway, { cliChoice: '4', wrapperCli: null });
@@ -233,9 +233,9 @@ describe('applyBotConfigEdits', () => {
       larkAppId: 'app',
       larkAppSecret: 'secret',
       cliId: 'claude-code',
-      wrapperCli: 'aiden x claude',
+      wrapperCli: 'custom-wrapper claude',
     }, { workingDir: '~/x' });
-    expect(out.wrapperCli).toBe('aiden x claude');
+    expect(out.wrapperCli).toBe('custom-wrapper claude');
   });
 
   it('sets and normalizes cliRuntime with an equal downgrade path shadow', () => {
@@ -495,8 +495,8 @@ describe('applyBotConfigEdits', () => {
       larkAppSecret: 'secret',
       cliId: 'claude-code',
       model: 'opus',
-    }, { cliChoice: 'aiden', model: null });
-    expect(updated.cliId).toBe('aiden');
+    }, { cliChoice: 'gemini', model: null });
+    expect(updated.cliId).toBe('gemini');
     expect(updated.model).toBeUndefined();
   });
 
@@ -525,8 +525,6 @@ describe('resolveCliId', () => {
     expect(resolveCliId('9')).toBe('mtr');
     expect(resolveCliId('10')).toBe('hermes');
     expect(resolveCliId('11')).toBe('codex-app');
-    expect(resolveCliId('12')).toBe('mira');
-    expect(resolveCliId('13')).toBe('seed');
     expect(resolveCliId('14')).toBe('traex');
     expect(resolveCliId('15')).toBe('pi');
     expect(resolveCliId('16')).toBe('copilot');
@@ -542,7 +540,6 @@ describe('resolveCliId', () => {
     expect(resolveCliId('opencode')).toBe('opencode');
     expect(resolveCliId('mtr')).toBe('mtr');
     expect(resolveCliId('hermes')).toBe('hermes');
-    expect(resolveCliId('mira')).toBe('mira');
     expect(resolveCliId('pi')).toBe('pi');
     expect(resolveCliId('copilot')).toBe('copilot');
     expect(resolveCliId('grok')).toBe('grok');

@@ -1,7 +1,7 @@
 /**
  * Usage ledger tests — per-turn token usage deltas appended to daily JSONL.
  *
- * The ledger is the durable contract consumed by external trackers (kaboo):
+ * The ledger is a durable contract consumed by external trackers:
  * each record is a self-describing JSON line with positive token deltas and
  * cumulative snapshots for self-validation.
  *
@@ -326,71 +326,8 @@ describe('recordSessionUsage', () => {
     });
   });
 
-  it('migrates a legacy Aiden includes_cache state baseline without treating the first v2 snapshot as shrink', () => {
-    writeFileSync(join(dir, 'state-cli_app.json'), JSON.stringify({
-      v: 1,
-      sessions: {
-        'sess-1': {
-          inputTokens: 150,
-          outputTokens: 30,
-          cacheReadTokens: 60,
-          cacheCreateTokens: 0,
-          recordedAt: '2026-06-10T11:00:00.000Z',
-          epoch: 0,
-        },
-      },
-    }));
-
-    expect(recordSessionUsage({
-      ...baseArgs({ cliId: 'aiden' }),
-      ledgerDir: dir,
-      usage: cumulative(90, 30, 60),
-    })).toBeNull();
-
-    const rec = recordSessionUsage({
-      ...baseArgs({ cliId: 'aiden', now: new Date('2026-06-10T12:05:00Z') }),
-      ledgerDir: dir,
-      usage: cumulative(120, 40, 80),
-    });
-    expect(rec).toMatchObject({
-      v: 2,
-      inputTokenSemantics: 'uncached',
-      epoch: 0,
-      inputTokens: 30,
-      outputTokens: 10,
-      cacheReadTokens: 20,
-    });
-  });
-
-  it('migrates a legacy Aiden includes_cache ledger baseline before crash recovery diffing', () => {
-    writeFileSync(join(dir, 'usage-2026-06-10.jsonl'), JSON.stringify({
-      v: 1,
-      recordId: 'legacy-aiden-record',
-      ts: '2026-06-10T11:00:00.000Z',
-      epoch: 0,
-      sessionId: 'sess-1',
-      cliId: 'aiden',
-      totalInputTokens: 150,
-      totalOutputTokens: 30,
-      totalCacheReadTokens: 60,
-      totalCacheCreateTokens: 0,
-    }) + '\n');
-
-    const rec = recordSessionUsage({
-      ...baseArgs({ cliId: 'aiden' }),
-      ledgerDir: dir,
-      usage: cumulative(120, 40, 80),
-    });
-    expect(rec).toMatchObject({
-      epoch: 0,
-      inputTokens: 30,
-      outputTokens: 10,
-      cacheReadTokens: 20,
-    });
-  });
-
-  it('does not subtract cache twice from explicitly uncached Codex or Aiden baselines', () => {
-    for (const cliId of ['codex', 'aiden']) {
+  it('does not subtract cache twice from an explicitly uncached Codex baseline', () => {
+    for (const cliId of ['codex']) {
       const sessionId = `sess-${cliId}`;
       writeFileSync(join(dir, 'state-cli_app.json'), JSON.stringify({
         v: 2,

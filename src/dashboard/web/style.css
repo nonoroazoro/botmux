@@ -2248,9 +2248,7 @@ button.primary {
 .cli-opencode    { background: #e7f7ec; color: #176b36; border-color: #bfe8ce; }
 .cli-mtr         { background: #e5f5ff; color: #0f6388; border-color: #b8e2f7; }
 .cli-hermes      { background: #f0f4e4; color: #546b14; border-color: #d9e9a8; }
-.cli-mira        { background: #e8f6f6; color: #12686d; border-color: #b9e4e5; }
 .cli-pi          { background: #f1e9ff; color: #6b2bbf; border-color: #dcc9ff; }
-.cli-aiden       { background: #fff7d1; color: #8b6508; border-color: #f7df87; }
 .cli-coco        { background: #e4f7f2; color: #0c695b; border-color: #b7e4d9; }
 .cli-unknown     { background: var(--surface-muted); color: var(--muted); }
 
@@ -2262,9 +2260,7 @@ button.primary {
 :root[data-theme="dark"] .cli-opencode,
 :root[data-theme="dark"] .cli-mtr,
 :root[data-theme="dark"] .cli-hermes,
-:root[data-theme="dark"] .cli-mira,
 :root[data-theme="dark"] .cli-pi,
-:root[data-theme="dark"] .cli-aiden,
 :root[data-theme="dark"] .cli-coco {
   background: var(--surface-muted);
   color: var(--fg);
@@ -19634,7 +19630,7 @@ button.webhook-log-row.active {
 
 /* ════════════════════════════════════════════════════════════════════════════
    "2077" CYBERPUNK SKIN
-   Distilled from the kaboo webui (frontend/src/styles/cyberpunk.css). The whole
+   Self-contained cyberpunk palette. The whole
    dashboard is variable-driven, so re-pointing the design tokens under
    :root[data-skin="cyber"] re-skins every component; the rest of this section
    adds the neon flourishes (grid, scanlines, data-rain, glow, sharp corners).
@@ -19887,9 +19883,7 @@ button.webhook-log-row.active {
 :root[data-skin="cyber"] .cli-opencode,
 :root[data-skin="cyber"] .cli-mtr,
 :root[data-skin="cyber"] .cli-hermes,
-:root[data-skin="cyber"] .cli-mira,
 :root[data-skin="cyber"] .cli-pi,
-:root[data-skin="cyber"] .cli-aiden,
 :root[data-skin="cyber"] .cli-coco {
   background: var(--surface-muted);
   color: var(--fg);
@@ -19911,7 +19905,7 @@ button.webhook-log-row.active {
 
 /* ════════════════════════════════════════════════════════════════════════════
    2077 MOTION FX — CRT flicker / roll line, HUD frame, random glitches, and the
-   KIROSHI NETLINK boot loader. Ported from kaboo's cyberpunk.css. DOM nodes are
+   KIROSHI NETLINK boot loader. DOM nodes are
    injected by cyber-fx.ts only while the skin is active.
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -20288,7 +20282,7 @@ body.cp-fx-slice main { animation: cp-fx-slice 0.32s steps(2, end); }
 /* ════════════════════════════════════════════════════════════════════════════
    2077 EASTER EGG — "BREACH PROTOCOL". Over-scroll past the bottom of the page
    to detonate a full-screen RGB-split glitch storm. Driven by cyber-fx.ts.
-   Ported from kaboo's CyberpunkBreach.
+   Decorative breach effect.
    ════════════════════════════════════════════════════════════════════════════ */
 .cyber-breach {
   position: fixed;
@@ -22155,7 +22149,7 @@ main:has(.workflows-page .v3r-runs-section) .v3r-run-list {
 .insights-page .modal-raw { font-size: 12px; max-height: none; }
 .insights-page .modal-trunc { margin: 10px 0 0; font-size: 11px; }
 
-/* 对话回放 (conversation replay) — Feishu-style chat bubbles + load-more */
+/* Conversation history with chat bubbles and load-more controls. */
 .insights-page .convo { display: flex; flex-direction: column; gap: 10px; }
 .insights-page .convo-controls { display: flex; flex-direction: column; gap: 8px; }
 .insights-page .convo-search { width: 100%; padding: 7px 11px; background: var(--ins-inner); border: 1px solid var(--line); border-radius: var(--radius-lg); color: var(--fg); font: inherit; font-size: 13px; }

@@ -6,7 +6,7 @@
  * reader in cost-calculator) and appends the positive delta as one
  * self-describing JSON line to a daily ledger file.
  *
- * The ledger is the stable contract for external usage trackers (kaboo-cli
+ * The ledger is the stable contract for external usage trackers
  * reads it the same way it reads HappyClaw's usage_records table):
  *   ~/.botmux/usage/usage-YYYY-MM-DD.jsonl   (UTC date, append-only)
  *   ~/.botmux/usage/state.json               (per-session baselines)
@@ -82,7 +82,7 @@ interface SessionBaseline {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreateTokens: number;
-  /** Missing on v1 state/ledger baselines. For Codex/TraeX/Aiden those legacy
+  /** Missing on v1 state/ledger baselines. For Codex/TraeX those legacy
    *  baselines used includes_cache prompt input and must be migrated once. */
   inputTokenSemantics?: InputTokenSemantics;
   recordedAt: string;
@@ -123,7 +123,7 @@ function inputTokenSemantics(v: unknown): InputTokenSemantics | undefined {
 
 /** Convert any persisted baseline into the producer's current mutually
  *  exclusive accounting contract before comparing candidates or diffing.
- *  v1 Codex/TraeX/Aiden baselines had no marker and stored raw includes_cache input;
+ *  v1 Codex/TraeX baselines had no marker and stored raw includes_cache input;
  *  other v1 producers already stored uncached input and remain unchanged. */
 function normalizeBaseline(
   baseline: SessionBaseline | undefined | null,
@@ -133,7 +133,7 @@ function normalizeBaseline(
   const semantics = inputTokenSemantics(baseline.inputTokenSemantics);
   const semanticsPresent = Object.prototype.hasOwnProperty.call(baseline, 'inputTokenSemantics');
   const includedCache = semantics === 'includes_cache'
-    || (!semanticsPresent && (cliId === 'codex' || cliId === 'traex' || cliId === 'aiden'));
+    || (!semanticsPresent && (cliId === 'codex' || cliId === 'traex'));
   if (!includedCache) {
     return { ...baseline, inputTokenSemantics: 'uncached' };
   }
@@ -433,7 +433,7 @@ interface DaemonSessionLedgerOpts {
  *  with `--session-id <botmux sessionId>` and the worker never sets a separate
  *  cliSessionId (there is nothing to adopt) — but the botmux session id IS
  *  coco's on-disk session identity (~/.cache/coco/sessions/<sessionId>/), and
- *  ledger consumers (kaboo) key their native-parser exclusions on
+ *  ledger consumers key their native-parser exclusions on
  *  cliSessionId. Defaulting it closes the gap: coco sessions get ownership
  *  markers and self-describing usage records like every other CLI. */
 function ledgerCliSessionId(s: { cliId?: string; sessionId: string; cliSessionId?: string }): string | undefined {
@@ -495,7 +495,7 @@ export interface RecordSessionOwnershipArgs {
 /**
  * Append a zero-delta ownership marker tying a botmux session to its
  * CLI-native session id. Written at spawn / as soon as the CLI session id is
- * known — consumers (kaboo) exclude the session from their native parsers the
+ * known. Consumers exclude the session from their native parsers the
  * moment this line exists, closing the "native parser uploads the transcript
  * before the first positive delta lands" double-count window. Does NOT touch
  * baselines; the deterministic recordId makes cross-restart repeats collapse

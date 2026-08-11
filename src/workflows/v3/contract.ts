@@ -118,20 +118,16 @@ export type { GoalAnswer, GoalAsk } from './event-contract.js';
 
 /**
  * v3 goal-mode is delivered via the native `/goal` command.  Keep this list
- * capability-based and explicit. Claude Code, Codex, Seed, and Traex have
- * direct `/goal` execution evidence (Traex 0.200.16+ also needs its automation
- * hook-trust flag). Relay is admitted from its exact Claude-family adapter and
- * slash-command compatibility with Seed; a Relay-binary smoke remains pending
- * on hosts where that binary is installed. The manifest watcher and goal env
+ * capability-based and explicit. Claude Code, Codex, and Traex have direct
+ * `/goal` execution evidence (Traex 0.200.16+ also needs its automation
+ * hook-trust flag). The manifest watcher and goal env
  * contract are CLI-neutral after dispatch. The runtime rejects a run whose
  * nodes resolve to any other CLI at start time.
  */
 export const V3_SUPPORTED_CLIS: readonly CliId[] = [
   'claude-code',
   'codex',
-  'seed',
   'traex',
-  'relay',
 ];
 
 export function isV3SupportedCli(cliId: CliId): boolean {

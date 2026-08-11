@@ -795,12 +795,12 @@ describe('buildMarkdownCard', () => {
   });
 
   it('appends footer hr + grey bot-name element', () => {
-    const json = buildMarkdownCard('hello', undefined, 'Finder Master');
+    const json = buildMarkdownCard('hello', undefined, 'Example Bot');
     const card = JSON.parse(json);
     const tags = card.body.elements.map((e: any) => e.tag);
     expect(tags).toContain('hr');
     const last = card.body.elements[card.body.elements.length - 1];
-    expect(last.content).toContain('Finder Master');
+    expect(last.content).toContain('Example Bot');
     expect(last.content).not.toContain('[botmux](');
   });
 

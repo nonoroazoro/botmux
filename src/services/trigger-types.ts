@@ -133,8 +133,8 @@ export interface TriggerResponse {
   };
   /** Read-only web-terminal URL for the live session's CLI pane, present only
    *  while a worker web server is up (typically `state:'running'` and at
-   *  `'completed'` before the session closes). Lets an async caller (e.g. riff's
-   *  in-sandbox task-runner) open a live view of the visible CLI TUI — form C.
+   *  `'completed'` before the session closes). Lets an async caller open a live
+   *  view of the visible CLI TUI.
    *  Carries the `?viewToken=` read capability inline; knowing it grants read
    *  only, never terminal input. Omitted when no live worker terminal exists. */
   readOnlyUrl?: string;

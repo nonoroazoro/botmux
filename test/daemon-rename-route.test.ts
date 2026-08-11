@@ -610,7 +610,7 @@ describe('/rename production routing — must not pre-create a session (review P
     expect(repliedText()).toMatch(/需要活跃的 CLI 进程|需要在已有会话内使用/);
   });
 
-  it('fails closed on /fast for RPC-input / Riff backends (no raw_input, clear reply)', async () => {
+  it('fails closed on /fast for RPC input mode', async () => {
     const bot = registerBot({
       larkAppId: APP,
       larkAppSecret: 's',
@@ -620,12 +620,9 @@ describe('/rename production routing — must not pre-create a session (review P
     });
     bot.resolvedAllowedUsers = [OWNER];
 
-    // A codex session whose backend can't receive the /fast keystroke: Riff runs
-    // turns off the terminal (text+CR would become two remote tasks); RPC input
-    // mode's pane is a pure viewer. Either way the toggle can't reach the
-    // executor, so /fast must be rejected — never delivered as a no-op/junk.
+    // RPC input mode's pane is a pure viewer, so the toggle cannot reach the
+    // executor and must be rejected instead of delivered as a no-op.
     for (const setup of [
-      (ds: any) => { ds.session.backendType = 'riff'; },
       (ds: any) => { ds.initConfig = { type: 'init', codexRpcInput: true }; },
     ]) {
       activeSessions.clear();

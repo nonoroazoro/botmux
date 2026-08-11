@@ -249,9 +249,9 @@ export interface DashboardGlobalConfig {
 function readVoice(raw: unknown): VoiceConfig | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const v = raw as Record<string, unknown>;
-  const engineOk = v.engine === 'sami' || v.engine === 'openai' || v.engine === undefined;
+  const engineOk = v.engine === 'openai' || v.engine === undefined;
   if (!engineOk) return undefined;
-  if (!v.sami && !v.openai && !v.engine) return undefined;
+  if (!v.openai && !v.engine) return undefined;
   return v as VoiceConfig;
 }
 

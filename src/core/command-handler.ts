@@ -12,9 +12,8 @@ import * as sessionStore from '../services/session-store.js';
 import * as scheduleStore from '../services/schedule-store.js';
 import * as scheduler from './scheduler.js';
 import { scanProjects, scanMultipleProjects, describeProjectDir } from '../services/project-scanner.js';
-import { createRepoWorktree, pushWorktreeBranch } from '../services/git-worktree.js';
+import { createRepoWorktree } from '../services/git-worktree.js';
 import { worktreeSlugFromContextAI } from '../services/worktree-slug-ai.js';
-import { resolvePairedSpawnBackendType } from './persistent-backend.js';
 import { buildRepoSelectCard, buildAdoptSelectCard, buildCodexAppThreadSelectCard, buildSlashListCard, getCliDisplayName, buildConfigCard, buildForkPanelCard, buildAdoptBlockedCard } from '../im/lark/card-builder.js';
 import { handleDashboardCommand } from './dashboard-command/index.js';
 import { createCliAdapterSync } from '../adapters/cli/registry.js';
@@ -67,7 +66,6 @@ import {
 } from '../services/bot-config-store.js';
 import { resolveCliId, findInvalidAllowedUserEntries } from '../setup/bot-config-editor.js';
 import { buildClosedSessionCard } from './closed-session-card.js';
-import { ttadkConfigModelChoices } from '../setup/cli-selection.js';
 import { publishAttentionPatch, publishClosedSessionPatch, announcePendingRepoSession } from './session-activity.js';
 import { setCardMode } from '../services/card-mode-store.js';
 import { canOperate } from '../im/lark/event-dispatcher.js';
@@ -273,7 +271,7 @@ export function resolveRepoSelection(
  * (which routes to daemon command handlers). The match conditions are
  * deliberately tighter than the regular slash parser:
  *
- * - exact-prefix match (`/t` / `/topic`, case-insensitive); `/tea` / `/topical`
+ * - exact-prefix match (`/t` / `/topic`, case-insensitive); `/team` / `/topical`
  *   must NOT match, otherwise we'd false-trigger on common /-prefixed words.
  * - tolerates leading whitespace (mention-stripping can leave a space).
  * - prompt is whatever follows the prefix (verbatim, including newlines).
@@ -976,14 +974,8 @@ async function handleConfigCommand(
   const cardLoc = cardLocaleArg(sub);
   if (!sub || cardLoc) {
     const renderLoc: Locale = cardLoc ?? loc;
-    // ttadk 网关 bot：模型候选用 ttadk 网关模型（glm-5.1…），不是底层适配器的
-    // opus/gpt-5（那会被 worker 注入成 `ttadk -m opus` 用错模型启动失败）；CoCo 无候选。
-    // 非 ttadk（返回 null）才回落底层适配器自己的 modelChoices。
-    const ttadkChoices = ttadkConfigModelChoices(bot.config.wrapperCli);
-    let modelChoices: readonly string[] = ttadkChoices ?? [];
-    if (ttadkChoices === null) {
-      try { modelChoices = createCliAdapterSync(bot.config.cliId, bot.config.cliPathOverride).modelChoices ?? []; } catch { /* 无候选 → 不渲染 model 下拉 */ }
-    }
+    let modelChoices: readonly string[] = [];
+    try { modelChoices = createCliAdapterSync(bot.config.cliId, bot.config.cliPathOverride).modelChoices ?? []; } catch { /* 无候选 → 不渲染 model 下拉 */ }
     const data = getConfigCardData(larkAppId, modelChoices);
     if (!data) { await reply(buildConfigHelp(renderLoc)); return; }
     const cardJson = buildConfigCard(data, renderLoc);
@@ -1632,7 +1624,6 @@ export async function handleCommand(
               // this choice while the pending prompt is prepared.
               ds!.workingDir = selectedPath;
               ds!.session.workingDir = selectedPath;
-              ds!.session.riffRepoDirs = undefined;
               sessionStore.updateSession(ds!.session);
               // forkPendingCli owns claim release + confirm reply + card withdraw.
               if (!await forkPendingCli(t('cmd.repo.selected_in_pending', { name: displayName }, loc), true)) {
@@ -1808,22 +1799,6 @@ export async function handleCommand(
               logger.info(`[${logTag}] Worktree ${creation.path} created but session changed mid-flight — not switching`);
               await sessionReply(rootId, t('cmd.repo.worktree_created_not_switched', { path: creation.path, branch: creation.branch }, loc));
               break;
-            }
-            const botCfg = getBot(ds.larkAppId).config;
-            const effectiveBackend = resolvePairedSpawnBackendType(
-              wasPending ? (ds.session.cliId ?? botCfg.cliId) : botCfg.cliId,
-              wasPending ? ds.session.backendType : undefined,
-              botCfg.backendType,
-              config.daemon.backendType,
-            );
-            if (effectiveBackend === 'riff') {
-              try {
-                await pushWorktreeBranch(creation.path, creation.branch);
-              } catch (e) {
-                const errMsg = e instanceof Error ? e.message : String(e);
-                logger.warn(`[${logTag}] riff worktree branch push failed (${creation.branch}): ${errMsg}`);
-                await sessionReply(rootId, t('card.repo.riff_worktree_push_failed', { branch: creation.branch, error: errMsg }, loc));
-              }
             }
             await sessionReply(rootId, t('cmd.repo.worktree_created', {
               path: creation.path, branch: creation.branch, base: creation.baseRef,

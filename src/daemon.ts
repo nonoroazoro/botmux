@@ -2617,9 +2617,7 @@ function scheduleDeferredScheduleSettlement(
   // Exact transcript terminal needs only a short filesystem visibility grace.
   // Screen-only adapters use a longer confirmation and re-check that the same
   // turn is still idle before reclaiming the hidden session.
-  const delayMs = context.source === 'terminal'
-    ? (ds.session.backendType === 'riff' ? 1_500 : 300)
-    : 1_500;
+  const delayMs = context.source === 'terminal' ? 300 : 1_500;
   const timer = setTimeout(() => {
     deferredScheduleSettleTimers.delete(sessionId);
     void settleDeferredScheduleRun(ds, context, {
@@ -3526,7 +3524,7 @@ function refreshCliVersion(botCfg: Pick<BotConfig, 'cliId' | 'cliRuntime' | 'cli
 
   try {
     const adapter = createCliAdapterSync(botCfg.cliId, botCfg.cliPathOverride);
-    // Remote backends (riff) have no local binary to version-check — skip.
+    // Backends with no local binary are skipped.
     if (!adapter.resolvedBin && !adapter.versionCommand) return false;
     const versionCommand = adapter.versionCommand?.() ?? { bin: adapter.resolvedBin, args: ['--version'] };
     const raw = execFileSync(versionCommand.bin, versionCommand.args, {
@@ -4065,9 +4063,6 @@ async function prewarmDocCommentSession(ds: DaemonSession, sub: DocSubscription)
   if (sub.workingDir && (!ds.worker || ds.worker.killed)) {
     ds.workingDir = sub.workingDir;
     ds.session.workingDir = sub.workingDir;
-    // An explicit doc-watch cwd replaces the previous repo selection. Keeping
-    // a multi-Riff stamp would make the cold refork ignore this new directory.
-    ds.session.riffRepoDirs = undefined;
   }
 
   if (ds.worker && !ds.worker.killed) {
@@ -5343,7 +5338,7 @@ ipcRoute('POST', '/api/attention', async (req, res) => {
 //
 // NOT an agent-facing command. Claude/Seed 的 SessionStart hook 经
 // `botmux session-ready`（cli.ts cmdSessionReady）调到这里，daemon 把信号转发给
-// 该会话的 worker；worker 放行被 ready-gate 门控的首条 prompt（绕开 cjadk 启动
+// 该会话的 worker；worker 放行被 ready-gate 门控的首条 prompt（绕开 wrapper 启动
 // 选择器吞首条消息）。找不到会话 / worker 仍返回 200（best-effort）：worker 侧
 // 有超时兜底，信号丢失不致命，没必要让 hook 客户端报错。
 ipcRoute('POST', '/api/session-ready', async (req, res) => {
@@ -15405,17 +15400,14 @@ function isInitialSessionPassthrough(larkAppId: string, cmd: string): boolean {
   return resolveAdapterDefaultPassthroughCommands(larkAppId).includes(cmd);
 }
 
-/** `/fast` is a passthrough keystroke to Codex's native tier toggle — it only
+/** `/fast` is a passthrough keystroke to Codex's native tier toggle. It only
  *  reaches the executor on a real paste TUI. In RPC input mode the pane is a
  *  pure viewer (turns go over JSON-RPC, keystrokes never reach the app-server),
- *  and the Riff backend turns the text+Enter into two remote task writes. On
- *  those backends the toggle is a silent no-op (or worse), so fail closed:
+ *  so the toggle is a silent no-op. Fail closed:
  *  reject with a clear message instead of pretending it worked. The read-only
- *  card badge is unaffected — it reflects whatever tier Codex actually runs. */
+ *  card badge is unaffected and reflects whatever tier Codex actually runs. */
 function fastToggleUnsupportedBackend(ds: DaemonSession | undefined): boolean {
   if (!ds) return false;
-  const backendType = ds.initConfig?.backendType ?? ds.session.backendType;
-  if (backendType === 'riff') return true;
   return ds.initConfig?.codexRpcInput === true;
 }
 
@@ -17155,10 +17147,10 @@ async function handleThreadReply(
       // 收紧到与 daemon 命令同档；这会同时改变真人 oncall 成员的现有行为，应单独评估。
       const ds = existingDs;
       if (ds) {
-        // /fast fail-closed: on RPC-input / Riff backends the keystroke can't
+        // /fast fail-closed: on RPC-input backends the keystroke cannot
         // reach Codex's executor (see fastToggleUnsupportedBackend). Reject with
-        // a clear message rather than deliver a silent no-op (or spawn junk Riff
-        // tasks). Other passthrough commands are unaffected.
+        // a clear message rather than deliver a silent no-op. Other passthrough
+        // commands are unaffected.
         if (cmd === '/fast' && fastToggleUnsupportedBackend(ds)) {
           await sessionReply(anchor, tr('daemon.fast_unsupported_backend', undefined, localeForBot(larkAppId)), 'text', larkAppId);
           return;
@@ -18806,7 +18798,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   // process discovers running daemons by scanning <resolvedDataDir>/dashboard-daemons/
   // and watching for mtime updates (heartbeat) / file removal (shutdown).
   //
-  // Core-only (in-sandbox, single service): riff's task-runner is handed ONE
+  // Core-only embedded mode uses one
   // fixed port and dials 127.0.0.1:<port> directly, so the port must be exactly
   // BOTMUX_API_PORT and must NOT drift via the fleet's upward EADDRINUSE probe —
   // a silent drift would leave the client dialing a dead port. Fleet daemons
@@ -19014,7 +19006,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   const coreOnly = process.env.BOTMUX_CORE_ONLY === '1';
   // Core-only keeps the trusted-host HMAC ON (codex P1: authRequired:false opened
   // ALL 96 IPC routes — a co-resident model turn could read/perturb sessions,
-  // scheduler, mutations). Instead we allowlist ONLY the tight riff-facing routes
+  // scheduler, mutations). Instead we allowlist only the required routes
   // (routeIsCoreOnlyPublic: /api/trigger + /api/sessions/:id/{trigger-result,insight}
   // + the always-public /healthz) as no-HMAC; every other route still requires it.
   // Arm the readiness gate BEFORE the bind (codex P1): between listen() and a
@@ -19028,7 +19020,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     authRequired: true,
     coreOnlyPublicRoutes: coreOnly,
     // Fleet: probe upward so a port race can't crash boot. Core-only: BIND-OR-FAIL
-    // on the exact BOTMUX_API_PORT — riff was handed that port and the service must
+    // on the exact BOTMUX_API_PORT because the service must
     // never silently drift to another (client would dial a dead port).
     ...(coreOnly ? { maxProbe: 0 } : {}),
   });
@@ -19042,14 +19034,14 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   // NOTE: the core-only ready line + readiness release (setCoreOnlyReady) are
   // emitted LATER, AFTER restoreActiveSessions completes — until then BOTH
   // /healthz AND the public control routes (trigger/result/insight) return 503,
-  // so riff never triggers into a racing durable restore (codex P1).
+  // so callers never trigger into a racing durable restore.
 
   // Single reverse-proxy port that fronts every session's web terminal under
   // /s/{sessionId}, so dev-machine users forward one port (proxyBasePort+idx)
   // instead of one per topic. Bound on the public host so `ssh -L` can reach it.
   const proxyPort = config.web.proxyBasePort + idx;
   // Core-only (codex P1-4): the web terminal proxy + worker web ports default to
-  // config.web.host (0.0.0.0). In riff's sandbox the whole surface must stay
+  // config.web.host (0.0.0.0). In embedded mode the whole surface must stay
   // loopback — an in-sandbox headless service has no reason to expose terminals
   // on all interfaces. Force 127.0.0.1 so nothing but the local task-runner can
   // reach it (the IPC server is already 127.0.0.1-bound above).
@@ -19749,7 +19741,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     // Readiness barrier release (codex P1-3): restoreActiveSessions + v3 attach +
     // scheduler + signal handlers are all wired now, so the HTTP surface is safe
     // to drive. Flip /healthz → 200 THEN print the machine-parseable ready line.
-    // riff's launcher waits for either signal before pointing its client here, so
+    // The launcher waits for either signal before pointing its client here, so
     // a trigger can't race a durable restore (transient not_found / re-fire).
     // Exact ready-line text is a locked contract (regex ^\[core-only\] listening on ).
     setCoreOnlyReady();

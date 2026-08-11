@@ -352,12 +352,9 @@ export function createTraexAdapter(pathOverride?: string): CliAdapter {
     // lists the rest; the setup flow always appends an "Other / custom"
     // free-text option so users aren't locked out.
     modelChoices: [
-      'Seed-Dogfooding-2.0',
-      'Doubao-Seed-2.0-Code',
       'gpt-5.5',
       'gpt-5',
       'o3',
-      'Doubao_1_8',
       'DeepSeek-V4-Pro',
       'kimi-k2.6',
     ],

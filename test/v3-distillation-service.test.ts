@@ -269,7 +269,7 @@ describe('v3 parameter distillation service', () => {
       dataDir,
       baseDir,
       source: 'last',
-      displayName: 'api.example.internal',
+      displayName: 'api.example.invalid',
       requestKey: 'om_unsafe_name',
       context: CONTEXT,
     })).rejects.toMatchObject({ code: 'unsafe_display_name' });

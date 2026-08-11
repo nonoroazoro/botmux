@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 
 import { HerdrBackend } from './herdr-backend.js';
 import { PtyBackend } from './pty-backend.js';
-import { RiffBackend, type RiffBackendConfig } from './riff-backend.js';
 import { TmuxBackend } from './tmux-backend.js';
 import { TmuxPipeBackend } from './tmux-pipe-backend.js';
 import { ZellijBackend } from './zellij-backend.js';
@@ -182,8 +181,7 @@ export function backendGateUserMessage(backend: BackendType, reason: string): st
  * File/read isolation is currently enforced only when Botmux owns the local
  * launch wrapper (PTY or tmux). Herdr, Zellij, and ZMX own/spawn the child
  * outside that bwrap/Seatbelt boundary, so they must fail before backend
- * selection or migration mutates any live resource. Riff is remote and applies
- * its own sandbox; local isolation is intentionally bypassed for it.
+ * selection or migration mutates any live resource.
  */
 export function backendSandboxCompatibilityError(opts: {
   backendType: BackendType;
@@ -199,7 +197,6 @@ export function backendSandboxCompatibilityError(opts: {
   if (
     opts.backendType === 'pty'
     || opts.backendType === 'tmux'
-    || opts.backendType === 'riff'
   ) return undefined;
   return `backend "${opts.backendType}" does not support file/read isolation; `
     + 'use tmux/pty or disable sandbox for this bot';
@@ -233,7 +230,6 @@ export interface SelectedSessionBackend {
 export function selectSessionBackend(opts: {
   sessionId: string;
   backendType: BackendType;
-  backendConfig?: RiffBackendConfig;
   /** Canonical local ownership boundary used to keep machine-wide Herdr agent
    * names distinct across independent Botmux data roots/checkouts. */
   herdrOwnershipScope?: string;
@@ -244,18 +240,6 @@ export function selectSessionBackend(opts: {
   /** Host-persistent journal for fail-closed ZMX composer recovery. */
   zmxRecoveryStateDir?: string;
 }): SelectedSessionBackend {
-  if (opts.backendType === 'riff') {
-    if (!opts.backendConfig) {
-      throw new Error('riff backend requires backendConfig (baseUrl, etc.)');
-    }
-    return {
-      backend: new RiffBackend(opts.backendConfig, opts.sessionId),
-      isTmuxMode: false,
-      isPipeMode: false,
-      isZellijMode: false,
-    };
-  }
-
   if (opts.backendType === 'zmx') {
     const sessionName = ZmxBackend.sessionName(opts.sessionId);
     const reattach = opts.hasExistingSession ?? ZmxBackend.hasSession(sessionName);

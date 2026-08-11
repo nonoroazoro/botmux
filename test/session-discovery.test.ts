@@ -51,7 +51,7 @@ describe('isBareShellComm()', () => {
     expect(isBareShellComm('.zsh')).toBe(true);
   });
   it('does NOT classify agent CLIs or launchers as bare shells', () => {
-    for (const comm of ['codex', 'claude', 'node', 'python', 'relay', 'seed', 'coco']) {
+    for (const comm of ['codex', 'claude', 'node', 'python', 'agent-cli', 'coco']) {
       expect(isBareShellComm(comm)).toBe(false);
     }
   });
@@ -356,7 +356,7 @@ describe('discoverAdoptableSessions', () => {
   it('should discover multiple CLI types', () => {
     setupMocks({
       paneLines: 'dev:0.0 1000\ndev:1.0 2000\n',
-      commMap: { 1000: 'bash', 1100: 'codex', 2000: 'zsh', 2100: 'aiden' },
+      commMap: { 1000: 'bash', 1100: 'codex', 2000: 'zsh', 2100: 'gemini' },
       childMap: { 1000: [1100], 2000: [2100] },
       cwdMap: { 1100: '/project/a', 2100: '/project/b' },
       dimsMap: { 'dev:0.0': '80 24', 'dev:1.0': '200 50' },
@@ -368,7 +368,7 @@ describe('discoverAdoptableSessions', () => {
     expect(results[0]!.cliId).toBe('codex');
     expect(results[0]!.paneCols).toBe(80);
     expect(results[0]!.paneRows).toBe(24);
-    expect(results[1]!.cliId).toBe('aiden');
+    expect(results[1]!.cliId).toBe('gemini');
     expect(results[1]!.paneCols).toBe(200);
     expect(results[1]!.paneRows).toBe(50);
   });
@@ -501,22 +501,6 @@ describe('discoverAdoptableSessions', () => {
     expect(results[0]!.cliPid).toBe(1001);
     expect(results[0]!.sessionId).toBe(outerSessionId);
     expect(results[0]!.cwd).toBe('/workspace/outer');
-  });
-
-  it('should discover seed and relay processes by comm (Claude Code forks)', () => {
-    setupMocks({
-      paneLines: 'dev:0.0 1000\ndev:1.0 2000\n',
-      commMap: { 1000: 'bash', 1100: 'seed', 2000: 'zsh', 2100: 'relay' },
-      childMap: { 1000: [1100], 2000: [2100] },
-      cwdMap: { 1100: '/project/seed', 2100: '/project/relay' },
-      dimsMap: { 'dev:0.0': '80 24', 'dev:1.0': '200 50' },
-    });
-
-    const results = discoverAdoptableSessions();
-
-    expect(results).toHaveLength(2);
-    expect(results[0]!.cliId).toBe('seed');
-    expect(results[1]!.cliId).toBe('relay');
   });
 
   it('should discover cursor-agent processes as Cursor sessions', () => {
@@ -1240,13 +1224,13 @@ describe('validateAdoptTarget', () => {
   it('should return true when expected pid matches at deeper level', () => {
     setupMocks({
       paneLines: 'mysession:0.0 1000\n',
-      commMap: { 1000: 'zsh', 1001: 'bash', 1002: 'aiden' },
+      commMap: { 1000: 'zsh', 1001: 'bash', 1002: 'gemini' },
       childMap: { 1000: [1001], 1001: [1002] },
       cwdMap: {},
       dimsMap: {},
     });
 
-    const result = validateAdoptTarget(tmuxTarget('mysession:0.0', 1002, 'aiden'));
+    const result = validateAdoptTarget(tmuxTarget('mysession:0.0', 1002, 'gemini'));
     expect(result).toBe(true);
   });
 

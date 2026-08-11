@@ -64,7 +64,6 @@ describe('requestAgentSessionRename', () => {
   });
 
   it.each([
-    ['seed', '/bin/true'],
     ['codex-app', '/bin/codex'],
     ['coco', '/bin/coco'],
   ] as const)('does not leak native rename to unsupported %s adapters', (cliId, cliPathOverride) => {
@@ -75,17 +74,6 @@ describe('requestAgentSessionRename', () => {
     });
 
     expect(requestAgentSessionRename(ds, 'No leak')).toEqual({ status: 'unsupported', cliId });
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it('never sends a TUI command through the riff backend', () => {
-    const send = vi.fn();
-    const ds = makeDs({
-      session: { ...makeDs().session, backendType: 'riff' },
-      worker: liveWorker(send),
-    });
-
-    expect(requestAgentSessionRename(ds, 'Remote')).toEqual({ status: 'unsupported', cliId: 'codex' });
     expect(send).not.toHaveBeenCalled();
   });
 

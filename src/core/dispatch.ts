@@ -652,7 +652,7 @@ export function offTopicSubBotTopic(input: {
  * The fan-out bug: a bot writes "@Codex review" in its message; the injector
  * matches each bot by **botName OR cliId**, and the cliId ("codex") is a shared
  * *type* alias — so "@Codex" matches every codex-type bot (Codex分身, Codex二号分身,
- * ttadk(codex), aiden x codex…) and pulls them ALL into the topic, each spawning
+ * wrapper-backed Codex variants) and pulls them all into the topic, each spawning
  * a session and replying.
  *
  * Fix: the unique `botName` is always eligible (so first-time @-invites still

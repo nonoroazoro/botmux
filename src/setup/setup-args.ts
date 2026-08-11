@@ -24,7 +24,7 @@ export interface SetupBotFlags {
   appName?: string;
   appId?: string;
   appSecret?: string;
-  /** CLI 选择键：cliId 或网关键（aiden-x-claude / ttadk-x-codex …），见 CLI_SELECT_OPTIONS。 */
+  /** CLI 选择键：cliId 或公开的 wrapper 选择键，见 CLI_SELECT_OPTIONS。 */
   cli?: string;
   cliPath?: string;
   /** JSON CliRuntimeConfig, or '-' to clear it. */
@@ -120,11 +120,11 @@ export const SETUP_CLI_USAGE = `botmux setup — 脚本化（非 TUI）用法
   --app-id <cli_xxx>         飞书应用 App ID（edit 时改绑另一个应用）
   --app-secret <secret>      App Secret
   --cli <key>                CLI 适配器：cliId 或网关键（claude-code / codex /
-                             aiden-x-claude / ttadk-x-codex …）
+                             或其它内置选择键）
   --cli-path <path>          CLI 可执行文件路径覆盖
   --cli-runtime <JSON|->     Codex-compatible runtime 描述；JSON 含 id、
                              displayName、executable、update，传 - 清空
-  --wrapper-cli <prefix>     通用启动前缀（如 "aiden x claude"），覆盖 --cli 推导值
+  --wrapper-cli <prefix>     通用启动前缀（如 "custom-wrapper claude"），覆盖 --cli 推导值
   --model <m>                CLI 模型名
   --backend <b>              会话后端 pty | tmux | herdr | zellij | zmx
                              traex + herdr 插件安装需在 Dashboard Settings 中显式开启并填写可信 source/ref

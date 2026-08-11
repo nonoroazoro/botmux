@@ -23,7 +23,7 @@
 import {
   botmuxFeishuSessionFilePath,
   buildAppVersionCreatePayload,
-  bytedcliFeishuSessionFilePath,
+  externalFeishuSessionFilePath,
   createOpenPlatformApiClient,
   extractVersionId,
   nextAppVersion,
@@ -56,8 +56,9 @@ export interface OpenPlatformRenameDeps {
 function defaultLoadCookies(): StoredCookie[] | null {
   const own = readStoredCookiesFromSessionFile(botmuxFeishuSessionFilePath());
   if (own && own.length > 0) return own;
-  // setup 同款兜底：本机 bytedcli 缓存的飞书 Web session。
-  const fallback = readStoredCookiesFromSessionFile(bytedcliFeishuSessionFilePath());
+  const fallbackPath = externalFeishuSessionFilePath();
+  if (!fallbackPath) return null;
+  const fallback = readStoredCookiesFromSessionFile(fallbackPath);
   return fallback && fallback.length > 0 ? fallback : null;
 }
 

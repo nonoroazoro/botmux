@@ -2,7 +2,7 @@
  * Unit tests for resolveAsyncTriggerState — the pure four-state resolver behind
  * GET /api/sessions/:id/trigger-result (async dispatch design A).
  *
- * Focus: the state contract riff branches on, and the restart guarantee
+ * Focus: the asynchronous trigger state contract and restart guarantee
  * (already-completed / still-armed turns never degrade to not_found once the
  * in-memory Map is gone).
  *

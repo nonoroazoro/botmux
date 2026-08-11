@@ -65,7 +65,7 @@ describe('resolvePrivateCardAudience', () => {
   });
 
   it('filters out non-ou_ entries (unresolved emails) and dedupes', () => {
-    botState = { resolvedAllowedUsers: ['ou_owner', 'someone@corp.com', 'ou_owner'], config: {} };
+    botState = { resolvedAllowedUsers: ['ou_owner', 'someone@example.com', 'ou_owner'], config: {} };
     expect(resolvePrivateCardAudience(ds())).toEqual(['ou_owner']);
   });
 

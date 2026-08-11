@@ -24,9 +24,6 @@ interface TerminalUrlSession {
   workerPort: number | null;
   workerToken: string | null;
   workerViewToken?: string | null;
-  /** Riff AIO Sandbox web terminal link — when present, buildTerminalUrl
-   *  returns this directly instead of building a local/proxy URL. */
-  riffAccessUrl?: string;
 }
 
 let proxyPort = 0;
@@ -74,11 +71,6 @@ function withCapability(base: string, name: 'token' | 'viewToken', value: string
 }
 
 export function buildTerminalUrl(ds: TerminalUrlSession, opts: { write?: boolean } = {}): string {
-  // Riff backend: the AIO Sandbox link is the OPERATE entry — served via
-  // 「获取操作链接」/ write links only (opts.write). The read-only
-  // 「打开 Web 终端」keeps the local worker terminal (task log view), so both
-  // stay reachable: Web终端=日志页常驻，操作链接=AIO Sandbox。
-  if (ds.riffAccessUrl && opts.write) return ds.riffAccessUrl;
   // When 远程访问 is enabled AND this daemon is bound to the central platform AND
   // the local terminal proxy is up, route terminal links through the machine
   // subdomain (`https://m-<machineId>.<platformHost>/s/<sessionId>`). The platform

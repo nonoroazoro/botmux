@@ -99,9 +99,6 @@ export interface SessionRow extends SessionMessagePreview {
   quarantined?: boolean;
   /** Adopted external CLI PID, active rows only when the source backend exposed it. */
   adoptCliPid?: number;
-  /** Riff AIO Sandbox web terminal link. When set, the dashboard "Web终端"
-   *  button opens this URL directly instead of building a local port link. */
-  riffAccessUrl?: string;
   /** Presentation enrichment stamped by the central dashboard read-model:
    *  bot avatar URL from the live daemon descriptor.
    *  Absent on older daemons — consumers must fall back. */
@@ -220,7 +217,6 @@ export function composeRowFromActive(ds: DaemonSession): SessionRow {
     ownerOpenId: ds.session.ownerOpenId,
     webPort: ds.workerPort ?? null,
     proxyPort: getTerminalAdvertisedPort() || undefined,
-    riffAccessUrl: ds.riffAccessUrl,
     cliVersion: ds.cliVersion,
     hasHistory: ds.hasHistory,
     feishuChatLink: feishuChatLink(ds.chatId, getBotBrand(ds.larkAppId)),

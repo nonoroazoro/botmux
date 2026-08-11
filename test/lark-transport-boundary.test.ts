@@ -47,7 +47,7 @@ import {
   LarkTransportDisabledError,
 } from '../src/im/lark/client.js';
 
-const APIONLY = 'local_riff';
+const APIONLY = 'local_agent';
 const NORMAL = 'app_normal';
 
 function bot(apiOnly: boolean) {

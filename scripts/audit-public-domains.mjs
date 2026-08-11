@@ -2,9 +2,8 @@
 
 /**
  * Keep private deployment hostnames out of the public repository and package.
- * Riff is a documented, intentional public integration; every other
- * Other corporate deployment hostnames must be supplied at runtime instead
- * of committed.
+ * Corporate deployment hostnames must be supplied at runtime instead of
+ * being committed.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, relative, resolve } from 'node:path';
@@ -19,13 +18,12 @@ const textExtensions = new Set([
 ]);
 const allowedHosts = new Set([
   // Empty by design: no corporate deployment host should appear in the public
-  // tree. Repo specs are host-agnostic and install sources live in internal
-  // docs — so any bytedance.net / byted.org hit here is a regression to fix,
-  // not to allowlist. Add an entry only for a deliberately public integration.
+  // tree. Repo specs are host-agnostic and deployment-specific install sources
+  // must remain outside the public repository.
 ]);
-// Require at least one label so bare corporate TLD mentions in assertions/comments
-// do not trip the gate; catch accidental private subdomains under either suffix.
-const hostnamePattern = /\b(?:[a-z0-9-]+\.)+(?:bytedance\.net|byted\.org)\b/gi;
+// Catch common private-only hostname suffixes. Public integrations should use
+// documented public domains or runtime configuration.
+const hostnamePattern = /(?:https?|wss?):\/\/(?:[a-z0-9-]+\.)+(?:internal|corp)\b/gi;
 const allowedHostSuffixes = [];
 const generatedDirectories = new Set(['node_modules', 'dist', 'doc_build']);
 const selfPath = fileURLToPath(import.meta.url);
@@ -52,7 +50,7 @@ const violations = [];
 for (const file of files) {
   const source = readFileSync(file, 'utf8');
   for (const match of source.matchAll(hostnamePattern)) {
-    const hostname = match[0].toLowerCase();
+    const hostname = new URL(match[0]).hostname.toLowerCase();
     if (allowedHosts.has(hostname)) continue;
     if (allowedHostSuffixes.some(suffix => hostname.endsWith(suffix))) continue;
     const line = source.slice(0, match.index).split('\n').length;

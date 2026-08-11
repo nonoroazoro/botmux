@@ -175,7 +175,7 @@ export function createOpenCodeAdapter(pathOverride?: string): CliAdapter {
       if (openCodeSessionId) {
         args.push('--session', openCodeSessionId);
       }
-      // Use --prompt for the initial prompt.  OpenCode's Bubble Tea TUI
+      // Use --prompt for the initial prompt. OpenCode's alternate-screen TUI
       // has an async startup phase; writing to stdin during this window
       // may be lost.  --prompt injects it once the TUI is ready.
       // 注意：`-s` resume 下 --prompt 会被 OpenCode 忽略（实测 1.17.11），worker 靠
@@ -300,9 +300,9 @@ export function createOpenCodeAdapter(pathOverride?: string): CliAdapter {
     },
 
     completionPattern: undefined,   // quiescence only — no explicit completion marker
-    readyPattern: undefined,        // Bubble Tea TUI — no reliable prompt indicator; rely on quiescence + spinner guard
+    readyPattern: undefined,        // Alternate-screen TUI has no reliable prompt indicator; rely on quiescence + spinner guard
     systemHints: BOTMUX_SHELL_HINTS,
-    altScreen: true,                // Bubble Tea renders in alternate screen buffer
+    altScreen: true,                // The TUI renders in an alternate screen buffer
     skillsDir: '~/.config/opencode/skills',
     // botmux hook 安装：spawn 时写入 OpenCode 插件文件，
     // 使 question.asked 事件自动转发到 `botmux hook opencode`。

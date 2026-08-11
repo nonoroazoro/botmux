@@ -453,7 +453,7 @@ describe('v3 run envelope — create-once publication + read states', () => {
     return JSON.parse(stdout.trim().split('\n').pop()!) as Record<string, unknown>;
   }
 
-  it.runIf(process.platform !== 'win32')(
+  it(
     'returns invalid immediately for a writerless FIFO run.json instead of blocking',
     () => {
       const { base, runDir } = freshRun();
@@ -469,7 +469,7 @@ describe('v3 run envelope — create-once publication + read states', () => {
     30_000,
   );
 
-  it.runIf(process.platform !== 'win32')(
+  it(
     'fails artifact verification immediately for a writerless FIFO artifact instead of blocking',
     () => {
       const { base, runDir, runId } = freshRun();

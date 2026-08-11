@@ -171,14 +171,6 @@ describe('resolveSessionTranscriptPath — sandboxed-bot BOT_HOME fallback', () 
     }
   });
 
-  it('applies the same fallback for aiden claude-format transcripts', () => {
-    const expected = writeBotHomeTranscript('sb-6');
-    const resolved = resolveSessionTranscriptPath({
-      cliId: 'aiden', sessionId: 'sb-6', cwd, larkAppId: APP_ID,
-    });
-    expect(resolved).toEqual({ path: expected, kind: 'claude' });
-  });
-
   it('resolves a Codex rollout under the sandboxed bot CODEX_HOME', () => {
     const sid = '019dd80d-d922-7a11-8339-0208d8c5b4ec';
     const expected = writeCodexRollout(
@@ -414,7 +406,7 @@ describe('resolveSessionTranscriptPath — sandboxed-bot BOT_HOME fallback', () 
 
 describe('cliSupportsNativeUsage', () => {
   it('is true only for CLIs with a resolvable transcript (sync with the resolver switch)', () => {
-    for (const id of ['claude-code', 'aiden', 'seed', 'relay', 'codex', 'coco', 'cursor', 'traex', 'antigravity']) {
+    for (const id of ['claude-code', 'codex', 'coco', 'cursor', 'traex', 'antigravity']) {
       expect(cliSupportsNativeUsage(id)).toBe(true);
     }
     // CLIs the resolver's switch has no case for → no native usage → hide the UI.

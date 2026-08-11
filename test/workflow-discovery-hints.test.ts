@@ -19,6 +19,25 @@ afterEach(() => {
 });
 
 describe('always-on Workflow discovery hint', () => {
+  it('uses channel-neutral routing language for private and group chats', () => {
+    const zh = buildBotmuxSystemPromptText({ locale: 'zh' });
+    const en = buildBotmuxSystemPromptText({ locale: 'en' });
+
+    expect(zh).toContain('通过飞书（Lark）与用户对话');
+    expect(zh).not.toContain('话题群');
+    expect(zh).not.toContain('群里');
+    expect(en).toContain('talking with the user through Lark');
+    expect(en).not.toContain('topic group');
+    expect(en).not.toContain('in the group');
+
+    const zhShell = buildBotmuxShellHints('zh').join('\n');
+    const enShell = buildBotmuxShellHints('en').join('\n');
+    expect(zhShell).not.toContain('话题群');
+    expect(zhShell).not.toContain('群里');
+    expect(enShell).not.toContain('topic group');
+    expect(enShell).not.toContain('in the group');
+  });
+
   it('advertises bounded DAGs and reuse in zh/en shell hints', () => {
     const zh = buildBotmuxShellHints('zh').find((line) => line.startsWith('Workflow：'));
     const en = buildBotmuxShellHints('en').find((line) => line.startsWith('Workflow:'));

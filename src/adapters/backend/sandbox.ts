@@ -212,8 +212,8 @@ export function reexposeRunBinArgs(binPaths: (string | undefined)[]): string[] {
   return out;
 }
 
-/** Canonicalize if possible (Seatbelt/bwrap both resolve symlinks). */
-function canonical(p: string): string {
+/** Canonicalize a path used inside the fresh sandbox root. */
+export function canonicalSandboxPath(p: string): string {
   try { return realpathSync(p); } catch { return p; }
 }
 
@@ -235,8 +235,8 @@ export function sandboxEnabled(): boolean {
 
 /**
  * Whether this host can run bwrap with a NEW PID namespace + a fresh `/proc`
- * mount — i.e. `bwrap --unshare-pid --proc /proc`. In a NESTED sandbox (e.g.
- * riff's AIO sandbox) mounting a fresh procfs inside a new pid namespace is
+ * mount, i.e. `bwrap --unshare-pid --proc /proc`. In a nested sandbox,
+ * mounting a fresh procfs inside a new pid namespace is
  * denied by the kernel: `Can't mount proc on /newroot/proc: Operation not
  * permitted`. When that happens the file sandbox must degrade (drop
  * --unshare-pid) rather than fail every spawn — but ONLY in a context where
@@ -345,17 +345,6 @@ export function __testOnly_resetPidNamespaceProbe(): void {
  */
 export function coreOnlyPidNamespaceDegrade(): boolean {
   return process.env.BOTMUX_CORE_ONLY === '1' && !bwrapCanUnsharePid();
-}
-
-/**
- * Whether a LOCAL sandbox engine applies to this backend at all. riff has NO
- * local CLI process to wrap (execution happens in riff's own remote sandbox);
- * without this bypass the worker's fail-safe "backend not sandboxable" hard
- * error would brick every sandbox-enabled bot the moment it switches to riff.
- * Platform is no longer a factor — fs-policy sandboxes darwin AND linux.
- */
-export function localSandboxApplies(backendType: string): boolean {
-  return backendType !== 'riff';
 }
 
 /** Top-level dirs that are symlinks on usrmerge distros (/bin → usr/bin …) —
@@ -560,7 +549,8 @@ export function prepareDirectSandbox(opts: {
   if (process.platform !== 'linux') return null;
   if (!ensureSandboxDeps()) return null;
 
-  const sessionRoot = join(canonical(opts.dataDir), 'sandboxes', opts.sessionId);
+  const canonicalDataDir = canonicalSandboxPath(opts.dataDir);
+  const sessionRoot = join(canonicalDataDir, 'sandboxes', opts.sessionId);
   const outbox = join(sessionRoot, 'outbox');
   const shimBin = join(sessionRoot, 'shimbin');
   const empties = join(sessionRoot, 'empties');
@@ -689,6 +679,7 @@ export function prepareDirectSandbox(opts: {
   pushExecDir(opts.cliBin);      // the CLI binary
   const env: Record<string, string> = {
     HOME: opts.home,
+    SESSION_DATA_DIR: canonicalDataDir,
     BOTMUX_SEND_RELAY: outbox,
     PATH: ['/run/sbxbin', ...canonicalExecDirs, process.env.PATH ?? ''].filter(Boolean).join(':'),
   };
@@ -742,7 +733,7 @@ export function prepareDirectSandbox(opts: {
  */
 export function attachSandboxOutbox(opts: { sessionId: string; dataDir: string }): { outbox: string; cleanup: () => void } | null {
   if (process.platform !== 'linux') return null;
-  const sessionRoot = join(canonical(opts.dataDir), 'sandboxes', opts.sessionId);
+  const sessionRoot = join(canonicalSandboxPath(opts.dataDir), 'sandboxes', opts.sessionId);
   if (!existsSync(sessionRoot)) return null; // never sandboxed
   const outbox = join(sessionRoot, 'outbox');
   try { mkdirSync(outbox, { recursive: true }); } catch { /* */ }
@@ -788,7 +779,7 @@ function liveSandboxSids(): Set<string> {
  * timer.
  */
 export function sweepOrphanSandboxes(dataDir: string, activeSessionIds: Set<string>): void {
-  const root = join(canonical(dataDir), 'sandboxes');
+  const root = join(canonicalSandboxPath(dataDir), 'sandboxes');
   let sids: string[] = [];
   try { sids = readdirSync(root); } catch { return; } // no sandboxes dir yet
   // Grace so a worker mid-spawn (dirs created a few syscalls before the CLI

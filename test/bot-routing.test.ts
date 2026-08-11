@@ -102,7 +102,7 @@ describe('pickBotEntryByName', () => {
 
 describe('hasKnownBotMention', () => {
   const entries = [
-    { larkAppId: 'cli_self', botName: 'Ayla', cliId: 'aiden' },
+    { larkAppId: 'cli_self', botName: 'Ayla', cliId: 'gemini' },
     { larkAppId: 'cli_claude', botName: 'Claude', cliId: 'claude-code' },
     { larkAppId: 'cli_codex', botName: 'Codex', cliId: 'codex' },
   ];

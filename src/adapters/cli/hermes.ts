@@ -75,7 +75,7 @@ export function createHermesAdapter(pathOverride?: string): CliAdapter {
     // Empirically the ❯ readyPattern above IS the earliest reliable readiness
     // signal: a PTY probe of the real binary shows the fully-chromed input box
     // (border + status bar + "/help for commands") at ~3.6s, and Hermes has NO
-    // cjadk-style startup selector that would make ❯ a false positive. So we rely
+    // wrapper startup selector that would make ❯ a false positive. So we rely
     // on the IdleDetector's ❯ match + deferFirstPromptTimeoutUntilReady (queue
     // the first message until the real ❯ appears, 90s hard cap). Do NOT opt into
     // type-ahead: before the first prompt Hermes can silently drop input typed

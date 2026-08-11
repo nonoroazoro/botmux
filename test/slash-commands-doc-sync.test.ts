@@ -33,7 +33,7 @@ const ALIAS_EXEMPT = new Set(['/g', '/slash', '/disconnect']);
  * 传 mock 路径避免 eager probe(见 cli-adapters.test.ts 同款用法)。这样新 adapter
  * 加默认命令、或改了 /goal,guard 自动跟着变红,不靠手抄。
  */
-const ALL_CLI_IDS: CliId[] = ['claude-code', 'seed', 'relay', 'aiden', 'coco', 'codex', 'codex-app', 'cursor', 'gemini', 'genius', 'opencode', 'antigravity', 'mtr', 'hermes', 'mira', 'mir', 'traex', 'pi', 'copilot', 'oh-my-pi', 'kimi', 'grok', 'kiro-cli', 'riff'];
+const ALL_CLI_IDS: CliId[] = ['claude-code', 'coco', 'codex', 'codex-app', 'cursor', 'gemini', 'genius', 'opencode', 'antigravity', 'mtr', 'hermes', 'traex', 'pi', 'copilot', 'oh-my-pi', 'kimi', 'grok', 'kiro-cli', 'reasonix'];
 function adapterDefaultPassthrough(): Set<string> {
   const out = new Set<string>();
   for (const id of ALL_CLI_IDS) {

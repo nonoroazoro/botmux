@@ -156,7 +156,7 @@ export function createAntigravityAdapter(pathOverride?: string): CliAdapter {
       // to skip stdin-injection (passesInitialPromptViaArgs=true), and
       // the user's first message would silently disappear. Instead, the
       // worker queues the prompt and writeInput delivers it after idle
-      // — same pattern as cursor/aiden. */
+      // Same pattern as cursor. */
       return args;
     },
 

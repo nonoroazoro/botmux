@@ -448,7 +448,7 @@ async function cmdServe(args: string[]): Promise<void> {
   if (!apiOnly) {
     console.error('Usage: botmux serve --api-only [--port <PORT>] [--bot <local_slug>] [--cli <cliId>] [--state-dir <DIR>]');
     console.error('  Only core-only (--api-only) serving is supported. It runs a headless HTTP');
-    console.error('  control-API service with no Feishu credentials (for riff sandbox / embedding).');
+    console.error('  control-API service with no Feishu credentials for embedding.');
     process.exit(2);
   }
   const getOpt = (flag: string): string | undefined => {
@@ -863,7 +863,7 @@ async function finishOpenPlatformSetup(
     brand,
     forceQrLogin: options.forceQrLogin,
     disableQrLogin: options.reuseOnly,
-    disableBytedcliFallback: options.reuseOnly || options.forceQrLogin,
+    disableExternalSessionFallback: options.reuseOnly || options.forceQrLogin,
   });
   const outcome = classifySetupOpenPlatformOutcome(result);
   if (result.ok) {
@@ -1050,7 +1050,7 @@ async function obtainCredentials(rl: ReturnType<typeof createInterface>): Promis
         ...(sessionMode === 'reuse'
           ? { disableQrLogin: true, expectedIdentity }
           : { forceQrLogin: true }),
-        disableBytedcliFallback: true,
+        disableExternalSessionFallback: true,
         onSessionReady: ({ identity, source }) => {
           process.stderr.write(`已确认飞书账号：${identity.userName} · ${identity.tenantName}${source === 'botmux_cache' ? '（免扫码）' : ''}\n`);
         },
@@ -1246,7 +1246,7 @@ async function promptBotConfig(rl: ReturnType<typeof createInterface>): Promise<
   }
   console.log('✅ 凭证有效（tenant_access_token 已成功获取）\n');
 
-  // CLI 适配器：可搜索的级联选择器（选 Aiden 可进 × Claude / × Codex，aiden 网关）。
+  // CLI 适配器：可搜索的级联选择器。
   // 非交互终端自动回退为序号 / ID 文本输入。
   // Esc = 中止 setup（不写盘）。新建流程的必答题没有"上一步"可退，绝不静默
   // 替用户选默认——扫码建出的应用可事后用「选择已有应用」找回，不会丢。
@@ -1275,7 +1275,7 @@ async function promptBotConfig(rl: ReturnType<typeof createInterface>): Promise<
     larkAppId: creds.appId,
     larkAppSecret: creds.appSecret,
     cliId,
-    // aiden × claude/codex 等启动前缀；普通 CLI 不写此字段。
+    // wrapper 启动前缀；普通 CLI 不写此字段。
     ...(wrapperCli ? { wrapperCli } : {}),
     multiUserIsolation: createDefaultMultiUserIsolationConfig(creds.appId),
   };
@@ -1413,10 +1413,10 @@ async function promptEditBotConfig(
   ]);
   input.larkAppSecret = await ask(rl, `LARK_APP_SECRET [保留当前值]: `);
 
-  // CLI 适配器：可搜索的级联选择器（选 Aiden 可进 × Claude / × Codex，aiden 网关）。
+  // CLI 适配器：可搜索的级联选择器。
   printInputHelp('CLI 适配器', [
     '可搜索的交互式选择：输入关键字过滤、↑/↓ 选择、⏎ 确认、Esc 保留当前值。',
-    '选 Aiden 进二级菜单：× Claude / × Codex（aiden 网关，无需 wrapper 脚本）。',
+    '选择要使用的 coding CLI。',
     '非交互终端下回退为「输入序号 / 适配器 ID」。',
   ]);
   const currentKey = selectionKeyForBot(bot.cliId ?? 'claude-code', bot.wrapperCli);
@@ -1425,7 +1425,7 @@ async function promptEditBotConfig(
     try {
       const sel = resolveCliSelection(selKey);
       input.cliChoice = sel.cliId;
-      input.wrapperCli = sel.wrapperCli ?? null; // 选普通 CLI 时清掉旧的 aiden×* 前缀
+      input.wrapperCli = sel.wrapperCli ?? null; // 选普通 CLI 时清掉旧的 wrapper 前缀
     } catch (err: any) {
       console.log(`\n❌ ${err?.message ?? String(err)}（保留当前 CLI）`);
     }
@@ -1434,7 +1434,7 @@ async function promptEditBotConfig(
 
   printInputHelp('CLI 可执行文件路径覆盖', [
     '可选。CLI 入口的绝对路径，用于在原 CLI 外面套一层 wrapper / router。',
-    '典型场景：ccr / claude-w 等自定义入口（aiden × claude/codex 选上面那项即可，无需此项）。',
+    '典型场景：ccr / claude-w 等自定义入口。',
     '留空保留当前值；输入 - 清空覆盖，回到 PATH 查 cliId 对应的默认二进制。',
   ]);
   input.cliPathOverride = await ask(rl, `CLI 可执行文件路径覆盖 [${formatOptionalValue(bot.cliPathOverride)}]: `);
@@ -1794,7 +1794,7 @@ async function cmdSetupScripted(argv: string[]): Promise<void> {
           const created = await createFeishuOpenPlatformApp({
             name: appName,
             ...sessionOptions,
-            disableBytedcliFallback: true,
+            disableExternalSessionFallback: true,
             onSessionReady: ({ identity, source }) => {
               process.stderr.write(`已确认飞书账号：${identity.userName} · ${identity.tenantName}${source === 'botmux_cache' ? '（免扫码）' : ''}\n`);
             },
@@ -3798,15 +3798,6 @@ function sessionBackingInfo(s: SessionData, snapshot?: BackingProbeSnapshot): {
   if (s.backendType === 'pty') {
     return { backendType: 'pty', probe: 'missing', label: 'pty' };
   }
-  if (s.backendType === 'riff') {
-    // Riff runs the CLI on a remote sandbox, not a local multiplexer pane: there
-    // is nothing to probe, attach to, or name as a PersistentBackendTarget
-    // (sessionPersistentTarget returns undefined for it, by design). Surface a
-    // stable label and report the nonexistent local backing as missing — exactly
-    // like pty — so it never slips into the legacy tmux branch and dereferences an
-    // undefined target.
-    return { backendType: 'riff', probe: 'missing', label: 'riff' };
-  }
   if (s.backendType === undefined) {
     // Legacy rows predate backend stamping. Only tmux was externally attachable,
     // so its deterministic target remains the compatibility path.
@@ -3822,7 +3813,7 @@ function sessionBackingInfo(s: SessionData, snapshot?: BackingProbeSnapshot): {
   }
   // Exhaustiveness guard: every BackendType must be classified above. A future
   // non-suspendable backend added to BackendType will fail to compile here rather
-  // than silently inheriting the legacy tmux target (the Riff crash's root cause).
+  // than silently inheriting the legacy tmux target.
   const _exhaustive: never = s.backendType;
   void _exhaustive;
   return { probe: 'missing', label: '-' };
@@ -6182,18 +6173,6 @@ async function resolveSessionAppId(sessionIdArg: string | undefined): Promise<{ 
     console.error('无法推断 session-id。请在 Lark 话题/群里的 CLI 会话中运行，或传 --session-id <id>。');
     process.exit(1);
   }
-  // riff sandbox env-mode：与 cmdSend 同一权威规则（仅覆盖 env 注入的 sid）。
-  // 远端沙箱没有 sessions.json / bots.json，history/quoted/bots 走同一合成会话，
-  // 且跳过本地 bots 重载（沙箱残留的 stale bots.json 不得覆盖 env 凭证）。
-  {
-    const riff = riffModeSession({ evenWithLocalSessions: sid === process.env.BOTMUX_SESSION_ID });
-    if (riff && riff.session.sessionId === sid) {
-      const { registerBot } = await import('./bot-registry.js');
-      try { registerBot(riff.botConfig); } catch { /* already registered */ }
-      envPinnedRiffBot = riff.botConfig;
-      return { sid, larkAppId: riff.session.larkAppId!, session: riff.session };
-    }
-  }
   const sessions = loadSessions();
   const s = sessions.get(sid);
   if (!s) {
@@ -6786,7 +6765,7 @@ function managedOriginHasNoTransport(): boolean {
     }
     const s = loadSessions().get(ctx.sessionId);
     if (!s) {
-      // Marker resolved a session id but no record on disk (riff sandbox etc.) —
+      // Marker resolved a session id but no record on disk.
       // fall back to the env view for that same managed turn.
       return currentTurnHasNoTransport();
     }
@@ -6872,107 +6851,6 @@ async function registerSelfFromCredFile(): Promise<void> {
         ? (process.env.BOTMUX_USAGE_DISPLAY as import('./bot-registry.js').UsageDisplayMode)
         : undefined,
   } as import('./bot-registry.js').BotConfig);
-}
-
-/**
- * Detect if `botmux send` is running inside a riff (or other remote backend)
- * sandbox where there is NO local daemon, no sessions.json, and no bots.json —
- * only BOTMUX_* env vars injected by the daemon into the sandbox environment.
- *
- * In this mode the normal cmdSend flow breaks (loadSessions() finds nothing,
- * registerSelfFromCredFile() has no cred file). Instead we construct a synthetic
- * session + bot config from the env vars so cmdSend can deliver directly via
- * the Lark API — exactly like the normal flow does, just without local state.
- *
- * Returns null when not in riff mode (env vars missing or local session data
- * exists), so the normal flow takes over.
- */
-/** J（二审）：riff env 模式选定的 bot。cmdSend/history 等后续路径里的
- *  `loadBotConfigs()` 重载会把沙箱残留的 stale bots.json（可能是同 appId 的旧
- *  secret）覆盖到注册表上——每次本地重载后必须把 env bot 重新注册回去压轴。 */
-let envPinnedRiffBot: import('./bot-registry.js').BotConfig | null = null;
-
-function riffModeSession(opts: { evenWithLocalSessions?: boolean } = {}): { session: SessionData; botConfig: import('./bot-registry.js').BotConfig } | null {
-  const appId = process.env.BOTMUX_LARK_APP_ID;
-  const appSecret = process.env.BOTMUX_LARK_APP_SECRET;
-  if (!appId || !appSecret) return null;
-
-  const sessionId = process.env.BOTMUX_SESSION_ID;
-  const chatId = process.env.BOTMUX_CHAT_ID;
-  if (!sessionId || !chatId) return null;
-
-  // If local session data exists, we're normally NOT in riff mode — a real
-  // daemon session takes precedence over env-only mode. Exception: when the
-  // caller targets exactly the env-injected session id (evenWithLocalSessions),
-  // the env identity is authoritative — warm riff sandboxes can carry stale
-  // hand-crafted session files that must not shadow the daemon-injected creds.
-  // (On daemon hosts BOTMUX_LARK_APP_SECRET is never in process env — PTY
-  // sessions get credentials via worker cred files — so this path cannot
-  // hijack a genuine local session.)
-  if (!opts.evenWithLocalSessions) {
-    try {
-      if (loadSessions().size > 0) return null;
-    } catch { /* no data dir → riff mode */ }
-  }
-
-  const brand = process.env.BOTMUX_LARK_BRAND as 'feishu' | 'lark' | undefined;
-  // Only trust a real message id as the thread anchor — chat-scope sessions
-  // anchor on the chat id (oc_…), which must NOT be used as a reply target.
-  const rootEnv = process.env.BOTMUX_ROOT_MESSAGE_ID;
-  const rootMessageId = rootEnv?.startsWith('om_') ? rootEnv : '';
-  const scopeEnv = process.env.BOTMUX_SESSION_SCOPE;
-  const scope: 'thread' | 'chat' =
-    scopeEnv === 'chat' || scopeEnv === 'thread' ? scopeEnv : (rootMessageId ? 'thread' : 'chat');
-  const ownerOpenId = process.env.BOTMUX_OWNER_OPEN_ID;
-  const deferredTaskId = process.env.BOTMUX_DEFERRED_SCHEDULE_TASK_ID;
-  const deferredTurnId = process.env.BOTMUX_DEFERRED_SCHEDULE_TURN_ID;
-  const deferredRoutingAnchor = process.env.BOTMUX_DEFERRED_SCHEDULE_ROUTING_ANCHOR;
-  const deferredCreatedAt = process.env.BOTMUX_DEFERRED_SCHEDULE_CREATED_AT;
-
-  const botConfig = {
-    larkAppId: appId,
-    larkAppSecret: appSecret,
-    apiOnly: process.env.BOTMUX_API_ONLY === '1' || undefined,
-    brand,
-    cliId: 'riff',
-    allowedUsers: [],
-    usageDisplay:
-      process.env.BOTMUX_USAGE_DISPLAY === 'streaming' ||
-      process.env.BOTMUX_USAGE_DISPLAY === 'footer' ||
-      process.env.BOTMUX_USAGE_DISPLAY === 'off'
-        ? (process.env.BOTMUX_USAGE_DISPLAY as import('./bot-registry.js').UsageDisplayMode)
-        : undefined,
-  } as unknown as import('./bot-registry.js').BotConfig;
-
-  const session: SessionData = {
-    sessionId,
-    chatId,
-    rootMessageId,
-    title: 'riff',
-    status: 'active',
-    createdAt: new Date().toISOString(),
-    larkAppId: appId,
-    scope,
-    ownerOpenId,
-    ...(deferredTaskId && deferredTurnId && deferredRoutingAnchor && deferredCreatedAt
-      ? {
-          deferredScheduleRun: {
-            taskId: deferredTaskId,
-            turnId: deferredTurnId,
-            routingAnchor: deferredRoutingAnchor,
-            ...(process.env.BOTMUX_DEFERRED_SCHEDULE_TOPIC_TITLE
-              ? { topicTitle: process.env.BOTMUX_DEFERRED_SCHEDULE_TOPIC_TITLE }
-              : {}),
-            createdAt: deferredCreatedAt,
-          },
-        }
-      : {}),
-    // 刻意不设 quoteTargetSenderOpenId：env 是任务创建时冻结的，follow-up 轮
-    // 换了触发人后 --mention-back 会错误 @ 最初 owner。riff routing 明确禁用
-    // mention-back（@ 硬门会拒绝并提示 agent 改用 --mention <本轮 sender>）。
-  };
-
-  return { session, botConfig };
 }
 
 async function cmdSend(rest: string[]): Promise<void> {
@@ -7248,29 +7126,6 @@ async function cmdSend(rest: string[]): Promise<void> {
   const currentTurnId = ancestorCtx?.turnId ?? process.env.BOTMUX_TURN_ID;
   let s = sessions.get(sid);
 
-  // Riff (remote backend) sandbox: no local daemon/sessions.json/bots.json.
-  // Fall back to env-var-only mode so `botmux send` works without a daemon.
-  // The daemon injects BOTMUX_LARK_APP_ID/SECRET/CHAT_ID/SESSION_ID into
-  // the sandbox env; riffModeSession() builds a synthetic session + bot from
-  // them and registers the bot so the Lark client works.
-  //
-  // The env-injected identity is AUTHORITATIVE for its own session id: a warm
-  // riff sandbox may carry stale local session data (hand-crafted by an agent
-  // in an earlier task, or baked into the image) that would otherwise shadow
-  // the daemon-injected identity and deliver through the wrong bot.
-  {
-    const riff = riffModeSession({ evenWithLocalSessions: sid === process.env.BOTMUX_SESSION_ID });
-    // Strictly scoped to the env-injected session id: an explicit
-    // `--session-id <other>` in a sandbox must fail with "session not found",
-    // not silently deliver into the env session.
-    if (riff && riff.session.sessionId === sid) {
-      s = riff.session;
-      const { registerBot } = await import('./bot-registry.js');
-      try { registerBot(riff.botConfig); } catch { /* already registered */ }
-      envPinnedRiffBot = riff.botConfig;
-    }
-  }
-
   if (!s) { console.error(`未找到 session ${sid}`); process.exit(1); }
   if (!s.larkAppId) { console.error(`session ${sid} 缺少 larkAppId`); process.exit(1); }
   // Target-aware gate on the RESOLVED source session: `send --session-id <virtual>`
@@ -7330,7 +7185,7 @@ async function cmdSend(rest: string[]): Promise<void> {
   }
 
   if (!customCard && !content.trim() && images.length === 0 && files.length === 0 && videoAttachments.length === 0) {
-    console.error('没有内容可发送。用法:\n  echo "消息" | botmux send\n  botmux send "消息"\n  botmux send --content-file /tmp/msg.md --images /tmp/chart.png\n  botmux send --videos /tmp/replay.mp4 --video-covers /tmp/cover.png --no-mention "视频预览"');
+    console.error('没有内容可发送。用法:\n  echo "消息" | botmux send\n  botmux send "消息"\n  botmux send --content-file /tmp/msg.md --images /tmp/chart.png\n  botmux send --videos /tmp/demo.mp4 --video-covers /tmp/cover.png --no-mention "视频预览"');
     process.exit(1);
   }
 
@@ -7378,7 +7233,6 @@ async function cmdSend(rest: string[]): Promise<void> {
     if (!content.trim()) { console.error('--voice 需要要朗读的文字'); process.exit(1); }
     const { registerBot, loadBotConfigs } = await import('./bot-registry.js');
     try { for (const cfg of loadBotConfigs()) registerBot(cfg); } catch { /* */ }
-  if (envPinnedRiffBot) { try { registerBot(envPinnedRiffBot); } catch { /* */ } }
     const { uploadFile, sendMessage, replyMessage } = await import('./im/lark/client.js');
     const { synthesizeVoiceOpus } = await import('./services/voice/index.js');
     const { rmSync } = await import('node:fs');
@@ -7519,7 +7373,6 @@ async function cmdSend(rest: string[]): Promise<void> {
     }
     const { registerBot, loadBotConfigs } = await import('./bot-registry.js');
     try { for (const cfg of loadBotConfigs()) registerBot(cfg); } catch { /* */ }
-  if (envPinnedRiffBot) { try { registerBot(envPinnedRiffBot); } catch { /* */ } }
     const { replyToDocComment, chunkCommentText, removeCommentReaction } = await import('./im/lark/doc-comment.js');
     const appId = s.larkAppId!;
     const loc = localeForBot(appId);
@@ -7602,12 +7455,9 @@ async function cmdSend(rest: string[]): Promise<void> {
 
   // Register bots so the downstream Lark client works. registerBot is
   // idempotent, so all send paths reuse these same clients.
-  // envPinnedRiffBot is re-registered LAST so a remote env credential is never
-  // clobbered by a stale bots.json entry for the same app.
   const { registerBot, loadBotConfigs, findOncallChatForAnyBot, getBot } = await import('./bot-registry.js');
   const { resolveRegularGroupMode } = await import('./services/chat-reply-mode-store.js');
   try { for (const cfg of loadBotConfigs()) registerBot(cfg); } catch { /* */ }
-  if (envPinnedRiffBot) { try { registerBot(envPinnedRiffBot); } catch { /* */ } }
 
   // Ambiguity gate for --mention-back. --mention-back means "@ back the one
   // counterpart who triggered this turn"; that is only unambiguous when this
@@ -8493,7 +8343,6 @@ async function cmdDispatch(rest: string[]): Promise<void> {
   try {
     botConfigs = loadBotConfigs();
     for (const cfg of botConfigs) registerBot(cfg);
-    if (envPinnedRiffBot) registerBot(envPinnedRiffBot);
   } catch (err: any) {
     console.error(`加载 bot 配置失败: ${err?.message ?? err}`);
     process.exit(1);
@@ -9024,7 +8873,6 @@ async function cmdReport(rest: string[]): Promise<void> {
 
   const { registerBot, loadBotConfigs } = await import('./bot-registry.js');
   try { for (const cfg of loadBotConfigs()) registerBot(cfg); } catch { /* */ }
-  if (envPinnedRiffBot) { try { registerBot(envPinnedRiffBot); } catch { /* */ } }
   const { sendMessage, replyMessage } = await import('./im/lark/client.js');
   const appId = s.larkAppId!;
 
@@ -9873,7 +9721,7 @@ async function cmdHook(cliId: string): Promise<void> {
 //
 // Claude 家族（claude/seed）的 SessionStart hook 客户端。它通知 daemon 已越过
 // 外层 startup selector；worker 随即清除 selector 留下的旧 ❯ 证据，再等待所有
-// 并行 hook 完成后新渲染的输入框，避免 cjadk 选择器误吞首条消息。
+// 并行 hook 完成后新渲染的输入框，避免 wrapper 选择器误吞首条消息。
 //
 // 会话归属只靠 hook 子进程继承的 env（worker spawn 时设的 BOTMUX_SESSION_ID /
 // BOTMUX_LARK_APP_ID）。任何失败（env 缺失=adopt/非 botmux 会话、daemon 不可达）
@@ -9961,7 +9809,7 @@ async function cmdBots(sub: string, rest: string[]): Promise<void> {
 
   const sessionIdArg = argValue(rest, '--session-id');
   // 与 history/quoted 同一前奏：先从本 bot 自己的 send-cred 文件注册，让 Lark client
-  // 在**不读被 deny 的 bots.json** 的前提下可用，再做会话解析 + riff sandbox env
+  // 在**不读被 deny 的 bots.json** 的前提下可用，再做会话解析。
   // 合成会话兜底。漏掉 registerSelfFromCredFile() 时读隔离 bot 的
   // `botmux bots list` 会在 getBotClient() 上抛 "Bot not registered"，
   // listChatBotMembers() 把它降级成 legacy discovery（configured 行同样来自
@@ -10428,7 +10276,7 @@ if (process.env.BOTMUX_WORKFLOW === '1') {
 async function cmdVoiceSetup(args: string[]): Promise<void> {
   const sub = (args[0] ?? '').toLowerCase();
   const { readGlobalConfig, mergeGlobalConfig } = await import('./global-config.js');
-  const { DEFAULT_SAMI_SPEAKER, DEFAULT_OPENAI_SPEAKER } = await import('./services/voice/index.js');
+  const { DEFAULT_OPENAI_SPEAKER } = await import('./services/voice/index.js');
   const mask = (s?: string) => (s ? `${s.slice(0, 4)}***` : '(未设)');
 
   if (sub === 'status') {
@@ -10438,7 +10286,6 @@ async function cmdVoiceSetup(args: string[]): Promise<void> {
     console.log(`  引擎: ${v.engine ?? '(自动)'}`);
     console.log(`  音色: ${v.speaker ?? '(默认)'}`);
     if (typeof v.rate === 'number') console.log(`  语速: ${v.rate}`);
-    if (v.sami) console.log(`  SAMI: accessKey=${mask(v.sami.accessKey)} secretKey=${mask(v.sami.secretKey)} appkey=${v.sami.appkey ?? '(未设)'}${v.sami.tokenUrl ? ` tokenUrl=${v.sami.tokenUrl}` : ''}`);
     if (v.openai) console.log(`  OpenAI: baseUrl=${v.openai.baseUrl ?? '(未设)'} model=${v.openai.model ?? '(未设)'} apiKey=${mask(v.openai.apiKey)}`);
     return;
   }
@@ -10455,34 +10302,14 @@ async function cmdVoiceSetup(args: string[]): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     console.log('🔊 配置语音总结（高级功能）。写入全局 ~/.botmux/config.json，重启后生效。\n');
-    const eng = (await ask(rl, '选择 TTS 引擎  [1] SAMI（需 AK/SK/appkey）  [2] OpenAI 兼容（自带 baseUrl/key）: ')).trim();
-    const voice: Record<string, any> = {};
-    if (eng === '2' || /openai/i.test(eng)) {
-      voice.engine = 'openai';
-      const baseUrl = (await ask(rl, 'baseUrl（如 https://api.openai.com/v1，自托管如 http://127.0.0.1:8880/v1）: ')).trim();
-      const apiKey = (await ask(rl, 'apiKey（无则留空）: ')).trim();
-      const model = (await ask(rl, 'model（如 tts-1 / kokoro）: ')).trim();
-      if (!baseUrl || !model) { console.error('❌ baseUrl 和 model 必填，未写入。'); return; }
-      voice.openai = { baseUrl, apiKey, model };
-      const sp = (await ask(rl, `音色 voice（留空=默认 ${DEFAULT_OPENAI_SPEAKER}）: `)).trim();
-      if (sp) voice.speaker = sp;
-    } else {
-      voice.engine = 'sami';
-      const accessKey = (await ask(rl, 'SAMI accessKey: ')).trim();
-      const secretKey = (await ask(rl, 'SAMI secretKey: ')).trim();
-      const appkey = (await ask(rl, 'SAMI appkey: ')).trim();
-      if (!accessKey || !secretKey || !appkey) { console.error('❌ accessKey/secretKey/appkey 都必填，未写入。'); return; }
-      voice.sami = { accessKey, secretKey, appkey };
-      const sp = (await ask(rl, `音色 speaker（留空=默认灿灿 ${DEFAULT_SAMI_SPEAKER}）: `)).trim();
-      if (sp) voice.speaker = sp;
-      const adv = (await ask(rl, '自定义 SAMI 端点？一般不用，回车跳过 (y/N): ')).trim().toLowerCase();
-      if (adv === 'y') {
-        const tokenUrl = (await ask(rl, 'tokenUrl（留空用默认）: ')).trim();
-        const wsUrl = (await ask(rl, 'wsUrl（留空用默认）: ')).trim();
-        if (tokenUrl) voice.sami.tokenUrl = tokenUrl;
-        if (wsUrl) voice.sami.wsUrl = wsUrl;
-      }
-    }
+    const voice: Record<string, any> = { engine: 'openai' };
+    const baseUrl = (await ask(rl, 'OpenAI-compatible baseUrl（如 https://api.openai.com/v1，自托管如 http://127.0.0.1:8880/v1）: ')).trim();
+    const apiKey = (await ask(rl, 'apiKey（无则留空）: ')).trim();
+    const model = (await ask(rl, 'model（如 tts-1 / kokoro）: ')).trim();
+    if (!baseUrl || !model) { console.error('❌ baseUrl 和 model 必填，未写入。'); return; }
+    voice.openai = { baseUrl, apiKey, model };
+    const sp = (await ask(rl, `音色 voice（留空=默认 ${DEFAULT_OPENAI_SPEAKER}）: `)).trim();
+    if (sp) voice.speaker = sp;
     const rate = (await ask(rl, '语速倍率（留空=1.1）: ')).trim();
     if (rate && !Number.isNaN(Number(rate))) voice.rate = Number(rate);
 

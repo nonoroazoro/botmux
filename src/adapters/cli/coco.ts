@@ -297,9 +297,6 @@ export function createCocoAdapter(pathOverride?: string): CliAdapter {
     // CoCo/Trae CLI reads the same skill root as the Trae-flavoured adapter.
     skillsDir: '~/.trae/skills',
     modelChoices: [
-      'Seed-Dogfooding-2.0',
-      'Doubao-Seed-2.0-Code',
-      'Doubao-Seed-Code',
       'Gemini-3.1-Pro-Preview',
     ],
   };

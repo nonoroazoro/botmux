@@ -298,10 +298,6 @@ describe('getCliDisplayName', () => {
     expect(getCliDisplayName('claude-code')).toBe('Claude');
   });
 
-  it('should return "Aiden" for aiden', () => {
-    expect(getCliDisplayName('aiden')).toBe('Aiden');
-  });
-
   it('should return "CoCo" for coco', () => {
     expect(getCliDisplayName('coco')).toBe('CoCo');
   });
@@ -324,10 +320,6 @@ describe('getCliDisplayName', () => {
 
   it('should return "Hermes" for hermes', () => {
     expect(getCliDisplayName('hermes')).toBe('Hermes');
-  });
-
-  it('should return "Mira" for mira', () => {
-    expect(getCliDisplayName('mira')).toBe('Mira');
   });
 
   it('should return "Pi" for pi', () => {
@@ -607,7 +599,7 @@ describe('buildSessionCard', () => {
 
     it('does not include local-CLI open buttons when precise local resume is unavailable', () => {
       enableLocalCliOpen();
-      for (const cli of ['codex-app', 'gemini', 'mira', 'mir', undefined] as const) {
+      for (const cli of ['codex-app', 'gemini', undefined] as const) {
         const card = parse(buildSessionCard(SID, ROOT, URL, TITLE, cli));
         const actions = findActions(card);
         expect(actions.some((a: any) => a.value?.action === 'open_local_cli')).toBe(false);

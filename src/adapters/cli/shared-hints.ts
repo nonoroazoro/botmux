@@ -7,7 +7,7 @@
  *   - Claude Code / genius: `--append-system-prompt`
  *   - Grok: `--rules` (docs: Claude's append alias)
  * This constant is only for CLIs without such a flag (coco / codex / gemini /
- * opencode / aiden / mtr / hermes / …).
+ * opencode / mtr / hermes / …).
  *
  * Each array element becomes one line inside the `<botmux_routing>` XML block
  * rendered by `buildNewTopicPrompt` in `session-manager.ts`.
@@ -77,7 +77,7 @@ export const BOTMUX_SHELL_HINTS: string[] = [
  * Build the `<botmux_routing>` (+ optional `<identity>`) text injected via a
  * CLI's system-prompt flag (`--append-system-prompt`) for adapters that set
  * `injectsSessionContext`. Single source of truth shared by claude-code and
- * mir — keeps the routing/identity wording from drifting between them. The
+ * alternate runners keeps the routing and identity wording from drifting. The
  * session-manager omits these blocks from the per-message envelope for such
  * adapters, so this is the only place the model learns the routing rules.
  *
@@ -97,16 +97,17 @@ export function buildBotmuxSystemPromptText(opts: {
   builtinSkillBlock?: string;
 }): string {
   const { locale, botName, botOpenId, builtinSkillBlock } = opts;
-  const unknown = t('ai.identity.unknown', undefined, locale);
+  const normalizedBotName = botName?.trim() || undefined;
+  const normalizedBotOpenId = botOpenId?.trim() || undefined;
   const prose = (key: string): string =>
     escapeXmlTagLikeTokens(t(key, undefined, locale));
   const identityBlock =
-    botName || botOpenId
+    normalizedBotName || normalizedBotOpenId
       ? [
         '',
         '<identity>',
-        `  <name>${botName ?? unknown}</name>`,
-        `  <open_id>${botOpenId ?? unknown}</open_id>`,
+        ...(normalizedBotName ? [`  <name>${escapeXmlText(normalizedBotName)}</name>`] : []),
+        ...(normalizedBotOpenId ? [`  <open_id>${escapeXmlText(normalizedBotOpenId)}</open_id>`] : []),
         '  <routing_rules>',
         `    ${prose('ai.identity.routing_intro')}`,
         `    ${prose('ai.identity.rule_own_part')}`,

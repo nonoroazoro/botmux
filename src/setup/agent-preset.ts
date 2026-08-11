@@ -32,7 +32,7 @@ export const PRESET_VERSION = 1;
 export interface AgentPreset {
   /** Format marker + version. Always equal to {@link PRESET_VERSION}. */
   botmuxPreset: number;
-  /** CLI adapter id the source bot uses (e.g. 'claude-code', 'aiden'). */
+  /** CLI adapter id the source bot uses, for example 'claude-code'. */
   cliId: string;
   /** Model override, if the source bot set one. */
   model?: string;

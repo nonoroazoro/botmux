@@ -150,18 +150,18 @@ describe('applyAllowedUsersResolve', () => {
 
   it('dedupes when the same person is configured twice (union + email) and preserves order', () => {
     const out = applyAllowedUsersResolve({
-      rawEntries: ['on_owner', 'owner@corp.com'],
+      rawEntries: ['on_owner', 'owner@example.com'],
       previousResolvedMap: {},
       resolveResult: result(
-        [['on_owner', 'ou_owner'], ['owner@corp.com', 'ou_owner']],
-        [['on_owner', 'resolved'], ['owner@corp.com', 'resolved']],
+        [['on_owner', 'ou_owner'], ['owner@example.com', 'ou_owner']],
+        [['on_owner', 'resolved'], ['owner@example.com', 'resolved']],
       ),
     });
 
     expect(out.resolved).toEqual(['ou_owner']);
     // Both raw keys still map to the ou_ for /revoke reverse-lookup.
     expect(out.map.get('on_owner')).toBe('ou_owner');
-    expect(out.map.get('owner@corp.com')).toBe('ou_owner');
+    expect(out.map.get('owner@example.com')).toBe('ou_owner');
   });
 
   it('definitive miss for one entry + fresh for another: drops removed, keeps live, not failed', () => {

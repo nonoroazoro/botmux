@@ -862,7 +862,7 @@ describe('SafeInsightReport', () => {
     expect(t2?.events).toEqual([]);
   });
 
-  it('renders a tool-less narration turn in the conversation replay (turn with no span)', () => {
+  it('renders a tool-less narration turn in conversation history (turn with no span)', () => {
     resolvedPath = writeClaudeNarrationFixture();
     const convo = buildSafeInsightConversation({
       cliId: 'claude-code',

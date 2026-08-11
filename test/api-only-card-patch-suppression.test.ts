@@ -31,9 +31,9 @@ vi.mock('../src/im/lark/client.js', () => ({
 
 // apiOnly bot config drives larkTransportEnabled → false.
 const getBotMock = vi.fn(() => ({
-  config: { larkAppId: 'local_riff', larkAppSecret: '', cliId: 'codex-app', apiOnly: true },
+  config: { larkAppId: 'local_agent', larkAppSecret: '', cliId: 'codex-app', apiOnly: true },
   resolvedAllowedUsers: [],
-  botOpenId: 'bot_local_riff',
+  botOpenId: 'bot_local_agent',
 }));
 vi.mock('../src/bot-registry.js', () => ({
   getBot: (...a: any[]) => getBotMock(...a),
@@ -55,7 +55,7 @@ function makeNoTransportSession(overrides?: Partial<DaemonSession>): DaemonSessi
     },
     worker: { killed: false, send: vi.fn() } as any,
     workerPort: 8080,
-    larkAppId: 'local_riff',
+    larkAppId: 'local_agent',
     chatId: 'http_async_abc',
     chatType: 'group',
     scope: 'chat',

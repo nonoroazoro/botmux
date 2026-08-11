@@ -62,10 +62,10 @@ describe('buildPreset — secret-free allow-list', () => {
   });
 
   it('omits optional fields that are empty / null / undefined', () => {
-    const preset = buildPreset({ cliId: 'aiden', model: null, teamRole: '', capability: undefined });
+    const preset = buildPreset({ cliId: 'gemini', model: null, teamRole: '', capability: undefined });
     expect(preset).toEqual({
       botmuxPreset: PRESET_VERSION,
-      cliId: 'aiden',
+      cliId: 'gemini',
       guide: PRESET_GUIDE,
     });
     expect(preset).not.toHaveProperty('model');

@@ -105,7 +105,7 @@ describe('buildClosedSessionCard — frozen runtime resume identity', () => {
   });
 
   it('does not inherit a new bot wrapper, model, or runtime into an old frozen official session', () => {
-    botConfig.wrapperCli = 'ttadk codex';
+    botConfig.wrapperCli = 'custom-wrapper codex';
     botConfig.model = 'new-model';
     const ds = makeSession();
 
@@ -114,7 +114,7 @@ describe('buildClosedSessionCard — frozen runtime resume identity', () => {
     expect(content).toContain('Codex');
     expect(content).toContain('\ncodex resume codex-thread\n');
     expect(content).not.toContain('Current Codex');
-    expect(content).not.toContain('ttadk');
+    expect(content).not.toContain('custom-wrapper');
     expect(content).not.toContain('new-model');
   });
 });

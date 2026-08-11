@@ -171,9 +171,15 @@ function packInto(destination) {
 }
 
 function parsePackJson(stdout) {
-  const jsonStart = stdout.search(/^\[\s*$/m);
+  const jsonStart = stdout.search(/^[\[{]\s*$/m);
   if (jsonStart < 0) throw new Error(`npm pack returned no JSON:\n${stdout}`);
-  return JSON.parse(stdout.slice(jsonStart));
+  const parsed = JSON.parse(stdout.slice(jsonStart));
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === 'object') {
+    if (typeof parsed.filename === 'string') return [parsed];
+    return Object.values(parsed).filter(value => value && typeof value === 'object');
+  }
+  throw new Error(`npm pack returned an unsupported JSON shape:\n${stdout}`);
 }
 
 function run(command, args, cwd, capture = false, env = process.env) {

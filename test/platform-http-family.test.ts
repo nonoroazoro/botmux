@@ -2,7 +2,6 @@
 // postJson：平台 HTTP 助手的 IP 协议族强制路由——family 6 只走 IPv6、family 4 只走 IPv4。
 import { describe, it, expect, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
-import { lookup } from 'node:dns/promises';
 import { postJson } from '../src/platform/platform-http.js';
 
 function listen(host: string): Promise<{ server: Server; port: number } | null> {
@@ -23,10 +22,7 @@ function listen(host: string): Promise<{ server: Server; port: number } | null> 
   });
 }
 
-// 环境探测：本机有 ::1 且 localhost 能解析出 IPv6 才跑「family 6 连通」正向用例
 const v6Server = await listen('::1');
-const v6Resolvable = await lookup('localhost', { family: 6 }).then(() => true, () => false);
-const canV6 = Boolean(v6Server) && v6Resolvable;
 
 const servers: Server[] = [];
 afterAll(() => {
@@ -52,7 +48,7 @@ describe('postJson IP 协议族', () => {
     await expect(postJson(`http://localhost:${srv!.port}/api/bind`, {}, { family: 6 })).rejects.toThrow();
   });
 
-  it.skipIf(!canV6)('family: 6 能连到仅监听 ::1 的服务（IPv4 服务不存在时的兜底路径）', async () => {
+  it('family: 6 能连到仅监听 ::1 的服务（IPv4 服务不存在时的兜底路径）', async () => {
     const res = await postJson(`http://localhost:${v6Server!.port}/api/bind`, { code: 'y' }, { family: 6 });
     expect(res.status).toBe(200);
     expect((res.json as { echo: { code: string } }).echo.code).toBe('y');

@@ -62,6 +62,7 @@ export interface ConfigFieldSpec {
  */
 export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
   { key: 'displayName', configKey: 'displayName', kind: 'string', effect: 'immediate', clearable: true, maxLen: 64, hint: '自定义展示名（dashboard 名册/会话列表用，≤64 字符）；不改飞书群内应用名；unset 回飞书名称' },
+  { key: 'botDescription', configKey: 'botDescription', kind: 'string', effect: 'next-session', clearable: true, maxLen: 500, hint: 'Bot profile description injected into new CLI sessions; unset disables injection' },
   { key: 'model', configKey: 'model', kind: 'string', effect: 'next-session', clearable: true, hint: 'CLI 模型名（如 opus）；unset 回 CLI 默认' },
   { key: 'cli', configKey: 'cliId', kind: 'cli', effect: 'next-session', clearable: false, hint: 'CLI 适配器（序号 1-16 或 id，如 claude-code）' },
   { key: 'launchShell', configKey: 'launchShell', kind: 'string', effect: 'next-session', clearable: true, hint: '启动 CLI 用的 shell（zsh|bash|sh 或绝对路径），覆盖 $SHELL；用于 .bashrc/.zshrc 里 exec 切到别的 shell 导致会话起不来的场景；注意 PATH/nvm 要放进所选 shell 的 rc；unset 回 $SHELL' },
@@ -91,8 +92,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
   { key: 'canTalkDaemonCommands', configKey: 'canTalkDaemonCommands', kind: 'stringList', effect: 'immediate', clearable: true, parseList: parseCanTalkDaemonCommandsInput, hint: '把列出的 daemon 命令权限从 canOperate（仅管理员）降到 canTalk（对话放行即可用），如 /status /help；仅认 daemon 命令，透传命令无效；unset 回全部仅管理员' },
   { key: 'startupCommands', configKey: 'startupCommands', kind: 'stringList', effect: 'next-session', clearable: true, parseList: parseStartupCommandsInput, hint: '开会话后、首条消息前自动发给 CLI 的命令（逗号/换行分隔，可带参数，如 /effort ultracode）；unset 回不发' },
   { key: 'env', configKey: 'env', kind: 'json', effect: 'next-session', clearable: true, hint: 'per-bot 环境变量 JSON（如 {"ANTHROPIC_BASE_URL":"…","ANTHROPIC_AUTH_TOKEN":"…"} 让本 bot 走 GLM/第三方服务商，或设 HTTPS_PROXY）；注入到本 bot 的 CLI 进程，下个会话生效；值不显示（脱敏）；unset 清除' },
-  { key: 'backendType', configKey: 'backendType', kind: 'enum', effect: 'next-session', clearable: true, enumValues: ['pty', 'tmux', 'herdr', 'zellij', 'zmx', 'riff'], hint: '会话后端类型：pty=本地 PTY 子进程（默认）｜tmux=tmux 会话｜herdr=herdr 终端复用｜zellij=zellij 多路复用｜zmx=ZMX >=0.7.0 纯文本持久会话（无 Web TUI）｜riff=远程 riff agent 服务；选 riff 时需配置 riff 字段；unset 回 pty' },
-  { key: 'riff', configKey: 'riff', kind: 'json', effect: 'next-session', clearable: true, hint: 'riff 后端配置 JSON（baseUrl/agent/model/jwt 等），仅 backendType=riff 时生效；unset 清除' },
+  { key: 'backendType', configKey: 'backendType', kind: 'enum', effect: 'next-session', clearable: true, enumValues: ['pty', 'tmux', 'herdr', 'zellij', 'zmx'], hint: '会话后端类型：pty=本地 PTY 子进程（默认）｜tmux=tmux 会话｜herdr=herdr 终端复用｜zellij=zellij 多路复用｜zmx=ZMX >=0.7.0 纯文本持久会话（无 Web TUI）；unset 回 pty' },
 ];
 
 /** 大小写不敏感地按 key 找字段 spec。 */
@@ -128,21 +128,6 @@ function formatFieldValue(spec: ConfigFieldSpec, value: unknown): string {
       ? (value as Record<string, unknown>) : null;
     const keys = obj ? Object.keys(obj) : [];
     return keys.length ? keys.map(k => `${k}=••••`).join(', ') : '∅';
-  }
-  // riff 配置可含 secret（jwt / env 值）。聊天可见渲染（/config get、配置卡）
-  // 与 applyConfigField 的变更日志都走本函数——结构可见、值打码。
-  if (spec.configKey === 'riff') {
-    const obj = value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>) : null;
-    if (!obj || Object.keys(obj).length === 0) return '∅';
-    return Object.entries(obj).map(([k, v]) => {
-      if (k === 'jwt') return 'jwt=••••';
-      if (k === 'env') {
-        const keys = v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v as object) : [];
-        return `env={${keys.map(x => `${x}=••••`).join(', ')}}`;
-      }
-      return `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`;
-    }).join(', ');
   }
   if (spec.kind === 'json') {
     return value === undefined || value === null ? '∅' : JSON.stringify(value);

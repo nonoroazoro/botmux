@@ -16,7 +16,7 @@ export const BROWSER_CONFIG = {
 };
 
 /** All bot display names available for testing (except Gemini). */
-export const BOT_NAMES = ['Claude', 'CoCo', 'Codex', 'OpenCode', 'Aiden'] as const;
+export const BOT_NAMES = ['Claude', 'CoCo', 'Codex', 'OpenCode'] as const;
 export type BotName = (typeof BOT_NAMES)[number];
 
 // ---------------------------------------------------------------------------

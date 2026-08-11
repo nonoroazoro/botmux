@@ -107,16 +107,16 @@ describe('host — architect/default bot selection', () => {
       const bots = [
         { larkAppId: 'cli_first', name: 'first', cliId: 'gemini', workingDir: '/first' },
         { larkAppId: 'cli_bound', name: 'bound', cliId: 'traex', workingDir: '/bound' },
-        { larkAppId: 'cli_relay', name: 'relay', cliId: 'relay', workingDir: '/relay' },
+        { larkAppId: 'cli_codex', name: 'codex-worker', cliId: 'codex', workingDir: '/codex' },
       ] as any;
       expect(resolveArchitectBotSnapshot(runDir, bots)).toMatchObject({
         larkAppId: 'cli_bound',
         cliId: 'traex',
         workingDir: '/bound',
       });
-      expect(resolveArchitectBotSnapshot(runDir, bots, 'relay')).toMatchObject({
-        larkAppId: 'cli_relay',
-        cliId: 'relay',
+      expect(resolveArchitectBotSnapshot(runDir, bots, 'codex-worker')).toMatchObject({
+        larkAppId: 'cli_codex',
+        cliId: 'codex',
       });
     } finally {
       rmSync(b, { recursive: true, force: true });

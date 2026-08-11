@@ -3,11 +3,11 @@ import type { CodexAppTurnInput } from '../../types.js';
 import { delay } from '../../utils/timing.js';
 
 /**
- * Shared stdin-injection path for the "runner" CLI adapters (codex-app, mira).
+ * Shared stdin-injection path for runner-based CLI adapters.
  *
  * These adapters don't drive a TUI — they spawn a small Node runner that reads
  * its stdin raw, byte-by-byte, and enqueues a message only when it sees a
- * trailing newline (see codex-app-runner.ts / mira-runner.ts). botmux hands the
+ * trailing newline (see codex-app-runner.ts). botmux hands the
  * runner one control line per message:
  *
  *     ::botmux-<id>:<base64(JSON)>\n
@@ -20,7 +20,7 @@ import { delay } from '../../utils/timing.js';
  * execFileSync's 5s timeout, so the send-keys is killed and the keystroke is
  * silently dropped — yet the old writeInput still reported `submitted: true`,
  * wedging the session "busy" forever. (Compare claude-code, which throttles
- * its send-keys for exactly this reason; codex-app/mira were the only naive
+ * its send-keys for exactly this reason; runner adapters were the only naive
  * single-shot writers.)
  *
  * Fix: split the line into small chunks and inject them with a short throttle
@@ -75,7 +75,7 @@ export function chunkAscii(line: string, maxBytes: number): string[] {
  * swallowed as a false success.
  *
  * Buffer-hygiene contract (the runner only clears its stdin buffer on a newline,
- * see handleInput in codex-app-runner.ts / mira-runner.ts — a half-written
+ * see handleInput in codex-app-runner.ts. A half-written
  * control line with no trailing Enter lingers and would PREPEND to the next
  * message, corrupting both into one un-parseable blob):
  *   - Pre-flush: emit one Enter before writing, terminating any partial line a

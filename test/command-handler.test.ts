@@ -181,7 +181,6 @@ vi.mock('../src/services/project-scanner.js', () => ({
 
 vi.mock('../src/services/git-worktree.js', () => ({
   createRepoWorktree: vi.fn(),
-  pushWorktreeBranch: vi.fn(async () => {}),
 }));
 
 vi.mock('../src/services/worktree-slug-ai.js', () => ({
@@ -228,7 +227,6 @@ vi.mock('../src/im/lark/card-builder.js', () => ({
   getCliDisplayName: vi.fn((id: string) => {
     const names: Record<string, string> = {
       'claude-code': 'Claude',
-      'aiden': 'Aiden',
     };
     return names[id] ?? id;
   }),
@@ -514,7 +512,7 @@ import { join } from 'node:path';
 import { codexHome } from '../src/services/codex-paths.js';
 import { scanMultipleProjects, describeProjectDir } from '../src/services/project-scanner.js';
 import { readGlobalConfig, repoPickerScanOptions } from '../src/global-config.js';
-import { createRepoWorktree, pushWorktreeBranch } from '../src/services/git-worktree.js';
+import { createRepoWorktree } from '../src/services/git-worktree.js';
 import { discoverAdoptableSessions, validateAdoptTarget } from '../src/core/session-discovery.js';
 import { listCodexAppThreads } from '../src/services/codex-app-threads.js';
 import { discoverSlashCommandsForAdapter } from '../src/core/command-discovery.js';
@@ -1168,7 +1166,7 @@ describe('parseForceTopicInvocation', () => {
   });
 
   it('does not match similar prefixes', () => {
-    expect(parseForceTopicInvocation('/tea is good')).toBeNull();
+    expect(parseForceTopicInvocation('/team is good')).toBeNull();
     expect(parseForceTopicInvocation('/talk to me')).toBeNull();
     expect(parseForceTopicInvocation('/topical')).toBeNull();
   });
@@ -1760,33 +1758,6 @@ describe('handleCommand', () => {
       await closing;
 
       expect(deps.activeSessions.get(sessionKey(ROOT_ID, LARK_APP_ID))).toBe(replacement);
-    });
-
-    it('keeps ttadk non-interactive flags in the closed-card resume command', async () => {
-      // A ttadk × Claude bot: the manual resume command on the closed card must
-      // carry `-m <model> --skip-check`, else copy-pasting it hits ttadk's model
-      // picker. Verifies the /close construction passes { ttadkModel: bot.model }
-      // (not just the decorateResumeForWrapper helper in isolation).
-      vi.mocked(getBot).mockImplementation(((id: string = 'app-1') => ({
-        botName: 'Claude',
-        config: {
-          larkAppId: id,
-          larkAppSecret: 'secret-1',
-          cliId: 'claude-code' as const,
-          wrapperCli: 'ttadk claude',
-          model: 'glm-5.1',
-          workingDir: '~/projects',
-          workingDirs: ['~/projects'],
-        },
-      })) as any);
-      const ds = makeDaemonSession();
-      const deps = makeDeps(ds);
-
-      await handleCommand('/close', ROOT_ID, makeLarkMessage('/close'), deps, LARK_APP_ID);
-
-      // 6th positional arg to buildSessionClosedCard is the cliResumeCommand.
-      const resumeArg = vi.mocked(buildSessionClosedCard).mock.calls[0]?.[5];
-      expect(resumeArg).toBe('ttadk claude -m glm-5.1 --skip-check --resume sess-001');
     });
 
     it('should reply with no-session message when session does not exist', async () => {
@@ -2616,53 +2587,6 @@ describe('handleCommand', () => {
         branch: 'feat/manual',
         slug: undefined,
       });
-    });
-
-    it('does not push when an invalid codex-app + riff pair resolves to the local default', async () => {
-      vi.mocked(getBot).mockImplementation(((id: string = LARK_APP_ID) => ({
-        botName: 'Codex App',
-        config: {
-          larkAppId: id,
-          larkAppSecret: 'secret-1',
-          cliId: 'codex-app',
-          backendType: 'riff',
-          workingDir: '~/projects',
-          workingDirs: ['~/projects'],
-        },
-      })) as any);
-      const ds = makeDaemonSession({ pendingRepo: false });
-      const deps = makeDeps(ds);
-      deps.lastRepoScan.set(CHAT_ID, SCAN as any);
-      vi.mocked(createRepoWorktree).mockResolvedValue(CREATION);
-
-      await handleCommand('/repo', ROOT_ID, makeLarkMessage('/repo wt 1'), deps, LARK_APP_ID);
-
-      expect(pushWorktreeBranch).not.toHaveBeenCalled();
-      expect(forkWorker).toHaveBeenCalledWith(ds, '', false);
-    });
-
-    it('pushes when a Riff CLI with a stale local backend resolves back to Riff', async () => {
-      vi.mocked(getBot).mockImplementation(((id: string = LARK_APP_ID) => ({
-        botName: 'Riff',
-        config: {
-          larkAppId: id,
-          larkAppSecret: 'secret-1',
-          cliId: 'riff',
-          backendType: 'pty',
-          workingDir: '~/projects',
-          workingDirs: ['~/projects'],
-        },
-      })) as any);
-      const ds = makeDaemonSession({ pendingRepo: false });
-      const deps = makeDeps(ds);
-      deps.lastRepoScan.set(CHAT_ID, SCAN as any);
-      vi.mocked(createRepoWorktree).mockResolvedValue(CREATION);
-
-      await handleCommand('/repo', ROOT_ID, makeLarkMessage('/repo wt 1'), deps, LARK_APP_ID);
-
-      expect(pushWorktreeBranch).toHaveBeenCalledOnce();
-      expect(pushWorktreeBranch).toHaveBeenCalledWith(CREATION.path, CREATION.branch);
-      expect(forkWorker).toHaveBeenCalledWith(ds, '', false);
     });
 
     it('holds the in-flight lock through the created-notice reply (post-git window)', async () => {

@@ -440,7 +440,7 @@ describe('v3 ephemeral pool', () => {
     await promise;
   });
 
-  it.each(['traex', 'relay'] as const)('forwards %s through the same goal env + raw /goal path', async (cliId) => {
+  it.each(['traex'] as const)('forwards %s through the same goal env + raw /goal path', async (cliId) => {
     const worker = new ScriptedWorker();
     const factory = factoryFor(worker);
     const base = request();

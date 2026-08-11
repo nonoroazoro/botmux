@@ -850,8 +850,8 @@ describe('human-gate 文件等待存储', () => {
 });
 
 describe('runtime CLI 白名单守卫', () => {
-  it('白名单包含五个已验证 /goal 的 CLI', () => {
-    expect(V3_SUPPORTED_CLIS).toEqual(['claude-code', 'codex', 'seed', 'traex', 'relay']);
+  it('白名单包含三个已验证 /goal 的 CLI', () => {
+    expect(V3_SUPPORTED_CLIS).toEqual(['claude-code', 'codex', 'traex']);
     for (const cliId of V3_SUPPORTED_CLIS) expect(isV3SupportedCli(cliId)).toBe(true);
     expect(isV3SupportedCli('gemini')).toBe(false);
   });
@@ -891,25 +891,6 @@ describe('runtime CLI 白名单守卫', () => {
     }
   });
 
-  it('seed CLI 放行（claude-code 家族 fork，原生 /goal）', async () => {
-    const base = mkdtempSync(join(tmpdir(), 'v3-cli-seed-'));
-    try {
-      const runNode: RunNode = async (req) => {
-        const file = product(req.outputDir, 'o.md', '# ok');
-        const mp = writeManifest(req, { schemaVersion: 1, status: 'ok', summary: 's', files: [file] });
-        return { status: 'ok', manifestPath: mp };
-      };
-      const deps: V3RuntimeDeps = {
-        runNode, validateManifest,
-        resolveBotSnapshot: () => ({ larkAppId: 'a', cliId: 'seed', workingDir: '/tmp' }),
-      };
-      const dag = validateDag({ runId: 'seed-run', nodes: [{ id: 'n', type: 'goal', goal: 'g', depends: [], inputs: [] }] });
-      const outcome = await runWorkflow(dag, deps, { baseDir: base });
-      expect(outcome).toMatchObject({ reason: 'terminal', runStatus: 'succeeded' });
-    } finally {
-      rmSync(base, { recursive: true, force: true });
-    }
-  });
 });
 
 // ─── 跨节点回溯 A→B→C 端到端（菲菲的精确验收）────────────────────────────────

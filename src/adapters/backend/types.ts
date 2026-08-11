@@ -1,4 +1,4 @@
-export type BackendType = 'pty' | 'tmux' | 'herdr' | 'zellij' | 'zmx' | 'riff';
+export type BackendType = 'pty' | 'tmux' | 'herdr' | 'zellij' | 'zmx';
 
 /**
  * Durable identity of the backing resource owned by one Botmux session.
@@ -126,28 +126,7 @@ export interface SessionBackend {
     cursor: { x: number; y: number };
   } | null;
   getPaneSize?(): { cols: number; rows: number } | null;
-  /**
-   * Remote sandbox access URL — backends that run on a remote sandbox (e.g.
-   * riff) expose a web terminal link instead of a local PTY. The worker
-   * forwards this to the daemon so the dashboard "Web终端" button opens the
-   * sandbox directly. Optional — local backends (pty/tmux/herdr/zellij)
-   * never implement it.
-   */
-  onAccessUrl?(cb: (url: string) => void): void;
-  /**
-   * Remote-task turn boundary — backends that execute discrete remote tasks
-   * (riff) invoke this when the current task finishes or fails. The worker
-   * uses it to re-arm prompt-ready and flush queued follow-up messages: remote
-   * backends have no PTY output, so the idle detector never fires for them and
-   * nothing else would ever mark the session ready again after a write.
-   * Optional — local backends never implement it.
-   */
-  onTaskDone?(cb: () => void): void;
-  /** Remote-task id updates (riff) — the worker forwards these to the daemon
-   *  so the follow-up lineage survives daemon restarts. `null` clears the
-   *  persisted lineage (follow-up failed → next message starts fresh). */
-  onTaskId?(cb: (taskId: string | null) => void): void;
-  /** Async-capable teardown: riff awaits the remote task-cancel here. */
+  /** Async-capable teardown for backends that need bounded cleanup. */
   destroySession?(): void | Promise<void>;
 }
 

@@ -10,8 +10,8 @@ export function createDefaultMultiUserIsolationConfig(larkAppId: string): MultiU
     ownerOnlyTopics: true,
     sharedCodexHome: join(homedir(), '.codex'),
     defaultGitIdentity: {
-      name: 'Finder Master',
-      email: 'finder-master@botmux.local',
+      name: 'Botmux Agent',
+      email: 'botmux-agent@botmux.local',
     },
   };
 }

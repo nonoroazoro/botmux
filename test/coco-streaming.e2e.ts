@@ -75,7 +75,7 @@ const STATUS_BAR_RE = /bypass permissions|⏵⏵|shift\+tab|\/model|auto-update|
 const BARE_PROMPT_RE = /^[❯>]\s*$/;
 const INPUT_ECHO_RE = /^[❯>]\s+\S/;
 const LOGO_RE = /[▐▛█▜▝▘]{2,}/;
-const VERSION_RE = /Claude Code v\d|^\s*(Opus|Sonnet|Haiku)\s+\d|>_ Aiden \(v[\d.]+\)/;
+const VERSION_RE = /Claude Code v\d|^\s*(Opus|Sonnet|Haiku)\s+\d/;
 
 function shouldSkipLine(line: string): boolean {
   return (
