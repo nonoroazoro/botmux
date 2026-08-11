@@ -11,7 +11,7 @@ Before installing botmux, make sure these are in place — **many "installed but
 - **AI coding CLI / local agent app**: at least one **installed and authenticated**, with the executable on your `PATH`:
   - `claude` (Claude Code), `codex`, `cursor-agent` (Cursor), `gemini`, `opencode`, `coco` (Trae / CoCo), `agy` (Antigravity), `hermes`, etc. (full `cliId` list in [CLI Adapters](/en/adapters)).
   - ⚠️ botmux is only a bridge — it doesn't manage login. **Run the CLI once in a terminal to confirm it can chat** before wiring it into botmux.
-- **tmux ≥ 3.x** (**the default backend — strongly recommended to install**): **in the default configuration** the session backend is tmux, so you need it to start sessions — when tmux isn't available botmux **no longer silently downgrades to pty**; it hard-gates the session and posts a card asking you to install tmux (see [tmux Session Persistence](/en/tmux)). To run a tmux-free environment, pick an explicit backend: `BACKEND_TYPE=pty` / per-bot `backendType` (`pty`/`herdr`/`zellij`) — pty doesn't survive daemon restarts; herdr/zellij need their own binaries. (riff is a cloud agent and doesn't occupy a local backend.)
+- **tmux ≥ 3.x** (**the default backend, strongly recommended to install**): **in the default configuration** the session backend is tmux, so you need it to start sessions. When tmux is not available botmux **no longer silently downgrades to pty**; it hard-gates the session and posts a card asking you to install tmux (see [tmux Session Persistence](/en/tmux)). To run a tmux-free environment, pick an explicit backend: `BACKEND_TYPE=pty` / per-bot `backendType` (`pty`/`herdr`/`zellij`). PTY does not survive daemon restarts; herdr/zellij need their own binaries.
 
 ## Recommended deployment
 

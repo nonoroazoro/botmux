@@ -189,7 +189,7 @@
 | 字段 | 说明 |
 |------|------|
 | `summaryRange` | 显式总结命令 `@机器人 /summary` 使用的历史读取范围。`limit` 表示普通群最近 N 条消息，默认 50；`sinceHours` 表示普通群最近 N 小时，默认 24。任一字段设为 `0` 表示该维度不限制。话题群始终读取当前话题/thread 历史，再按总结窗口过滤 |
-| `summaryMemory` | 布尔，默认 `false`（关）。开启后 `@机器人 /summary` 会把本次总结整理成中文「问题解决记录」，追加写入下方 `summaryMemoryPath` 指定的记忆文件，并要求 agent 只写这一个文件、把实际写入的 Markdown 原样回传确认；同时会往后续会话注入一段 `<summary_memory>` 复用提示，让后续问题只有在 PSM、环境、任务 ID、节点、错误现象等关键条件全部完全一致时才直接复用历史结论，否则只当排查参考 |
+| `summaryMemory` | 布尔，默认 `false`（关）。开启后 `@机器人 /summary` 会把本次总结整理成中文「问题解决记录」，追加写入下方 `summaryMemoryPath` 指定的记忆文件，并要求 agent 只写这一个文件、把实际写入的 Markdown 原样回传确认；同时会往后续会话注入一段 `<summary_memory>` 复用提示，让后续问题只有在服务标识、环境、任务 ID、节点、错误现象等关键条件全部完全一致时才直接复用历史结论，否则只当排查参考 |
 | `summaryMemoryPath` | 记忆文件路径，默认 `summary.md`。相对路径由 agent 按「当前项目根目录」解析，绝对路径按原样使用。留空 / 不设时回落到 `summary.md`。仅在 `summaryMemory` 为 `true` 时生效 |
 
 示例：

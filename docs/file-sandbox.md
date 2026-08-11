@@ -11,7 +11,7 @@
 - per-bot 手动：`bots.json` 里给该 bot 加 `"sandbox": true`
 - 临时/测试：环境变量 `BOTMUX_SANDBOX=1`（对该 daemon 的所有会话强制开）
 
-Linux 依赖 bubblewrap（bwrap），macOS 用同一份 policy 经 Seatbelt（`sandbox-exec`）落地；两平台统一走 fs-policy 三档白名单。除 riff 外的本地后端（pty/tmux/zellij…）都会包裹。
+Linux 依赖 bubblewrap（bwrap），macOS 用同一份 policy 经 Seatbelt（`sandbox-exec`）落地；两平台统一走 fs-policy 三档白名单。支持本地 sandbox 的后端（pty/tmux）都会包裹。
 
 ## 工作原理
 

@@ -88,7 +88,7 @@ When the daemon runs on macOS, you can also explicitly enable **Native CLI openi
 ## Unsupported combinations
 
 - **Adopt**: ZMX is not scanned or accepted as a `/adopt` source. Use the supported tmux / Herdr / Zellij path when adopting an existing external session.
-- **Runners that depend on hidden OSC completion events**: `codex-app`, `mira`, and `mir` lose their final/thread events in plain history, so these combinations fail closed at startup. Use tmux / PTY for those CLIs.
+- **Runners that depend on hidden OSC completion events**: `codex-app` loses its final/thread events in plain history, so this combination fails closed at startup. Use tmux / PTY for this CLI.
 - **File sandbox and read isolation**: the child PTY belongs to the ZMX session daemon, so botmux cannot currently apply its bwrap / Seatbelt filesystem boundary. Combining `backendType: "zmx"` with `sandbox: true`, global `BOTMUX_SANDBOX=1`, or the legacy `readIsolation: true` flag therefore **fails closed on every platform**; config migration folds `readIsolation` into the unified sandbox request, and the worker gate enforces that same decision before startup. The worker posts an actionable session notification before refusing to start. When isolation is required, enable the sandbox and switch to tmux / PTY; otherwise explicitly disable the corresponding isolation setting.
 
 ## Troubleshooting

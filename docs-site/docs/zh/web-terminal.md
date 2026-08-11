@@ -2,7 +2,6 @@
 
 除 ZMX 后端外，每个会话都带一个基于 xterm.js 的 Web 终端，地址形如 `http://<WEB_EXTERNAL_HOST>:<端口>`；ZMX 请通过 `botmux list` 或 `zmx attach` 进入本机终端，详见 [ZMX 后端](/zmx)。
 
-![Web 终端](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033301701_web_terminal.gif)
 
 ## 两种链接
 

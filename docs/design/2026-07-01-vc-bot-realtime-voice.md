@@ -60,7 +60,7 @@ vc.bot.meeting_ended_v1 (事件)
 | per-bot Lark `WSClient` 事件总线 | `im/lark/event-dispatcher.ts` | 已收 `vc.bot.meeting_invited_v1` / `meeting_ended_v1`，直接触发音频链路起停 |
 | `handleVcMeetingPush` / `startVcMeetingMonitoring` / `closeVcMeetingDaemonSession` | `daemon.ts` | 会话生命周期骨架；音频 pipe 挂在同一 `vcMeetingSession` 上 |
 | bot 入会 | 现走 `lark-cli vc +meeting-join --as bot`；已拿到长 `meeting.id` | 复用；`realtime/endpoint` 用这个 `meeting.id` |
-| `services/voice`（sami/openai → PCM → opus） | `services/voice/{sami,openai,audio}.ts` | **PCM 那一段可复用为音频源**（v0 上行）；注意它是**一次性文件**不是流式 |
+| `services/voice`（TTS → PCM → opus） | `services/voice/{openai,audio}.ts` | **PCM 那一段可复用为音频源**（v0 上行）；注意它是**一次性文件**不是流式 |
 | 会话状态 / tombstone / 单 flusher | `daemon.ts` `vcMeetingSessions` | 音频 session 与监听群 session 同源，避免双份状态 |
 
 **要新建的**：realtime-audio 子系统本身（WS 客户端 + 两层 protobuf 编解码 + session 握手 + 音频分帧/时序 + 语音模型对接）。其中两层 protobuf 编解码、session.created 握手 gate、最小下行读循环、100ms pacer、真实 WS transport（incoming queue + one binary message = one Frontier frame + bufferedAmount backpressure）已在 `src/vc-agent/realtime/` 落地。

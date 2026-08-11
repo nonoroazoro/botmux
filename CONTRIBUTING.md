@@ -29,7 +29,7 @@ pnpm daemon:logs
 - `src/index-daemon.ts`, `src/daemon.ts`: daemon entry and assembly.
 - `src/worker.ts`: per-session CLI execution and streaming.
 - `src/adapters/cli/`: CLI and API-agent adapters.
-- `src/adapters/backend/`: PTY, tmux, Zellij, Zmx, Herdr, and Riff backends.
+- `src/adapters/backend/`: PTY, tmux, Zellij, Zmx, and Herdr backends.
 - `src/core/`, `src/services/`: shared runtime logic and persistent services.
 - `src/im/lark/`: Lark events, messages, cards, grants, and API access.
 - `src/dashboard.ts`, `src/dashboard/`: dashboard server and UI support.

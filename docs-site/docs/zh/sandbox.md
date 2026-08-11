@@ -46,7 +46,6 @@ baseline policy 会把会话工作目录和当前 bot 的 runtime 数据设为�
 
 - PTY 和 tmux 支持本地 sandbox。
 - Zellij、Zmx、Herdr 等由 backend 自己启动 child process 的模式会 fail closed。
-- Riff 在远端执行并使用自己的 sandbox，因此 botmux 不应用本地 confinement。
 
 ## Legacy 配置
 

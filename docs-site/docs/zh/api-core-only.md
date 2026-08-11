@@ -38,7 +38,7 @@ BOTMUX_CORE_ONLY=1 BOTMUX_API_PORT=8930 node <pkg>/dist/index-core-only.js
 | 参数 | 环境变量 | 默认 | 说明 |
 |---|---|---|---|
 | `--port` | `BOTMUX_API_PORT` | （必填） | 固定监听端口，bind-or-fail |
-| `--bot` | `BOTMUX_API_ONLY_BOT` | `local_riff` | 合成 bot 的 id，必须形如 `local_<slug>` |
+| `--bot` | `BOTMUX_API_ONLY_BOT` | `local_agent` | 合成 bot 的 id，必须形如 `local_<slug>` |
 | `--cli` | `BOTMUX_CORE_CLI` | `codex-app` | 跑哪个 CLI（`codex` / `claude-code` / …） |
 | `--working-dir` | `BOTMUX_CORE_WORKING_DIR` | 当前目录 | CLI 工作目录 |
 | `--state-dir` | `BOTMUX_CORE_STATE_DIR` | `~/.botmux/core-only/<botId>/data` | 专用状态根 |
@@ -52,7 +52,7 @@ daemon **先 bind 端口、后完成 durable restore**。所以「端口能连�
 
 - **stdout ready line**（锁定契约，正则 `^\[core-only\] listening on `）：
   ```
-  [core-only] listening on 127.0.0.1:8930 (bot local_riff, cli codex-app)
+  [core-only] listening on 127.0.0.1:8930 (bot local_agent, cli codex-app)
   ```
   这一行**只在 restore 完成后**才打印。
 - **`GET /healthz`**（公共，免鉴权）：
@@ -156,7 +156,7 @@ function coreOnlyAuthHeaders(secret, method, path, port) {
 # 触发（异步）——公共路由，无需签名
 curl -s http://127.0.0.1:8930/api/trigger -X POST -H 'content-type: application/json' -d '{
   "source": {"type": "custom"},
-  "target": {"kind": "turn", "botId": "local_riff"},
+  "target": {"kind": "turn", "botId": "local_agent"},
   "envelope": {"format": "text", "sourceName": "my-runner", "trusted": false},
   "instruction": "跑一下测试并报告结果",
   "options": {"asyncReturnSessionId": true}
@@ -189,7 +189,7 @@ curl -s "http://127.0.0.1:8930/api/sessions/<sid>/write-link" \
 
 ### core-only 的 `readOnlyUrl` / `viewToken` 也随 trigger-result 下发
 
-core-only 下，只要该 session 有**存活的 worker 终端**（`workerPort` 已绑 + view capability 已铸），公共的 `GET /api/sessions/:id/trigger-result` 响应会附带 `readOnlyUrl` + `viewToken`（只读入口，方便 riff 的 in-sandbox runner 直接打开可视 TUI）。这是 core-only 专属：普通/混合 fleet 的 trigger-result **不发射**这两个字段（那边 trigger-result 是 HMAC 门、也不该把终端读能力塞进轮询响应）；closed / 已恢复无 live worker 的 session 也不发射，所以不会广告出失效 URL。**写 token 永远只经 §4 的 HMAC `write-link` 获取**，绝不进 trigger-result。
+core-only 下，只要该 session 有**存活的 worker 终端**（`workerPort` 已绑 + view capability 已铸），公共的 `GET /api/sessions/:id/trigger-result` 响应会附带 `readOnlyUrl` + `viewToken`，让已授权 client 直接打开可视 TUI。这是 core-only 专属：普通/混合 fleet 的 trigger-result **不发射**这两个字段，因为那边 trigger-result 是 HMAC 门，也不该把终端读能力塞进轮询响应。closed / 已恢复无 live worker 的 session 也不发射，所以不会广告出失效 URL。**写 token 永远只经 §4 的 HMAC `write-link` 获取**，绝不进 trigger-result。
 
 ### ⚠️ 建议「打开时现取」，而不是缓存 URL
 

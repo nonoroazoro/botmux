@@ -9,7 +9,6 @@ botmux dashboard
 
 > 这是**轮换式登录 token**：一条 URL 有效到下次运行 `botmux dashboard`（那时才轮换、让旧 URL 失效）；token 会持久化、`botmux restart` 后仍有效。成功访问 `?t=` 只是把同一 token 写进 cookie，不消费/作废它，轮换前同一 URL 可重复登录——所以分享链接≈分享登录态，注意保管。默认端口 `7891`，可用 `BOTMUX_DASHBOARD_PORT` 改。
 
-![Dashboard Groups 面板](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033300739_dash-groups.png)
 <p class="cap">Groups 面板：chat × bot 矩阵，一眼看清哪个群里有哪些机器人</p>
 
 ## 功能

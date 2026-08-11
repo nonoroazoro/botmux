@@ -177,7 +177,6 @@ flowchart LR
 
 bot 每条回复卡片左下角的 brand 位（现为蓝色「botmux」链接）改为显示**当前角色名**，点击跳转该角色的链接；非角色目录的会话不受影响（仍显示原 brand）。现状示意（图中蓝色「botmux」处即角色名渲染位）：
 
-![图片展示的是botmux机器人在企业微信中的消息界面。上方显示发送时间为10:00，发送者为“包青天 智能体”，头像为红色人物形象。消息内容为“连接正常，收到你的消息了👍”。下方显示botmux发送给@Austin（王旭）。该图片与文档中介绍的botmux机器人角色标识实现相关，展示了实现后机器人在企业微信中的消息展示样式，体现了“实现”部分提到的botmux小改动与角色系统完全解耦的通用能力。](https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=Y2NlNjQ5NjZkNzE1ZTA3MGNkMGFhZjEwOGY1MjAwYmJfMWI0M2FiMGU3MzY1OTRiM2Y3YWZlYTlkZjk3ZTIxYWFfSUQ6NzY2MDM3NTc3MDYxNjg3NjIxMV8xNzgzNzA0NTU3OjE3ODM3MDgxNTdfVjM)
 
 **实现**（第二处 botmux 小改动，与角色系统完全解耦的通用能力）：脚注「botmux」本就是 per-bot 可配置的 `brandLabel`（md-card.ts 的 `brandFooterSegment`，markdown 原生支持）。扩展其语义：签名串支持变量替换——`{cwdName}`（当前工作目录显示名：优先取目录下 `.botmux-dir.json` 的 name，缺省 basename）、`{cwd}`（完整路径）、`{cwdUrl}`（`.botmux-dir.json` 的 url，缺省为空）；替换后出现空链接 `[xxx]()` 自动降级为纯文本。仅当签名串含 `{` 时才走替换，静态签名与三态语义完全不变，存量 bot 零影响。分层：brandLabel 模板变量（通用）→ 目录元数据约定 `.botmux-dir.json`（通用，任何目录可放：repo 指项目主页、角色目录指知识文档）→ 角色系统只是该约定的使用者之一。接线两处：daemon 回复卡（worker-pool.ts 传 ds.workingDir）与 botmux send footer（cmdSend 已读 session，顺取 workingDir，无需新参数）；同步更新 dashboard 中 brandLabel 的帮助文案。
 

@@ -39,7 +39,7 @@ Optional env vars / flags (`--flag` wins over the env var):
 | Flag | Env var | Default | Meaning |
 |---|---|---|---|
 | `--port` | `BOTMUX_API_PORT` | (required) | Fixed listen port, bind-or-fail |
-| `--bot` | `BOTMUX_API_ONLY_BOT` | `local_riff` | Synthetic bot id; must be `local_<slug>` |
+| `--bot` | `BOTMUX_API_ONLY_BOT` | `local_agent` | Synthetic bot id; must be `local_<slug>` |
 | `--cli` | `BOTMUX_CORE_CLI` | `codex-app` | Which CLI to run (`codex` / `claude-code` / …) |
 | `--working-dir` | `BOTMUX_CORE_WORKING_DIR` | cwd | CLI working directory |
 | `--state-dir` | `BOTMUX_CORE_STATE_DIR` | `~/.botmux/core-only/<botId>/data` | Dedicated state root |
@@ -53,7 +53,7 @@ The daemon **binds the port first, then completes durable restore**. So "port ac
 
 - **stdout ready line** (locked contract, regex `^\[core-only\] listening on `):
   ```
-  [core-only] listening on 127.0.0.1:8930 (bot local_riff, cli codex-app)
+  [core-only] listening on 127.0.0.1:8930 (bot local_agent, cli codex-app)
   ```
   This line is printed **only after restore completes**.
 - **`GET /healthz`** (public, no auth):
@@ -157,7 +157,7 @@ The trigger/poll/cancel **four-state contract is identical to a normal bot** —
 # Trigger (async) — public route, no signature
 curl -s http://127.0.0.1:8930/api/trigger -X POST -H 'content-type: application/json' -d '{
   "source": {"type": "custom"},
-  "target": {"kind": "turn", "botId": "local_riff"},
+  "target": {"kind": "turn", "botId": "local_agent"},
   "envelope": {"format": "text", "sourceName": "my-runner", "trusted": false},
   "instruction": "Run the tests and report results",
   "options": {"asyncReturnSessionId": true}
@@ -190,7 +190,7 @@ curl -s "http://127.0.0.1:8930/api/sessions/<sid>/write-link" \
 
 ### core-only also ships `readOnlyUrl` / `viewToken` in trigger-result
 
-In core-only, whenever the session has a **live worker terminal** (`workerPort` bound + a view capability minted), the public `GET /api/sessions/:id/trigger-result` response also carries `readOnlyUrl` + `viewToken` (a read-only entry, so riff's in-sandbox runner can open the visible TUI directly). This is core-only-specific: a normal/mixed fleet's trigger-result does **not** emit these fields (there trigger-result is HMAC-gated, and we must not push a terminal read-capability into a poll response); closed / restored sessions with no live worker don't emit them either, so no stale URL is ever advertised. The **write token is only ever obtained via the §4 HMAC `write-link`** — it never appears in trigger-result.
+In core-only, whenever the session has a **live worker terminal** (`workerPort` bound + a view capability minted), the public `GET /api/sessions/:id/trigger-result` response also carries `readOnlyUrl` + `viewToken` so an authorized client can open the visible TUI directly. This is core-only-specific: a normal/mixed fleet's trigger-result does **not** emit these fields because trigger-result is HMAC-gated there, and a terminal read capability must not be placed into a poll response. Closed or restored sessions with no live worker do not emit them either, so no stale URL is advertised. The **write token is only ever obtained via the §4 HMAC `write-link`**; it never appears in trigger-result.
 
 ### ⚠️ Prefer "fetch on open" over caching the URL
 

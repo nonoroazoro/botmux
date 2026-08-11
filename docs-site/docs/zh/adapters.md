@@ -1,9 +1,9 @@
 # 多 CLI 适配器
 
-botmux 通过适配器桥接不同 CLI / Agent，`bots.json` 里用 `cliId` 选择，一键切换。**本地适配器各自运行进程**（默认 tmux 后端下可 `tmux attach` 进真进程；显式 pty/zellij/herdr 后端另说）；也有少数通过 API / 远端接入的 Agent（如 Mira、riff），不是本地进程。
+botmux 通过适配器桥接不同 CLI / Agent，`bots.json` 里用 `cliId` 选择，一键切换。**本地适配器各自运行进程**。默认 tmux 后端下可 `tmux attach` 进真进程，显式 pty、zellij、herdr 后端行为不同。
 
 **适用**：想换底层 CLI、或接一个新工具时查 `cliId` 和它是否吃 `model` 参数。
-**不适用**：严格兼容 Codex 的独立发行版、或套 wrapper / 网关（ccr、aiden x claude 等）不需要新适配器——分别见下方 [Codex 兼容发行版](#codex-兼容发行版) 与 [套 wrapper / 网关接入](#套-wrapper--网关接入)。
+**不适用**：严格兼容 Codex 的独立发行版、或套通用 wrapper / 网关时不需要新适配器。分别见下方 [Codex 兼容发行版](#codex-兼容发行版) 与 [套 wrapper / 网关接入](#套-wrapper--网关接入)。
 
 ## 支持的 CLI / Agent
 
@@ -24,53 +24,13 @@ botmux 通过适配器桥接不同 CLI / Agent，`bots.json` 里用 `cliId` 选�
 | `kiro-cli` | Kiro | 本地进程 | |
 | `pi` | Pi | 本地进程 | |
 | `oh-my-pi` | Oh-My-Pi（Pi fork） | 本地进程 | ✅ |
-| `aiden` | Aiden | 本地进程 | |
 | `coco` | CoCo / Trae（需 ≥ 0.120.32） | 本地进程 | ✅ |
 | `traex` | TRAE CLI（traex） | 本地进程 | ✅ |
 | `mtr` | MTR | 本地进程 | |
 | `hermes` | Hermes | 本地进程 | |
 | `genius` | Genius | 本地进程 | ✅ |
-| `seed` | Seed（Claude Code fork） | 本地进程 | ✅ |
-| `relay` | Relay（Seed 新版） | 本地进程 | ✅ |
-| `mira` | Mira APP | API / 远端 | |
-| `mir` | Mir CLI（本地 mircli + MCP bridge） | 本地进程 | |
-| `riff` | riff | 云 Agent（API） | |
 
-> `model` 字段只对支持模型参数的适配器生效，其它忽略。Mir CLI 的额外前置（登录 / miramcp）见下方专节。
-
-## Mir CLI 与 MCP Bridge
-
-`botmux setup` 里选择 **Mira -> Mir CLI（本地 mircli）** 后，机器人配置会使用 `cliId: "mir"`。这个适配器通过本机 `mircli -p --lean` 执行，因此需要运行 botmux daemon 的同一系统用户已经完成 Mir CLI 登录和初始化。
-
-BotMux 不需要额外的 DevBox 专属配置；在 DevBox、本地 macOS 或其它 Linux 机器上规则相同：
-
-- `mircli` 能被 botmux 找到，或在机器人配置里用 `cliPathOverride` 指向 `mircli` 的绝对路径。
-- `~/.mira/config.json` 里已有 `device_id`。首次使用 Mir CLI 时通常通过 `mircli mcp --device-id <id>` 或 Mir CLI 自身初始化流程写入。
-- `miramcp` 已安装在 Mir CLI 的标准位置（例如 `~/.local/bin/miramcp`、`~/.local/bin/mira_cli`），或通过 `MIRAMCP_BIN` 指向可执行文件。
-
-当 `cliId: "mir"` 会话启动并收到消息时，BotMux 会在调用 `mircli` 前 best-effort 拉起 MCP Bridge：
-
-```bash
-miramcp run --device-id <device_id>
-```
-
-它会先检查 `~/.mira/miramcp/miramcp.pid` 和本机 `9801` 端口，已在运行就不会重复启动。要确认状态，可以在运行 botmux daemon 的同一用户下执行：
-
-```bash
-mircli mcp status
-```
-
-如果你想禁用这个自动拉起行为，可以任选一种方式：
-
-```json
-{"auto_start_bridge": false}
-```
-
-或只对 BotMux 进程禁用：
-
-```bash
-MIRCLI_AUTO_START_MIRAMCP=0 botmux start
-```
+> `model` 字段只对支持模型参数的适配器生效，其它忽略。
 
 ## Codex 兼容发行版
 
@@ -82,7 +42,7 @@ BotMux 把“协议能力”和“发行版身份”分开：`cliId: "codex"` �
 
 ## 套 wrapper / 网关接入
 
-很多场景下你不是直接跑原生 CLI，而是套一层网关 / 路由（内网代理 + SSO、模型路由等），比如 `ccr`、`ttadk`、`aiden x claude`、`aiden x codex`。这时**不需要新适配器**：`cliId` 仍填底层真实 CLI（`claude-code` / `codex` …），只把启动入口换成一个 **wrapper 脚本**，用 `cliPathOverride` 指过去（`botmux setup` 编辑机器人时的「CLI 可执行文件路径覆盖」就是填它）。
+很多场景下你不是直接跑原生 CLI，而是套一层网关或路由，比如 `ccr` 或其它自定义 launcher。这时**不需要新适配器**：`cliId` 仍填底层真实 CLI（`claude-code` / `codex` …），只把启动入口换成一个 **wrapper 脚本**，用 `cliPathOverride` 指过去（`botmux setup` 编辑机器人时的「CLI 可执行文件路径覆盖」就是填它）。
 
 **通用四步：**
 
@@ -93,8 +53,6 @@ BotMux 把“协议能力”和“发行版身份”分开：`cliId: "codex"` �
 
 各网关的**具体 wrapper 脚本**通常随上游更新，请以对应 CLI / 网关团队发布的文档为准；这里不在公开仓库内放内部文档链接或复制原文。
 
-- **aiden × claude / aiden × codex** — aiden×codex 需用 `script` 强套 PTY
-- **ttadk** — 配置时注意 wrapper 参数透传和登录态
 - **MTR** — 社区贡献，`npm i -g @metamove-code/mtr-cli@latest`
 >
 > 排查 wrapper 问题的通用手法：`botmux logs` 找 `Spawning fresh CLI:` 那行，复制完整命令在本地手动跑一遍即可定位（权限 / 参数黑名单 / 登录态）。

@@ -25,6 +25,5 @@ For whichever bots you want to take part in the collaboration, first add them to
 
 ## Result
 
-![Multi-topic orchestration · Lark task board as a shared progress board](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780419243796_multitopic-board.png)
 
 > Related: [multi-bot collaboration](/en/multi-bot) is its infrastructure; use [roles and teams](/en/roles) to give bots roles (who writes, who reviews).

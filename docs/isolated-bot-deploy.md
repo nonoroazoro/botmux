@@ -29,7 +29,7 @@ At daemon startup, botmux migrates legacy fields while retaining them on disk fo
 
 The unified policy is deny-by-default on both macOS and Linux. It compiles to Seatbelt on macOS and bubblewrap on Linux. The deepest matching path rule wins, while mandatory host-security rules cannot be overridden.
 
-The sandbox applies to locally owned PTY and tmux launches. Unsupported local backends fail closed. Riff executes remotely and uses its own sandbox, so local confinement is bypassed there.
+The sandbox applies to locally owned PTY and tmux launches. Unsupported local backends fail closed.
 
 ## Upgrade Procedure
 

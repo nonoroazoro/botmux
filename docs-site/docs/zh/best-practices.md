@@ -24,7 +24,6 @@
 
 > 在 Dashboard 的 **Roles** 面板可以可视化给每个群里的每个 bot 配角色：
 
-![Dashboard Roles 面板](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780057302792_dash-roles.png)
 
 ## 场景二 · 报警运维
 
@@ -36,7 +35,6 @@
 - **不同报警机器人配不同的 oncall 目录**：每个报警机器人 `/oncall bind` 到对应项目目录，报警进来直接在那个仓库里排查。
 - 也可叠加[定时任务](/schedule)做**主动巡检播报**：`/schedule 每天9:00 检查昨天的报警趋势并总结`，异常才 @ 人。
 
-![Dashboard 接入点（Webhook）](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780057303071_dash-connector.png)
 
 ## 场景三 · 个人研发
 
@@ -47,7 +45,6 @@
 - **多用 `/g`(=`/group`) 拉群协作**：一个群拉多个机器人一起开发同一个需求；或者用**话题群「一个话题一个需求」**，上下文天然隔离。
 - **给每个机器人设角色分工**：有的负责开发、有的负责 review，配合 `/role` + `/role cap` 能力标签，协作不打架。
 
-![Dashboard 新建群（勾选多个机器人）](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033300986_dash-newgroup.png)
 
 ## 场景四 · 多人协作
 
@@ -58,7 +55,6 @@
 - **团队功能（推荐）**：在 Dashboard「团队」里把多个人名下的 Bot 打上标签、拉到一个团队，**跨部署互相发现**，直接勾选拉群开协作——主路径不再需要 `/introduce`。
 - **旧版兜底**：只有外部 bot 缺失或 `mentionable=false` 时，再发 `@大家的 bot /introduce` 手动登记一次。
 
-![Dashboard 团队 · 跨部署协作](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033301213_dash-team.png)
 
 ## 通用建议（各场景适用）
 

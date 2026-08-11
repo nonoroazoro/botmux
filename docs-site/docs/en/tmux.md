@@ -2,7 +2,6 @@
 
 **tmux is botmux's default backend** (PTY is retired and no longer an automatic fallback). Once tmux is installed, the CLI process stays persistent inside a tmux session, so **restarting the daemon does not interrupt the CLI** — which is the answer to the common worry "will a restart lose my context?": it won't.
 
-![tmux session management](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033301974_tmux.gif)
 
 ## Why it matters
 
@@ -37,7 +36,7 @@ Once you attach, what you see is a terminal exactly identical to your local deve
 
 ## Other backends and explicit pty
 
-Only tmux (default) and pty (emergency) are relevant day to day; `zellij` / `herdr` are also available backends, opted into explicitly via `BACKEND_TYPE` or a per-bot `backendType`, and don't change the default. `riff` is different — it is **enabled paired with the riff CLI** (`cliId===riff ⇔ backendType===riff`, a forced binding) and can't be selected for an ordinary CLI the way zellij/herdr can.
+Only tmux (default) and pty (emergency) are relevant day to day. `zellij` and `herdr` are also available backends, enabled explicitly through `BACKEND_TYPE` or a per-bot `backendType`, and do not change the default.
 
 ```bash
 # Force pure pty mode (without using tmux) — emergency only

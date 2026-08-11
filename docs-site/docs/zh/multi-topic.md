@@ -25,6 +25,5 @@
 
 ## 效果
 
-![多话题协作 · 飞书任务面板当共享进度板](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780419243796_multitopic-board.png)
 
 > 相关：[多机器人协作](/multi-bot) 是它的基础设施；用 [角色与团队](/roles) 给 bot 设角色（谁写、谁 review）。

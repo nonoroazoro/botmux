@@ -4,7 +4,6 @@
 
 跑到一半的会话可以**整个搬家**，上下文一点不丢：私聊里把方案调通了，一键搬进团队群让大家接着这条上下文继续；搬过去是**原班 CLI 进程、原班记忆**，不是复制一份重开。
 
-![会话接力 Relay](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780419243529_relay.png)
 
 > 与 [Adopt](/adopt) 的区别：Adopt 是把本机 tmux 里的进程接进飞书；Relay 是把一个已经在 botmux 里跑的会话从 A 群搬到 B 群。
 

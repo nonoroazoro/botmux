@@ -144,11 +144,10 @@ fork 出的 child 自动写区分标题 `🔱 <原标题>`（source=`system`，�
 
 | 后端 | 上下文存储 | Fork | 说明 |
 |-|-|-|-|
-| Claude 系（claude-code/seed/relay/aiden） | 本地 `<id>.jsonl` | ✅ | 原生 `--fork-session`（已实测） |
+| Claude Code | 本地 `<id>.jsonl` | ✅ | 原生 `--fork-session`（已实测） |
 | Codex CLI 终端模式 | 本地 `rollout-*.jsonl` | ✅ | 原生 `codex fork`（已实测） |
 | CoCo | 本地目录 | ⚠️ 后续 | 目录拷贝可行，但共享全局 history.jsonl |
 | Codex App / Codex CLI 开了 Hybrid RPC | app-server 进程 + SQLite 活会话 | ❌ 默认关 | 拷 rollout 让 app-server 认新 thread 未验证 |
-| Riff 等纯远端 | 远端沙箱 | ❌ | 本地无可复制 rollout（可选走原生 parentTaskId，后续） |
 
 **不支持的后端输 `/fork`**：复用现成 typed-refusal 范式，handler 开头判 `cliId`，回一句明确中文并 break，**不误跑、不污染会话**：
 
@@ -249,7 +248,7 @@ fork 出的 child 自动写区分标题 `🔱 <原标题>`（source=`system`，�
 
 ### Fast-follow
 
-CoCo 目录拷贝；Riff 原生 parentTaskId 分支；`/fork` 同话题快速分身。
+CoCo 目录拷贝；`/fork` 同话题快速分身。
 
 ### 明确不做
 

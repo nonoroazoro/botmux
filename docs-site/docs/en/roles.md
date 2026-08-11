@@ -21,7 +21,6 @@ Give each bot an independent persona per group, and form a "team roster" during 
 
 > 💡 The most intuitive way to set the **default role** is on the **Bot Config** page of `botmux dashboard` — every bot card has a "**Default Role**" editor (it writes to the same config as `/role team set`; it's a bot-level global default persona, so it fits better under Bot Config). The **Team** panel only provides a **read-only view** entry; do all editing on the Bot Config page.
 
-![Dashboard Bot Config — Default Role editor](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780051089378_default-role-shot.png)
 
 ## Role Profiles
 
@@ -76,7 +75,6 @@ Role + capability tags are the infrastructure for [multi-bot collaboration](/en/
 
 On the **Team** panel of `botmux dashboard`, you can invite **someone else's deployment** (a botmux that a colleague runs themselves) into the same team, so you can discover each other's bots and create groups across deployments to collaborate.
 
-![Dashboard Team — cross-deployment collaboration](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033301213_dash-team.png)
 
 - **Bind identity**: use the bot credentials to automatically identify your Lark identity; after binding, creating a group will add you to the group, and the bots will be attributed to you.
 - **Team roster**: aggregates all bots from this deployment + any joined teams (possibly across deployments), searchable and filterable by name / capability / CLI, and annotates who has a capability tag / default role (roles are **read-only view** here; do editing on the Bot Config page).

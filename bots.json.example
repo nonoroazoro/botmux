@@ -18,7 +18,7 @@
   {
     "larkAppId": "cli_xxx_bot2",
     "larkAppSecret": "your_secret_2",
-    "cliId": "aiden",
+    "cliId": "claude-code",
     "allowedUsers": ["bob@company.com"],
     "workingDir": "~/work"
   },
@@ -35,13 +35,6 @@
     "larkAppSecret": "your_secret_4",
     "cliId": "mtr",
     "allowedUsers": ["dana@company.com"],
-    "workingDir": "~/projects"
-  },
-  {
-    "larkAppId": "cli_xxx_bot5",
-    "larkAppSecret": "your_secret_5",
-    "cliId": "mira",
-    "allowedUsers": ["erin@company.com"],
     "workingDir": "~/projects"
   },
   {

@@ -24,7 +24,6 @@
 
 只影响**这一个群**，适合给指定的几个群逐个开。
 
-![按群开启 Oncall 模式](https://magic-builder.tos-cn-beijing.volces.com/uploads/oncall-group-card.jpg)
 
 ### 方式三：按 bot 默认开启（Dashboard）
 
@@ -35,7 +34,6 @@
 > - 手动绑定 / 手动解绑过的群**不会**被覆盖。
 > - 开关打开**之前**就已存在的老群不受影响（只对之后的新话题生效）。
 
-![Bot 默认开启 Oncall 模式](https://magic-builder.tos-cn-beijing.volces.com/uploads/oncall-bot-default.jpg)
 
 > 对应 `bots.json` 字段 `defaultOncall`，也可手动编辑。见 [bots.json 配置](/bots-json)。
 
@@ -60,5 +58,3 @@
 在 oncall 群里发 `/schedule 每天9:00 检查昨天的报警趋势并总结`，每天定点喂一份报告到群里——人不在岗，机器人替你看着。回复卡片会自动「发送给 @提问者 / cc @owner」，远程也能掌握群内动向。
 
 **典型场景**：值班群、报警群（Argos 报警分析）、跨团队咨询群、Oncall 答疑。
-
-![Oncall 模式效果演示](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780419243198_oncall.png)

@@ -2,7 +2,6 @@
 
 Turn the AI's text reply into a **voice message** in your Lark group with one click. Every reply card gets a "🔊 Voice Summary" button at the bottom — tap it, and the bot condenses that reply into spoken language, synthesizes a voice bubble, and sends it to the current topic.
 
-<video src="https://magic-builder.tos-cn-beijing.volces.com/uploads/1780421547656_voice-video.aud.mp4" controls preload="metadata" style={{width:'100%',borderRadius:'8px'}}></video>
 
 - **On-demand trigger**: Nothing is generated automatically by default — it only happens when you tap, so you don't get a long voice clip attached to every reply.
 - **Condense first, then synthesize**: After you tap, the model compresses the original reply into a few spoken sentences (stripping out code, paths, links, and other content that doesn't read aloud well), so what you hear is a "plain-speech" summary rather than the original text read verbatim.
@@ -15,30 +14,7 @@ Turn the AI's text reply into a **voice message** in your Lark group with one cl
 
 Configure interactively with the dedicated command `botmux voice` (deliberately kept separate from `botmux setup`). The configuration is written to the `voice` block of the global `~/.botmux/config.json`, and takes effect after `botmux restart`.
 
-Two kinds of engines are supported — **pick one based on your identity**:
-
-### ByteDance tenant: SAMI (large-model speech synthesis)
-
-Internal ByteDance users can use the company's large-model speech synthesis (SAMI) directly — natural voices, no need to run your own service.
-
-**① Apply for credentials (one-time)**
-
-- On the company **Speech Capability Platform**, apply for the "**Speech Synthesis (large model)**" capability (botmux only does synthesis; speech recognition is not needed).
-- You'll get three things: **appkey**, **AccessKey**, **SecretKey**.
-- If you hit a "Namespace not enabled / no route" message, go through internal **Oncall** to have the Speech team enable it in the Ops Center.
-
-> To find the application entry, search "Speech Synthesis Large Model / SAMI" on the internal platform, or just ask the Speech team directly.
-
-**② Configure**
-
-```bash
-botmux voice          # Interactive: select SAMI → paste accessKey / secretKey / appkey in turn
-botmux restart        # Take effect
-```
-
-The voice defaults to "灿灿" (Cancan), which you can change to another voice id during configuration. The service endpoint is built in, no need to fill it. The SecretKey is only used locally to sign and exchange for a temporary token; it's never sent out.
-
-### External users: OpenAI-compatible engine
+Botmux supports OpenAI-compatible TTS engines.
 
 External / open-source users can connect any TTS service that's **compatible with the OpenAI speech API** — it can be OpenAI's official service, or self-hosted (e.g. Kokoro-FastAPI, openedai-speech, etc.).
 
@@ -81,16 +57,7 @@ botmux voice disable  # Turn off voice (removes the configuration, the button di
 You can also edit the `voice` block of `~/.botmux/config.json` directly:
 
 ```jsonc
-// ByteDance tenant (SAMI)
-{
-  "voice": {
-    "engine": "sami",
-    "speaker": "zh_female_cancan_mars_bigtts",   // Optional, defaults to Cancan
-    "sami": { "accessKey": "...", "secretKey": "...", "appkey": "..." }
-  }
-}
-
-// External users (OpenAI-compatible)
+// OpenAI-compatible
 {
   "voice": {
     "engine": "openai",

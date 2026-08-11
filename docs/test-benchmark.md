@@ -71,7 +71,7 @@ pnpm test:bench --threshold 30      # 墙钟超 30s 则 exit 1（CI 回归闸）
 
 ## 预存失败（与本次优化无关）
 
-`seed-adapter` / `claude-code-cwd` / `card-integration` 共 3 文件 12 用例，在**优化前的原始代码、串行、原配置**下同样失败——主要是 macOS 把 `/var` 软链到 `/private/var` 导致 realpath 断言不符。本次改动前后失败集合一致，未引入新失败，也未顺手修这些既有问题（超出范围）。
+`claude-code-cwd` / `card-integration` 等用例在**优化前的原始代码、串行、原配置**下同样失败，主要是 macOS 把 `/var` 软链到 `/private/var` 导致 realpath 断言不符。本次改动前后失败集合一致，未引入新失败，也未顺手修这些既有问题（超出范围）。
 
 > 上表中并行档偶尔多 1 个失败（13 vs 12）：是 `card-integration` 那个本就在失败的文件里有个 IPC 用例在高并发下抖动（端口/时序敏感），与本次提速无关，复跑即恢复。
 
@@ -86,7 +86,7 @@ pnpm test:bench --threshold 30      # 墙钟超 30s 则 exit 1（CI 回归闸）
 
 ## 当前瓶颈 & 后续可优化项
 
-16 核墙钟的下限（~10s）现在由 7 个**真实 spawn `node dist/cli.js`** 的集成测试门控（`workflow-cli` / `workflow-cli-ls-tail` / `preset-export-cli` / `workflow-c0-isolation` / `seed-adapter` / `hook-installer` / `tmux-env-isolation`）。它们 **CPU-throughput-bound**：14 个 vitest fork + 每用例再 spawn 一个 node 子进程，16 核被超额订阅，单文件耗时在 5–9s 间抖动。
+16 核墙钟的下限（~10s）现在由多个**真实 spawn `node dist/cli.js`** 的集成测试门控（`workflow-cli` / `workflow-cli-ls-tail` / `preset-export-cli` / `workflow-c0-isolation` / `hook-installer` / `tmux-env-isolation`）。它们 **CPU-throughput-bound**：14 个 vitest fork + 每用例再 spawn 一个 node 子进程，16 核被超额订阅，单文件耗时在 5–9s 间抖动。
 
 - **（大杠杆，需取舍）in-process 跑 CLI。** 从 4138 行的 `src/cli.ts` 抽出可测的 `main(argv): Promise<number>` 入口，让这 8 个文件直接进程内调用而非 spawn `node`。能同时砍掉串行总工作量和并行争抢，但牺牲「真实启动二进制 / argv 解析 / 退出码」的保真度，是较大的重构。
 - **（CI 侧）`vitest --shard=i/N`** 跨 runner 分片，缩短 CI 墙钟（不影响本地）。

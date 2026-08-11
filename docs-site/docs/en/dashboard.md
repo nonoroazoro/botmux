@@ -9,7 +9,6 @@ botmux dashboard
 
 > This is a **rotating login token**: a URL stays valid until the next time you run `botmux dashboard` (which rotates it and invalidates the old URL); the token is persisted and survives a `botmux restart`. A successful `?t=` visit just writes the same token into a cookie — it does not consume or revoke it, so the same URL logs in repeatedly until rotation. Sharing the URL ≈ sharing the login state, so keep it safe. Default port `7891`, overridable via `BOTMUX_DASHBOARD_PORT`.
 
-![Dashboard Groups panel](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033300739_dash-groups.png)
 <p class="cap">Groups panel: a chat × bot matrix that shows at a glance which bots are in which groups</p>
 
 ## Features

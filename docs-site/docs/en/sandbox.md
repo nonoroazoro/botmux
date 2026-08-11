@@ -46,7 +46,6 @@ Network access remains enabled by default. On Linux, set `sandboxNetwork: false`
 
 - PTY and tmux support the local sandbox.
 - Zellij, Zmx, Herdr, and other backends that own the child process fail closed when local sandboxing is requested.
-- Riff runs remotely and uses its own sandbox, so botmux skips local confinement.
 
 ## Legacy Configuration
 

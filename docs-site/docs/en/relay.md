@@ -4,7 +4,6 @@ Relay a **running AI session** from one group to another to continue there — *
 
 A half-finished session can **move house entirely**, without losing any context: get a plan working in a private chat, then move it into the team group with one command so everyone can continue from that same context. What moves over is the **same CLI process and the same memory** — not a copy spun up fresh.
 
-![Session Relay](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780419243529_relay.png)
 
 > Difference from [Adopt](/en/adopt): Adopt brings a process from your local tmux into Lark; Relay moves a session that's already running inside botmux from group A to group B.
 

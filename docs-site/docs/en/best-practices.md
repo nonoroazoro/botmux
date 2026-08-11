@@ -24,7 +24,6 @@ As Shen Han's on-call bot, you'll receive questions from users:
 
 > In the Dashboard's **Roles** panel you can visually configure a role for each bot in each group:
 
-![Dashboard Roles panel](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780057302792_dash-roles.png)
 
 ## Scenario 2 · Alert operations
 
@@ -36,7 +35,6 @@ Monitoring alerts / CI / ticket triggers — let external systems proactively pu
 - **Different on-call directories for different alert bots**: `/oncall bind` each alert bot to the corresponding project directory, so incoming alerts get investigated right in that repository.
 - You can also stack [scheduled tasks](/en/schedule) for **proactive inspection broadcasts**: `/schedule every day at 9:00 check yesterday's alert trends and summarize`, only @ing people when there's an anomaly.
 
-![Dashboard Connectors (Webhook)](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780057303071_dash-connector.png)
 
 ## Scenario 3 · Solo development
 
@@ -47,7 +45,6 @@ One person, multi-bot collaborative development.
 - **Use `/g`(=`/group`) to create groups for collaboration**: create a group with multiple bots developing the same requirement; or use **topic groups with "one topic per requirement"** for naturally isolated context.
 - **Assign a role to each bot for division of labor**: some handle development, others handle review, and combined with `/role` + `/role cap` capability tags, collaboration doesn't clash.
 
-![Dashboard new group (selecting multiple bots)](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033300986_dash-newgroup.png)
 
 ## Scenario 4 · Multi-person collaboration
 
@@ -58,7 +55,6 @@ Multiple people on a team, with their own bots working together.
 - **Team feature (recommended)**: in the Dashboard "Teams" section, tag bots under multiple people's names and pull them into a team for **cross-deployment discovery**, then directly select them to create a group and start collaborating — the main path no longer needs `/introduce`.
 - **Legacy fallback**: only run `@everyone's bot /introduce` when an external bot is missing or shows `mentionable=false`.
 
-![Dashboard Teams · cross-deployment collaboration](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033301213_dash-team.png)
 
 ## General advice (applies to all scenarios)
 

@@ -24,7 +24,6 @@ Go to the Dashboard's **Groups** page, click **Manage** on a group, and in the c
 
 This affects **only this one group** — good for enabling a specific few groups one by one.
 
-![Enable On-Call Mode per group](https://magic-builder.tos-cn-beijing.volces.com/uploads/oncall-group-card.jpg)
 
 ### Option 3: Enable by default per bot (Dashboard)
 
@@ -35,7 +34,6 @@ From then on, **all of the bot's unbound groups** automatically bind to this dir
 > - Groups that were manually bound / manually unbound will **not** be overwritten.
 > - Old groups that already existed **before** the toggle was turned on are unaffected (it only takes effect for subsequent new topics).
 
-![Enable On-Call Mode by default per bot](https://magic-builder.tos-cn-beijing.volces.com/uploads/oncall-bot-default.jpg)
 
 > This corresponds to the `defaultOncall` field in `bots.json`, which can also be edited manually. See [bots.json configuration](/en/bots-json).
 
@@ -60,5 +58,3 @@ From then on, **all of the bot's unbound groups** automatically bind to this dir
 In an on-call group, send `/schedule 每天9:00 检查昨天的报警趋势并总结` to feed a report into the group at a fixed time every day — even when you're off duty, the bot keeps an eye on things for you. The reply card automatically "sends to @asker / cc @owner", so you can stay on top of group activity remotely too.
 
 **Typical scenarios**: duty groups, alert groups (Argos alert analysis), cross-team consultation groups, on-call Q&A.
-
-![On-Call Mode demo](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780419243198_oncall.png)

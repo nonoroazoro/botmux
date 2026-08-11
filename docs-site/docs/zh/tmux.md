@@ -2,7 +2,6 @@
 
 **tmux 是 botmux 的默认后端**（PTY 已退役、不再自动兜底）。装好 tmux 后，CLI 进程常驻在 tmux session 内，**daemon 重启不中断 CLI**——这是「重启会不会丢上下文」这个高频顾虑的答案：不会。
 
-![tmux 会话管理](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033301974_tmux.gif)
 
 ## 为什么重要
 
@@ -37,7 +36,7 @@ attach 进去后你看到的就是和本地开发完全一致的终端——这�
 
 ## 其它后端与显式 pty
 
-默认只有 tmux（默认）与 pty（应急）与你日常相关；`zellij` / `herdr` 也是可选后端，按需通过 `BACKEND_TYPE` 或 per-bot `backendType` 显式启用，不影响默认。`riff` 则不同——它**随 riff CLI 配对启用**（`cliId===riff ⇔ backendType===riff`，强制绑定），不能像 zellij/herdr 那样给普通 CLI 单独选。
+默认只有 tmux（默认）与 pty（应急）与你日常相关。`zellij` / `herdr` 也是可选后端，按需通过 `BACKEND_TYPE` 或 per-bot `backendType` 显式启用，不影响默认。
 
 ```bash
 # 显式用纯 pty 模式（不使用 tmux）——仅应急

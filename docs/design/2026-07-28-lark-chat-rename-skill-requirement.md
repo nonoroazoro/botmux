@@ -233,7 +233,7 @@ Skill 对 AI 提供以下默认策略：
 
 - 平台：首期仅支持飞书/Lark；其他 IM 返回 `unsupported_platform`。
 - CLI：能力通过 botmux CLI 暴露，与 Claude Code、Codex 等底层 AI CLI 无关。
-- 后端：PTY、tmux、zellij、riff 等会话后端行为一致。
+- 后端：PTY、tmux、zellij 等会话后端行为一致。
 - 会话：仅群会话可用；单聊、无群绑定的 workflow、脱离飞书上下文的本地会话不可用。
 - 多 bot：每个 bot 独立鉴权、独立审计，不做凭据回退。
 - Sandbox：AI 不直接访问凭据，CLI 通过 daemon/受控服务执行飞书写操作。

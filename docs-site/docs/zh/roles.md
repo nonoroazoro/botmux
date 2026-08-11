@@ -21,7 +21,6 @@
 
 > 💡 **默认角色**最直观的设置方式是在 `botmux dashboard` 的 **Bot 配置** 页——每个 bot 卡片都有「**默认角色**」编辑器（和 `/role team set` 写的是同一份配置；它是 bot 级的全局默认人设，放在 Bot 配置更合适）。**团队**面板里只做**只读查看**入口，编辑统一去 Bot 配置页。
 
-![Dashboard Bot 配置 — 默认角色编辑器](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780051089378_default-role-shot.png)
 
 ## Role Profile
 
@@ -76,7 +75,6 @@ Role + 能力标签是[多机器人协作](/multi-bot)的基础设施：给每�
 
 在 `botmux dashboard` 的 **团队** 面板，可以把**别人的部署**（同事自己跑的 botmux）邀请进同一个团队，互相发现机器人、跨部署协作拉群。
 
-![Dashboard 团队 — 跨部署协作](https://magic-builder.tos-cn-beijing.volces.com/uploads/1780033301213_dash-team.png)
 
 - **绑定身份**：用机器人凭证自动识别你的飞书身份；绑定后拉群会把你拉进群、机器人也归到你名下。
 - **团队花名册**：聚合本部署 + 已加入团队的所有机器人（可跨部署），可按名称 / 能力 / CLI 搜索筛选，并标注谁有能力标签 / 默认角色（角色在此**只读查看**，编辑去 Bot 配置页）。

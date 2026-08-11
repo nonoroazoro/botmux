@@ -1,9 +1,9 @@
 # Multi-CLI Adapters
 
-botmux bridges different CLIs / agents through adapters, selected via `cliId` in `bots.json` — one-click switching. **Local adapters each run as their own process** (under the default tmux backend you can `tmux attach` into the real process; explicit pty/zellij/herdr backends differ); a few are integrated over API / remotely (e.g. Mira, riff) and are not local processes.
+botmux bridges different CLIs and agents through adapters selected via `cliId` in `bots.json`. **Local adapters each run as their own process**. Under the default tmux backend you can `tmux attach` into the real process; explicit pty, zellij, and herdr backends differ.
 
 **Applies to**: when you want to switch the underlying CLI, or wire up a new tool, and need its `cliId` and whether it takes a `model` param.
-**Doesn't apply**: strict Codex-compatible distributions and wrappers / gateways (ccr, aiden x claude, …) do not need new adapters — see [Codex-compatible distributions](#codex-compatible-distributions) and [Wrapper / gateway integration](#wrapper--gateway-integration) below.
+**Doesn't apply**: strict Codex-compatible distributions and generic wrappers / gateways do not need new adapters. See [Codex-compatible distributions](#codex-compatible-distributions) and [Wrapper / gateway integration](#wrapper--gateway-integration) below.
 
 ## Supported CLIs / Agents
 
@@ -24,53 +24,13 @@ The table lists the current built-in adapters (the **authoritative source** for 
 | `kiro-cli` | Kiro | local process | |
 | `pi` | Pi | local process | |
 | `oh-my-pi` | Oh-My-Pi (Pi fork) | local process | ✅ |
-| `aiden` | Aiden | local process | |
 | `coco` | CoCo / Trae (requires ≥ 0.120.32) | local process | ✅ |
 | `traex` | TRAE CLI (traex) | local process | ✅ |
 | `mtr` | MTR | local process | |
 | `hermes` | Hermes | local process | |
 | `genius` | Genius | local process | ✅ |
-| `seed` | Seed (Claude Code fork) | local process | ✅ |
-| `relay` | Relay (new release of Seed) | local process | ✅ |
-| `mira` | Mira APP | API / remote | |
-| `mir` | Mir CLI (local mircli + MCP bridge) | local process | |
-| `riff` | riff | cloud agent (API) | |
 
-> The `model` field only takes effect for adapters that support a model parameter; others ignore it. Mir CLI's extra prerequisites (login / miramcp) are in the section below.
-
-## Mir CLI and MCP Bridge
-
-When you choose **Mira -> Mir CLI (local mircli)** in `botmux setup`, the bot is configured with `cliId: "mir"`. This adapter runs the local `mircli -p --lean`, so the same system user that runs the botmux daemon must already have Mir CLI authenticated and initialized.
-
-BotMux does not need any DevBox-specific configuration. The same rules apply on DevBox, local macOS, or other Linux machines:
-
-- `mircli` can be found by botmux, or the bot config points `cliPathOverride` at the absolute `mircli` path.
-- `~/.mira/config.json` already contains a `device_id`. This is usually written by `mircli mcp --device-id <id>` or Mir CLI's own initialization flow.
-- `miramcp` is installed in a standard Mir CLI location such as `~/.local/bin/miramcp` or `~/.local/bin/mira_cli`, or `MIRAMCP_BIN` points at the executable.
-
-When a `cliId: "mir"` session starts and receives a message, BotMux best-effort starts the MCP Bridge before invoking `mircli`:
-
-```bash
-miramcp run --device-id <device_id>
-```
-
-It first checks `~/.mira/miramcp/miramcp.pid` and local port `9801`, so an already-running bridge is reused instead of started twice. To inspect the bridge, run this as the same user that runs the botmux daemon:
-
-```bash
-mircli mcp status
-```
-
-To disable this autostart behavior, either set this in `~/.mira/config.json`:
-
-```json
-{"auto_start_bridge": false}
-```
-
-or disable it only for BotMux:
-
-```bash
-MIRCLI_AUTO_START_MIRAMCP=0 botmux start
-```
+> The `model` field only takes effect for adapters that support a model parameter; others ignore it.
 
 ## Codex-compatible distributions
 
@@ -82,7 +42,7 @@ See the [`bots.json` Codex-compatible distributions section](/en/bots-json#codex
 
 ## Wrapper / gateway integration
 
-In many cases you don't run the native CLI directly but wrap it with a gateway / router (internal proxy + SSO, model routing, etc.), such as `ccr`, `ttadk`, `aiden x claude`, `aiden x codex`. In this case you **don't need a new adapter**: `cliId` still holds the real underlying CLI (`claude-code` / `codex` …), and you only swap the launch entry point for a **wrapper script**, pointing to it with `cliPathOverride` (the "CLI executable path override" when editing a bot in `botmux setup` is exactly this).
+In many cases you don't run the native CLI directly but wrap it with a gateway or router, such as `ccr` or another custom launcher. In this case you **don't need a new adapter**: `cliId` still holds the real underlying CLI (`claude-code` / `codex` …), and you only swap the launch entry point for a **wrapper script**, pointing to it with `cliPathOverride` (the "CLI executable path override" when editing a bot in `botmux setup` is exactly this).
 
 **Four general steps:**
 
@@ -93,8 +53,6 @@ In many cases you don't run the native CLI directly but wrap it with a gateway /
 
 For the **specific wrapper scripts** of each gateway, use the docs published by the corresponding CLI / gateway team. This public repository intentionally does not include internal document links or copied internal content.
 
-- **aiden × claude / aiden × codex** — aiden×codex needs `script` to force a PTY
-- **ttadk** — pay attention to wrapper argument forwarding and login state
 - **MTR** — community-contributed, `npm i -g @metamove-code/mtr-cli@latest`
 >
 > A general technique for troubleshooting wrapper issues: run `botmux logs`, find the `Spawning fresh CLI:` line, copy the full command, and run it manually locally to pinpoint the problem (permissions / argument blacklist / login state).
