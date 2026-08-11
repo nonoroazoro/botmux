@@ -109,6 +109,7 @@ import {
 import {
   detachWorkerForTransfer,
   initWorkerPool,
+  retireWorkerForDaemonShutdown,
   __testOnly_setupWorkerHandlers,
 } from '../src/core/worker-pool.js';
 import { dashboardEventBus } from '../src/core/dashboard-events.js';
@@ -460,6 +461,42 @@ describe('worker-pool lifecycle hook integration', () => {
     expect(dashboardEventBus.publish).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'session.exited' }),
     );
+  });
+
+  it('graceful shutdown preserves a persistent worker sandbox through acknowledged detach', async () => {
+    const worker = makeFakeWorker();
+    worker.connected = true;
+    worker.exitCode = null;
+    worker.signalCode = null;
+    worker.send = vi.fn((
+      message: { type: string; requestId?: string },
+      callback?: (error: Error | null) => void,
+    ) => {
+      callback?.(null);
+      if (message.type !== 'detach_for_transfer') return;
+      queueMicrotask(() => {
+        worker.emit('message', {
+          type: 'transfer_detached',
+          requestId: message.requestId,
+        });
+        worker.exitCode = 0;
+        worker.emit('exit', 0, null);
+      });
+    });
+    const ds = makeDs({ worker });
+    ds.session.backendType = 'tmux';
+
+    await expect(retireWorkerForDaemonShutdown(ds, 100)).resolves.toBe(true);
+
+    expect(worker.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'detach_for_transfer' }),
+      expect.any(Function),
+    );
+    expect(worker.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'close' }),
+      expect.anything(),
+    );
+    expect(worker.kill).not.toHaveBeenCalledWith('SIGTERM');
   });
 
   it('forwards exact durable_expiry_ready evidence with worker generation', async () => {

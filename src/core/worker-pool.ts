@@ -63,7 +63,7 @@ import {
   isStrongManagedHerdrAgentName,
   managedHerdrAgentName,
 } from '../adapters/backend/session-backend-selector.js';
-import { isSuspendableBackendType, getSessionPersistentBackendType, persistentBackendTargetForSession, persistentSessionName, killPersistentBackendTarget, killPersistentSession, probePersistentBackendTarget, resolvePairedSpawnBackendType, resolvePersistentBackendTarget } from './persistent-backend.js';
+import { isSuspendableBackendType, getSessionPersistentBackendType, persistentBackendTargetForSession, persistentSessionName, killPersistentBackendTarget, killPersistentSession, probePersistentBackendTarget, resolvePairedSpawnBackendType, resolvePersistentBackendTarget, shutdownBackendDisposition } from './persistent-backend.js';
 import { effectiveDefaultWorkingDir, getBot, getAllBots, loadBotConfigs, resolveBrandLabel, getLoadedConfigPath, resolveUsageDisplay } from '../bot-registry.js';
 import { RestartCoordinator, type RestartObserver } from './restart-coordinator.js';
 import { runtimeBuildIdentity } from '../utils/runtime-build-id.js';
@@ -1927,6 +1927,25 @@ export async function detachWorkerForTransfer(
   }
 
   clearTransferWorkerState(ds, w, 'detachWorkerForTransfer');
+  return true;
+}
+
+/**
+ * Retire one worker during daemon shutdown without destroying a persistent
+ * backend or its sandbox relay. Persistent sessions use the acknowledged
+ * detach path so the worker disarms sandbox cleanup before it exits. Sending
+ * SIGTERM directly would leave tmux alive while deleting the host-side outbox
+ * bound into its bwrap process, permanently breaking `botmux send` after the
+ * daemon reattaches.
+ */
+export async function retireWorkerForDaemonShutdown(
+  ds: DaemonSession,
+  detachTimeoutMs: number,
+): Promise<boolean> {
+  if (shutdownBackendDisposition(ds) === 'detach') {
+    return detachWorkerForTransfer(ds, { timeoutMs: detachTimeoutMs });
+  }
+  killWorker(ds);
   return true;
 }
 

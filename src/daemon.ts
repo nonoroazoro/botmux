@@ -124,6 +124,7 @@ import {
   sendWorkerInput,
   sendWorkerSessionInput,
   killWorker,
+  retireWorkerForDaemonShutdown,
   reapOrphanWorkers,
   scheduleCardPatch,
   setCurrentCliVersion,
@@ -345,7 +346,6 @@ import { normalizeBrand } from './im/lark/lark-hosts.js';
 import { buildDocCommentTurnInput, buildDocWatchWarmupTurnInput } from './core/doc-comment-prompt.js';
 import { advanceDocCommentCursor, docCommentRepliesAfterCursor, latestDocCommentPollCursor } from './core/doc-comment-poller.js';
 import { renderBufferedSenderBlock } from './core/session-manager.js';
-import { shutdownBackendDisposition } from './core/persistent-backend.js';
 import { evaluateVcMeetingConsumerIsolation } from './services/vc-meeting-consumer-isolation.js';
 import {
   markSessionActivity,
@@ -19612,8 +19612,9 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     overloadTimer.unref?.();
   }
 
-  // Graceful shutdown. Sends SIGTERM (or `{type:'close'}` IPC via killWorker)
-  // to every worker, then waits up to SHUTDOWN_GRACE_MS for them to exit
+  // Graceful shutdown. Persistent workers receive an acknowledged detach that
+  // preserves their backend and sandbox relay. Other workers receive
+  // `{type:'close'}` through killWorker. Wait up to SHUTDOWN_GRACE_MS for exit
   // before sending SIGKILL to stragglers. Without the wait, daemon
   // `process.exit(0)` races worker signal delivery — and any worker whose
   // main thread is in a sync code path (e.g. the bridge fingerprint scan
@@ -19671,27 +19672,16 @@ export async function startDaemon(botIndex?: number): Promise<void> {
           }));
           survivors.push(w);
         }
-        // Branch by the session's FROZEN backend (stamped on Session.backendType
-        // at spawn), NOT the bot's live config — a dashboard backendType edit must
-        // not change how a running session is torn down, or we'd e.g. try to
-        // detach-preserve a "herdr" session whose real pane is tmux (freeze-once).
-        // undefined (frozen pty, or unresolvable legacy) → non-persistent → killWorker.
-        if (shutdownBackendDisposition(ds) === 'detach') {
-          // Persistent backends (tmux / herdr / zellij / zmx): just kill the worker process —
-          // the multiplexer session survives for re-attach. The worker's SIGTERM
-          // handler calls backend.kill(), which only DETACHES. Going through
-          // killWorker() instead would send {type:'close'} → destroySession() →
-          // `zellij delete-session -f`, permanently erasing the session and
-          // breaking daemon-restart reattach (the blocker Codex flagged).
-          try { w.kill('SIGTERM'); } catch { /* ignore */ }
-          ds.worker = null;
-          ds.workerPort = null;
-          ds.workerToken = null;
-          ds.workerViewToken = null;
-          ds.managedTurnOrigin = undefined;
-        } else {
-          killWorker(ds);
-        }
+        // The detach timeout leaves headroom for the shutdown-level SIGKILL
+        // backstop. A timeout is still safe: detachWorkerForTransfer uses
+        // SIGKILL, which cannot run worker-side sandbox cleanup.
+        void retireWorkerForDaemonShutdown(ds, SHUTDOWN_GRACE_MS - 750)
+          .then((ok) => {
+            if (!ok) logger.warn(`Worker shutdown detach did not acknowledge for session ${ds.session.sessionId}`);
+          })
+          .catch((err) => {
+            logger.warn(`Worker shutdown failed for session ${ds.session.sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+          });
       }
     }
 
