@@ -66,6 +66,28 @@ describe('buildLayoutString', () => {
     expect(kdl).toContain('"claude"');
     expect(kdl).toContain('"--resume"');
     expect(kdl).toContain('"abc"');
+    expect(kdl).not.toContain('unset HOME GIT_CONFIG_GLOBAL');
+  });
+
+  it('injects isolated HOME and Git fallback after shell startup', () => {
+    const kdl = buildLayoutString('codex', [], {
+      cwd: '/users/alice/workspace',
+      cols: 120,
+      rows: 40,
+      env: {
+        HOME: '/users/alice/home',
+        GIT_CONFIG_SYSTEM: '/users/alice/home/.botmux-gitconfig',
+        XDG_CONFIG_HOME: '/users/alice/home/.config',
+      },
+      isolatedUserHome: true,
+    });
+
+    expect(kdl).toContain('"HOME=/users/alice/home"');
+    expect(kdl).toContain('"GIT_CONFIG_SYSTEM=/users/alice/home/.botmux-gitconfig"');
+    expect(kdl).toContain('"XDG_CONFIG_HOME=/users/alice/home/.config"');
+    expect(kdl).toContain('unset HOME GIT_AUTHOR_EMAIL GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL');
+    expect(kdl).toContain('GIT_CONFIG_SYSTEM GIT_SSH GIT_SSH_COMMAND GIT_SSH_VARIANT');
+    expect(kdl).toContain('SSH_AGENT_PID SSH_AUTH_SOCK XDG_CONFIG_HOME');
   });
 });
 

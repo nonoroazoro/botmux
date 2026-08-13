@@ -32,6 +32,8 @@ export interface SpawnOpts {
   cols: number;
   rows: number;
   env: Record<string, string>;
+  /** Whether this process belongs to a principal-specific isolated home. */
+  isolatedUserHome?: boolean;
   /**
    * Per-bot env (bots.json `env`) to inject into the CLI process ONLY. Kept
    * separate from `env` on purpose: the persistent backends (tmux/zellij/zmx) must

@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 import type { MultiUserIsolationConfig } from '../bot-registry.js';
+import { provisionMultiUserGitIdentity } from './multi-user-git-identity.js';
 
 export interface MultiUserSessionPaths {
   homeDir: string;
@@ -18,6 +19,19 @@ function expandHome(path: string): string {
 function isWithin(parent: string, child: string): boolean {
   const rel = relative(parent, child);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function ensurePrivateDirectory(path: string): void {
+  try {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error(`multi-user isolation path must be a real directory: ${path}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    mkdirSync(path, { mode: 0o700 });
+  }
+  chmodSync(path, 0o700);
 }
 
 export function resolveMultiUserSessionPaths(input: {
@@ -64,15 +78,9 @@ export function resolveMultiUserSessionPaths(input: {
     mkdirSync(path, { recursive: true, mode: 0o700 });
     chmodSync(path, 0o700);
   }
+  ensurePrivateDirectory(resolve(homeDir, '.ssh'));
   const gitIdentity = input.config.defaultGitIdentity;
-  const gitConfigPath = resolve(homeDir, '.gitconfig');
-  if (gitIdentity && !existsSync(gitConfigPath)) {
-    if (/\r|\n/u.test(gitIdentity.name) || /\r|\n/u.test(gitIdentity.email)) {
-      throw new Error('multiUserIsolation.defaultGitIdentity cannot contain newlines');
-    }
-    const body = `[user]\n\tname = ${gitIdentity.name}\n\temail = ${gitIdentity.email}\n`;
-    writeFileSync(gitConfigPath, body, { mode: 0o600 });
-  }
+  if (gitIdentity) provisionMultiUserGitIdentity(homeDir, gitIdentity);
 
   const sharedCodexHome = input.config.sharedCodexHome
     ? resolve(expandHome(input.config.sharedCodexHome))

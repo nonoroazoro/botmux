@@ -4,7 +4,12 @@ import { basename } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { SessionBackend, SpawnOpts, SessionProbe } from './types.js';
 import { probeTmuxFunctional, scrubTmuxServerGlobalEnv, tmuxEnv } from '../../setup/ensure-tmux.js';
-import { BOTMUX_INJECTED_ENV_KEYS, PROXY_ENV_KEYS, REDACTED_CHILD_ENV_KEYS } from '../../utils/child-env.js';
+import {
+  BOTMUX_INJECTED_ENV_KEYS,
+  ISOLATED_USER_ENV_KEYS,
+  PROXY_ENV_KEYS,
+  REDACTED_CHILD_ENV_KEYS,
+} from '../../utils/child-env.js';
 import { sanitizePerBotEnv } from '../../core/per-bot-env.js';
 import { logger } from '../../utils/logger.js';
 import { isExecutable } from '../../utils/executable.js';
@@ -24,6 +29,7 @@ const PANE_ENV_UNSET_KEYS = [...new Set([
   ...BOTMUX_INJECTED_ENV_KEYS,
 ])];
 const PANE_ENV_UNSET_CLAUSE = `unset ${PANE_ENV_UNSET_KEYS.join(' ')}`;
+const ISOLATED_USER_ENV_UNSET_CLAUSE = `unset HOME ${ISOLATED_USER_ENV_KEYS.join(' ')}`;
 
 /** Guard so the fallback self-heal runs at most once in this worker process. */
 let serverGlobalEnvScrubbed = false;
@@ -229,7 +235,7 @@ export class TmuxBackend implements SessionBackend {
     // session's socket. After the user's terminal tmux dies, every call
     // here would print `error connecting to <stale-socket>` to the PTY and
     // flood the daemon log via the leaked-stderr path.
-    const childEnv = tmuxEnv(opts.env);
+    const childEnv = tmuxEnv(opts.env, opts.isolatedUserHome);
 
     if (this.reattaching) {
       // Re-attach to surviving tmux session (CLI is still running)
@@ -279,7 +285,11 @@ export class TmuxBackend implements SessionBackend {
       //     could `unset` or `export` over it before the CLI sees it. env(1)
       //     injection happens after rcfile load and is authoritative.
       const shellSpec = resolveUserShell(process.env, opts.launchShell);
-      const envAssignments = buildBotmuxEnvAssignments(opts.env, opts.injectEnv);
+      const envAssignments = buildBotmuxEnvAssignments(
+        opts.env,
+        opts.injectEnv,
+        opts.isolatedUserHome,
+      );
       // Debug knob — when on, the wrapper does NOT `exec` the CLI; it runs the
       // CLI as a child and then drops into an interactive `$shell -i` so the
       // user can poke at PATH / NVM / pnpm in the web terminal after exiting
@@ -293,8 +303,8 @@ export class TmuxBackend implements SessionBackend {
       // per-session env the daemon assembled, not the scrubbed pane env.
       const wrapperBinDir = resolveBotmuxWrapperBinDir(opts.env ?? process.env);
       const script = debugKeepShell
-        ? buildDebugKeepShellScript(shellSpec.shell, wrapperBinDir)
-        : shellWrapperScript(wrapperBinDir);
+        ? buildDebugKeepShellScript(shellSpec.shell, wrapperBinDir, opts.isolatedUserHome)
+        : shellWrapperScript(wrapperBinDir, opts.isolatedUserHome);
       if (debugKeepShell) {
         logger.info(
           `[tmux:${this.sessionName}] BOTMUX_DEBUG_KEEP_SHELL=1 — CLI exit will drop ` +
@@ -557,7 +567,7 @@ export class TmuxBackend implements SessionBackend {
       cols: opts.cols,
       rows: opts.rows,
       cwd: opts.cwd,
-      env: tmuxEnv(opts.env),
+      env: tmuxEnv(opts.env, opts.isolatedUserHome),
     });
   }
 
@@ -625,6 +635,7 @@ export function shellLaunchArgv(shell: string, flags: string[]): string[] {
 export function buildBotmuxEnvAssignments(
   env: NodeJS.ProcessEnv | undefined,
   injectEnv?: Record<string, string>,
+  isolatedUserHome = false,
 ): string[] {
   const out: string[] = [];
   if (env) {
@@ -632,6 +643,14 @@ export function buildBotmuxEnvAssignments(
       const val = env[key];
       if (val === undefined) continue;
       out.push(`${key}=${val}`);
+    }
+    if (isolatedUserHome) {
+      for (const key of ISOLATED_USER_ENV_KEYS) {
+        const val = env[key];
+        if (val === undefined) continue;
+        out.push(`${key}=${val}`);
+      }
+      if (env.HOME !== undefined) out.push(`HOME=${env.HOME}`);
     }
     // Proxy vars are not in BOTMUX_INJECTED_ENV_KEYS (which drives tmuxEnv
     // stripping + server-global scrub) — inject them explicitly here so the
@@ -683,9 +702,10 @@ export function buildBotmuxEnvAssignments(
  * assignments only land at the final `exec /usr/bin/env`, too late). So the daemon
  * computes it from opts.env via resolveBotmuxWrapperBinDir and single-quotes it in.
  */
-export function shellWrapperScript(binDir: string): string {
+export function shellWrapperScript(binDir: string, isolatedUserHome = false): string {
   const q = `'${binDir.replace(/'/g, `'\\''`)}'`;
-  return `cd -- "$1" && shift && ${PANE_ENV_UNSET_CLAUSE} && ${NON_INTERACTIVE_SHELL_ENV_UNSET_CLAUSE} && export PATH=${q}:"$PATH" && exec /usr/bin/env "$@"`;
+  const isolatedUnset = isolatedUserHome ? ` && ${ISOLATED_USER_ENV_UNSET_CLAUSE}` : '';
+  return `cd -- "$1" && shift && ${PANE_ENV_UNSET_CLAUSE}${isolatedUnset} && ${NON_INTERACTIVE_SHELL_ENV_UNSET_CLAUSE} && export PATH=${q}:"$PATH" && exec /usr/bin/env "$@"`;
 }
 
 export const DIAGNOSTIC_SHELL_SCRIPT = [
@@ -712,7 +732,11 @@ export const DIAGNOSTIC_SHELL_SCRIPT = [
  * it via accessSync(). `binDir` is the HOST-RESOLVED wrapper bin dir (same
  * literal-baking rationale as shellWrapperScript — pane can't resolve it).
  */
-export function buildDebugKeepShellScript(shellPath: string, binDir: string): string {
+export function buildDebugKeepShellScript(
+  shellPath: string,
+  binDir: string,
+  isolatedUserHome = false,
+): string {
   const safeShell = shellPath.replace(/'/g, `'\\''`);
   const qBin = `'${binDir.replace(/'/g, `'\\''`)}'`;
   return [
@@ -720,6 +744,7 @@ export function buildDebugKeepShellScript(shellPath: string, binDir: string): st
     // Same managed-env cleanup as shellWrapperScript — so neither the CLI nor
     // the interactive debug shell sees stale server/rcfile-owned values.
     PANE_ENV_UNSET_CLAUSE,
+    ...(isolatedUserHome ? [ISOLATED_USER_ENV_UNSET_CLAUSE] : []),
     // The pre-rcfile launch override must not reach the CLI or debug shell.
     NON_INTERACTIVE_SHELL_ENV_UNSET_CLAUSE,
     // Same PATH prepend as shellWrapperScript (wrapper build wins over stale npm-global).

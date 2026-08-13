@@ -14,6 +14,7 @@
  * in 0.44.0 and older zellij is not a viable backend.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
+import { isIsolatedUserEnvKey } from '../utils/child-env.js';
 
 /** Minimum zellij version with the full CLI-automation surface we depend on. */
 export const MIN_ZELLIJ_VERSION = { major: 0, minor: 44, patch: 0 };
@@ -27,8 +28,16 @@ export const MIN_ZELLIJ_VERSION = { major: 0, minor: 44, patch: 0 };
  * session, `attach` nests), so we drop them — the analogue of tmuxEnv()
  * stripping TMUX/TMUX_PANE.
  */
-export function zellijEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const { ZELLIJ: _z, ZELLIJ_SESSION_NAME: _zn, ...rest } = env;
+export function zellijEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  isolatedUserHome = false,
+): NodeJS.ProcessEnv {
+  const rest: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (key === 'ZELLIJ' || key === 'ZELLIJ_SESSION_NAME') continue;
+    if (isolatedUserHome && isIsolatedUserEnvKey(key)) continue;
+    rest[key] = value;
+  }
   return rest;
 }
 

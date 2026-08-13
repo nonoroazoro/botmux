@@ -22,9 +22,11 @@ import { mkdirSync, existsSync, writeFileSync, chmodSync, readdirSync, readFileS
 import { atomicWriteFileSync } from '../../utils/atomic-write.js';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { userInfo } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { compileToBwrap, type FsPolicy } from '../cli/fs-policy.js';
 import { PROXY_ENV_KEYS } from '../../utils/child-env.js';
+import { isolatedSshMountArgs } from './isolated-ssh.js';
 import {
   MCP_GATEWAY_REQUIRED_ENV,
   MCP_GATEWAY_SOCKET_ENV,
@@ -537,6 +539,8 @@ export function prepareDirectSandbox(opts: {
   chdir: string;
   /** Canonical $HOME to set for the child. */
   home: string;
+  /** Mount this isolated user's .ssh at OpenSSH's native home path. */
+  isolatedUserHome?: boolean;
   cliBin: string;
   cliArgs: string[];
   /** Worker-composed PATH, including the isolated user's projected bin dirs. */
@@ -629,6 +633,27 @@ export function prepareDirectSandbox(opts: {
   }
 
   const args = [...compiled.args];
+  if (opts.isolatedUserHome) {
+    try {
+      const currentUser = userInfo();
+      const isolatedSshDir = join(opts.home, '.ssh');
+      const isolatedSshStat = lstatSync(isolatedSshDir);
+      if (isolatedSshStat.isSymbolicLink() || !isolatedSshStat.isDirectory()) {
+        throw new Error('isolated SSH path must be a real directory');
+      }
+      const canonicalIsolatedSshDir = realpathSync(isolatedSshDir);
+      if (canonicalIsolatedSshDir !== isolatedSshDir) {
+        throw new Error('isolated SSH path must remain inside the canonical user home');
+      }
+      args.push(...isolatedSshMountArgs(
+        canonicalIsolatedSshDir,
+        currentUser.homedir,
+      ));
+    } catch {
+      rollbackSandboxSetup(sessionRoot, createdMasks);
+      return null;
+    }
+  }
   // Shim bin at a fixed path under the fresh /run tmpfs — appended after the
   // rule mounts (later mount wins over the tmpfs). PATH points here first.
   args.push('--ro-bind', shimBin, '/run/sbxbin');

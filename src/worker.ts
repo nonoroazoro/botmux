@@ -264,7 +264,13 @@ import {
 import { parseWorkerRequestUrl } from './utils/worker-http.js';
 import { detectCliUsageLimit, usageLimitStateKey, structuredRateLimitState, isStructuredRateLimitAuthoritative, type CliUsageLimitState } from './utils/cli-usage-limit.js';
 import { uploadImageBuffer } from './utils/lark-upload.js';
-import { redactChildEnv, scrubClaudeSessionMarkerEnv, scrubSessionCliHomeEnv } from './utils/child-env.js';
+import { multiUserGitFallbackPath } from './core/multi-user-git-identity.js';
+import {
+  ISOLATED_USER_ENV_KEYS,
+  redactChildEnv,
+  scrubClaudeSessionMarkerEnv,
+  scrubSessionCliHomeEnv,
+} from './utils/child-env.js';
 import { decideSubmitConfirmationAction, type SubmitActivityEvidence } from './services/submit-confirmation.js';
 import { config, resolveChatBotDiscoveryConfig } from './config.js';
 import * as sessionStore from './services/session-store.js';
@@ -8766,12 +8772,17 @@ async function spawnCli(
   // pty/direct-spawn path, whose child inherits childEnv.PATH directly.)
   childEnv.PATH = prependBotmuxBin(resolveBotmuxWrapperBinDir(process.env), childEnv.PATH);
   if (cfg.multiUserHomeDir) {
+    for (const key of ISOLATED_USER_ENV_KEYS) delete childEnv[key];
+    childEnv.HOME = cfg.multiUserHomeDir;
+    childEnv.XDG_CONFIG_HOME = join(cfg.multiUserHomeDir, '.config');
     childEnv.PATH = [
       join(cfg.multiUserHomeDir, '.local', 'bin'),
       join(cfg.multiUserHomeDir, '.npm-global', 'bin'),
       join(cfg.multiUserHomeDir, 'go', 'bin'),
       childEnv.PATH,
     ].filter(Boolean).join(delimiter);
+    const gitFallbackConfig = multiUserGitFallbackPath(cfg.multiUserHomeDir);
+    if (existsSync(gitFallbackConfig)) childEnv.GIT_CONFIG_SYSTEM = gitFallbackConfig;
   }
   // §5 of botmux ask v0.1.7 — `botmux ask buttons` reads these to find the
   // daemon socket, route the card back to this thread, and resolve the
@@ -9315,6 +9326,7 @@ async function spawnCli(
         policy,
         chdir: canonical(cfg.workingDir),
         home: sandboxHome,
+        isolatedUserHome: !!cfg.multiUserHomeDir,
         cliBin: cliAdapter.resolvedBin,
         cliArgs: args,
         pathEnv: cfg.multiUserHomeDir
@@ -9337,6 +9349,12 @@ async function spawnCli(
       spawnBin = sbx.bin;
       spawnArgs = sbx.args;
       Object.assign(childEnv, sbx.env);
+      if (cfg.multiUserHomeDir) {
+        const gitFallbackConfig = multiUserGitFallbackPath(sandboxHome);
+        if (existsSync(gitFallbackConfig)) childEnv.GIT_CONFIG_SYSTEM = gitFallbackConfig;
+        else delete childEnv.GIT_CONFIG_SYSTEM;
+        childEnv.XDG_CONFIG_HOME = join(sandboxHome, '.config');
+      }
       if (sandboxStopWatcher) { try { sandboxStopWatcher(); } catch { /* */ } }
       if (sandboxCleanup) { try { sandboxCleanup(); } catch { /* */ } }
       sandboxCleanup = sbx.cleanup;
@@ -9545,6 +9563,7 @@ async function spawnCli(
     });
     capturedSpawnCommand = buildReproduceCommand({
       backendType: effectiveBackendType,
+      isolatedUserHome: !!cfg.multiUserHomeDir,
       bin: reproduceLaunch.bin,
       args: reproduceLaunch.args,
       cwd: spawnCwd,
@@ -9561,6 +9580,7 @@ async function spawnCli(
     cols: PTY_COLS,
     rows: PTY_ROWS,
     env: childEnv as Record<string, string>,
+    isolatedUserHome: !!cfg.multiUserHomeDir,
     injectEnv: perBotInjectKeys.length ? perBotInjectEnv : undefined,
     launchShell: lastInitConfig?.launchShell,
   });

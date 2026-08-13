@@ -616,7 +616,11 @@ export class TmuxPipeBackend implements SessionBackend {
 
   private createDetachedSession(bin: string, args: string[], opts: SpawnOpts): void {
     const shellSpec = resolveUserShell(process.env, opts.launchShell);
-    const envAssignments = buildBotmuxEnvAssignments(opts.env, opts.injectEnv);
+    const envAssignments = buildBotmuxEnvAssignments(
+      opts.env,
+      opts.injectEnv,
+      opts.isolatedUserHome,
+    );
     execFileSync('tmux', [
       'new-session',
       '-d',
@@ -624,7 +628,10 @@ export class TmuxPipeBackend implements SessionBackend {
       '-x', String(opts.cols),
       '-y', String(opts.rows),
       '--',
-      ...shellLaunchArgv(shellSpec.shell, shellSpec.flags), '-c', shellWrapperScript(resolveBotmuxWrapperBinDir(opts.env ?? process.env)), '_',
+      ...shellLaunchArgv(shellSpec.shell, shellSpec.flags), '-c', shellWrapperScript(
+        resolveBotmuxWrapperBinDir(opts.env ?? process.env),
+        opts.isolatedUserHome,
+      ), '_',
       opts.cwd,
       ...envAssignments,
       bin, ...args,
@@ -632,7 +639,7 @@ export class TmuxPipeBackend implements SessionBackend {
       cwd: opts.cwd,
       stdio: 'ignore',
       timeout: 5000,
-      env: tmuxEnv(opts.env),
+      env: tmuxEnv(opts.env, opts.isolatedUserHome),
     });
     this.applySessionOptions();
   }

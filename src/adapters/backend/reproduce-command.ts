@@ -51,6 +51,7 @@ export function selectReproduceLaunch(input: {
 
 export interface ReproduceCommandInput {
   backendType: BackendType;
+  isolatedUserHome?: boolean;
   /** CLI 自身的可执行文件（cliAdapter.resolvedBin，或 wrapperCli 改写后的启动器）。
    *  应为**未被 sandbox 包装**的形态。 */
   bin: string;
@@ -73,7 +74,11 @@ export function buildReproduceCommand(input: ReproduceCommandInput): string | nu
 
   const parts: string[] = [];
   // 权威注入 env（KEY=VAL 列表），VAL 做 bash 转义后作为命令前缀。
-  for (const assignment of buildBotmuxEnvAssignments(input.env, input.injectEnv)) {
+  for (const assignment of buildBotmuxEnvAssignments(
+    input.env,
+    input.injectEnv,
+    input.isolatedUserHome,
+  )) {
     const eq = assignment.indexOf('=');
     if (eq <= 0) continue;
     const key = assignment.slice(0, eq);

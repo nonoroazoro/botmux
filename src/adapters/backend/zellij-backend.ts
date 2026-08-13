@@ -144,7 +144,7 @@ export class ZellijBackend implements SessionBackend {
 
     const { configPath, layoutPath } = this.writeRuntimeFiles(bin, args, opts);
     this.configPath = configPath;
-    const childEnv = zellijEnv(opts.env);
+    const childEnv = zellijEnv(opts.env, opts.isolatedUserHome);
 
     // Fresh: `--new-session-with-layout <file>` FORCES a new named session with
     // our layout (plain `--session … --layout-string` instead ATTACHES to the
@@ -300,7 +300,11 @@ export function kdlString(s: string): string {
  */
 export function buildLayoutString(bin: string, args: string[], opts: SpawnOpts): string {
   const shellSpec = resolveUserShell(process.env, opts.launchShell);
-  const envAssignments = buildBotmuxEnvAssignments(opts.env, opts.injectEnv);
+  const envAssignments = buildBotmuxEnvAssignments(
+    opts.env,
+    opts.injectEnv,
+    opts.isolatedUserHome,
+  );
   // shellLaunchArgv() returns ['/usr/bin/env', 'DISABLE_AUTO_UPDATE=true',
   // shell, ...flags] — the env(1) prefix sets the startup-only override BEFORE
   // rcfile load so oh-my-zsh update prompts don't block shell startup. The
@@ -308,7 +312,10 @@ export function buildLayoutString(bin: string, args: string[], opts: SpawnOpts):
   // command; the rest are leading args before the wrapper script flags.
   const [cmd, ...launchArgs] = shellLaunchArgv(shellSpec.shell, shellSpec.flags);
   const paneArgs = [
-    ...launchArgs, '-c', shellWrapperScript(resolveBotmuxWrapperBinDir(opts.env ?? process.env)), '_',
+    ...launchArgs, '-c', shellWrapperScript(
+      resolveBotmuxWrapperBinDir(opts.env ?? process.env),
+      opts.isolatedUserHome,
+    ), '_',
     opts.cwd,
     ...envAssignments,
     bin, ...args,

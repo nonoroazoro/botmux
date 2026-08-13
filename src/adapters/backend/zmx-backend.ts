@@ -2314,13 +2314,17 @@ export function buildZmxLaunchFiles(
   releaseToken: string,
 ): { bootstrap: string; payload: string } {
   const shellSpec = resolveUserShell(process.env, opts.launchShell);
-  const envAssignments = buildBotmuxEnvAssignments(opts.env, opts.injectEnv)
+  const envAssignments = buildBotmuxEnvAssignments(
+    opts.env,
+    opts.injectEnv,
+    opts.isolatedUserHome,
+  )
     .filter(assignment => !/^ZMX_(?:SESSION|SESSION_PREFIX)=/.test(assignment));
   const debugKeepShell = process.env.BOTMUX_DEBUG_KEEP_SHELL === '1';
   const wrapperBinDir = resolveBotmuxWrapperBinDir(opts.env ?? process.env);
   const wrapped = debugKeepShell
-    ? buildDebugKeepShellScript(shellSpec.shell, wrapperBinDir)
-    : shellWrapperScript(wrapperBinDir);
+    ? buildDebugKeepShellScript(shellSpec.shell, wrapperBinDir, opts.isolatedUserHome)
+    : shellWrapperScript(wrapperBinDir, opts.isolatedUserHome);
   const payloadArgv = [opts.cwd, ...envAssignments, bin, ...args];
   const payload = `set -- ${payloadArgv.map(shellSingleQuote).join(' ')}\n`;
   const userScript = [
@@ -2493,7 +2497,11 @@ function createZmxLaunchPayload(bin: string, args: string[], opts: SpawnOpts): Z
 /** Strip every payload-delivered key from ZMX control subprocesses. */
 export function zmxControlEnv(opts: SpawnOpts): NodeJS.ProcessEnv {
   const env = zmxEnv(opts.env);
-  for (const assignment of buildBotmuxEnvAssignments(opts.env, opts.injectEnv)) {
+  for (const assignment of buildBotmuxEnvAssignments(
+    opts.env,
+    opts.injectEnv,
+    opts.isolatedUserHome,
+  )) {
     const equals = assignment.indexOf('=');
     if (equals > 0) delete env[assignment.slice(0, equals)];
   }

@@ -223,6 +223,34 @@ export const BOTMUX_INJECTED_ENV_KEYS = [
   'CLAUDE_CODE_RESUME_TOKEN_THRESHOLD',
 ] as const;
 
+/**
+ * Standard process environment that botmux scopes to one isolated user.
+ *
+ * These keys use their native tool semantics. They are intentionally separate
+ * from {@link BOTMUX_INJECTED_ENV_KEYS}: a shared tmux server may legitimately
+ * have its own HOME or Git configuration, so botmux must not scrub those values
+ * from the server globally. Persistent backends clear them only in the managed
+ * pane, then inject the session-specific values after shell startup.
+ */
+export const ISOLATED_USER_ENV_KEYS = [
+  'GIT_AUTHOR_EMAIL',
+  'GIT_AUTHOR_NAME',
+  'GIT_COMMITTER_EMAIL',
+  'GIT_COMMITTER_NAME',
+  'GIT_CONFIG',
+  'GIT_CONFIG_COUNT',
+  'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_NOSYSTEM',
+  'GIT_CONFIG_PARAMETERS',
+  'GIT_CONFIG_SYSTEM',
+  'GIT_SSH',
+  'GIT_SSH_COMMAND',
+  'GIT_SSH_VARIANT',
+  'SSH_AGENT_PID',
+  'SSH_AUTH_SOCK',
+  'XDG_CONFIG_HOME',
+] as const;
+
 /** Proxy env vars that must reach the CLI child process so it can dial the
  *  upstream API on hosts without direct internet access. Forwarded explicitly
  *  by buildBotmuxEnvAssignments (tmux/tmux-pipe/zellij backends) and
@@ -269,6 +297,14 @@ const TMUX_SERVER_GLOBAL_SCRUB_KEYS: ReadonlySet<string> = new Set([
  */
 export function isBotmuxManagedTmuxEnvKey(key: string): boolean {
   return key.startsWith('BOTMUX') || TMUX_CLIENT_STRIP_KEYS.has(key);
+}
+
+/**
+ * Whether a per-session isolated-user value must stay out of shared backend
+ * server state. These keys are injected into the managed pane separately.
+ */
+export function isIsolatedUserEnvKey(key: string): boolean {
+  return key === 'HOME' || (ISOLATED_USER_ENV_KEYS as readonly string[]).includes(key);
 }
 
 /**

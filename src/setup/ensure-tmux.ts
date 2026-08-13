@@ -27,6 +27,7 @@ import { detectPlatform, type PackageManager, type PlatformInfo } from './detect
 import {
   isBotmuxManagedTmuxEnvKey,
   isBotmuxManagedTmuxServerGlobalEnvKey,
+  isIsolatedUserEnvKey,
 } from '../utils/child-env.js';
 
 export interface TmuxResult {
@@ -152,13 +153,17 @@ function withTmuxSearchPath(pathValue: string | undefined): string {
   return merged.join(':');
 }
 
-export function tmuxEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function tmuxEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  isolatedUserHome = false,
+): NodeJS.ProcessEnv {
   const rest: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(env)) {
     // TMUX/TMUX_PANE would re-target a dead parent server; botmux-managed keys
     // would seed the server's shared global env and leak to co-tenant sessions.
     if (key === 'TMUX' || key === 'TMUX_PANE') continue;
     if (isBotmuxManagedTmuxEnvKey(key)) continue;
+    if (isolatedUserHome && isIsolatedUserEnvKey(key)) continue;
     rest[key] = value;
   }
   return {
