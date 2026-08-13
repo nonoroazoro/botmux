@@ -543,6 +543,11 @@ export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
     ...dropAuthority([ctx.workingDir]),
     ...(!ctx.isolatedUserHome ? [ctx.botHome] : []),
     ...(ctx.isolatedUserHome ? [ctx.homeDir] : []),
+    ...(ctx.isolatedUserHome ? [
+      `${ctx.homeDir}/.local/bin`,
+      `${ctx.homeDir}/.npm-global/bin`,
+      `${ctx.homeDir}/go/bin`,
+    ] : []),
   ], 'readWrite', 'internal');
   // Own role-library subtree (`~/botmux-roles/<self>`). workingDir alone covers
   // only the ACTIVE role dir, which silently disables the whole role system

@@ -141,6 +141,7 @@ describe('prepareDirectSandbox canonicalizes the exec bin (symlinked-$HOME)', ()
       sessionId: 'binlink', dataDir,
       policy: { rules: [], net: true, writeRegexes: [] },
       chdir: dir, home: dir, cliBin: linkBin, cliArgs: ['--v'],
+      pathEnv: '/isolated/home/.local/bin:/usr/bin',
     });
     // Off-CI without bwrap installed prepareDirectSandbox returns null (dep gate);
     // only assert the canonicalization when it actually produced a plan.
@@ -152,6 +153,7 @@ describe('prepareDirectSandbox canonicalizes the exec bin (symlinked-$HOME)', ()
     expect(execTarget).not.toBe(linkBin);
     expect(r.args.slice(dashDash + 2)).toEqual(['--v']); // cliArgs preserved verbatim
     expect(r.env.SESSION_DATA_DIR).toBe(realpathSync(dataDir));
+    expect(r.env.PATH).toContain('/isolated/home/.local/bin:/usr/bin');
     r.cleanup();
   });
 });

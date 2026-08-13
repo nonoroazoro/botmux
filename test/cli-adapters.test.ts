@@ -138,6 +138,13 @@ describe('lazy binary resolution', () => {
 describe('claude-code buildArgs', () => {
   const adapter = createClaudeCodeAdapter('/usr/bin/claude');
 
+  it('declares shared skills and plugin content for multi-user projection', () => {
+    expect(adapter.multiUserBaseline).toEqual({
+      skillsDirs: ['~/.claude/skills'],
+      pluginDirs: ['~/.claude/plugins/cache', '~/.claude/plugins/marketplaces'],
+    });
+  });
+
   it('new session passes --session-id and permission flags', () => {
     const args = adapter.buildArgs({ sessionId: 'sess-1', resume: false });
     expect(args).toContain('--session-id');
@@ -390,6 +397,10 @@ describe('codex buildArgs', () => {
     // skillsDir resolves under CODEX_HOME (default ~/.codex) so it tracks where
     // Codex actually scans skills when CODEX_HOME is overridden.
     expect(adapter.skillsDir).toBe(join(codexHome(), 'skills'));
+    expect(adapter.multiUserBaseline).toEqual({
+      skillsDirs: ['~/.codex/skills'],
+      pluginDirs: ['~/.codex/.tmp/plugins/plugins'],
+    });
   });
 
   it('passes fixed Codex args regardless of session/resume when no resume target is known', () => {

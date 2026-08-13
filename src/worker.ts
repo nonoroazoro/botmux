@@ -15,7 +15,8 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync, unlinkSync, rmdirSync, existsSync, statSync, lstatSync, readdirSync, readlinkSync, readFileSync, realpathSync, copyFileSync, symlinkSync, watch as fsWatch, createWriteStream, openSync, closeSync, fstatSync, constants as fsConstants, type FSWatcher, type WriteStream } from 'node:fs';
 import { atomicWriteFileSync } from './utils/atomic-write.js';
-import { join, basename, dirname, delimiter } from 'node:path';
+import { join, basename, dirname, delimiter, isAbsolute, relative } from 'node:path';
+import { syncMultiUserBaselineDirectory } from './core/multi-user-baseline.js';
 import { resolveBotmuxWrapperBinDir, prependBotmuxBin } from './core/botmux-wrapper.js';
 import { homedir, tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -1057,11 +1058,9 @@ function provisionIsolatedBotHome(
       const cfgSrc = join(sharedHome, 'config.toml');
       if (!existsSync(cfgDst) && existsSync(cfgSrc)) copyFileSync(cfgSrc, cfgDst);
       if (multiUser) {
-        for (const name of ['AGENTS.md', 'skills']) {
-          const source = join(sharedHome, name);
-          const target = join(cdir, name);
-          if (!existsSync(target) && existsSync(source)) symlinkSync(source, target);
-        }
+        const source = join(sharedHome, 'AGENTS.md');
+        const target = join(cdir, 'AGENTS.md');
+        if (!existsSync(target) && existsSync(source)) symlinkSync(realpathSync(source), target);
       }
     }
   } catch (e) {
@@ -8070,6 +8069,7 @@ async function spawnCli(
   }
   let isolationBotHome: string | undefined;
   let isolatedCodexHome: string | undefined;
+  const multiUserBaselineReadonlyRoots: string[] = [];
   if (willRedirectCliData) {
     isolationBotHome = cfg.multiUserHomeDir ?? ownBotHome;
     if (!isolationBotHome) {
@@ -8114,6 +8114,73 @@ async function spawnCli(
       // A worker owns one session, so this process-local redirect cannot leak
       // between bots or sessions.
       process.env.CODEX_HOME = isolatedCodexHome;
+    }
+  }
+  if (cfg.multiUserHomeDir) {
+    const isolatedHome = cfg.multiUserHomeDir;
+    const hostHome = homedir();
+    const expandHostPath = (path: string): string =>
+      path.replace(/^~(?=\/|$)/u, hostHome);
+    const isolatedTargetPath = (path: string): string => {
+      if (/^~(?=\/|$)/u.test(path)) return path.replace(/^~/u, isolatedHome);
+      const rel = relative(hostHome, path);
+      return !rel.startsWith('..') && !isAbsolute(rel)
+        ? join(isolatedHome, rel)
+        : path;
+    };
+    const baseline = cliAdapter.multiUserBaseline ?? (
+      cliAdapter.skillsDir ? { skillsDirs: [cliAdapter.skillsDir] } : undefined
+    );
+    const adapterSkillPaths = baseline?.skillsDirs ?? [];
+    const primarySkillPath = adapterSkillPaths[0] ?? '~/.agents/skills';
+    const skillSourcePaths = [...new Set([...adapterSkillPaths, '~/.agents/skills'])];
+    const resolveSource = (path: string): string => {
+      if (cfg.cliId === 'codex' && cfg.sharedCodexHome && path === '~/.codex/skills') {
+        return join(cfg.sharedCodexHome, 'skills');
+      }
+      return expandHostPath(path);
+    };
+    const directorySpecs = [
+      {
+        sourcePaths: skillSourcePaths,
+        targetPath: primarySkillPath,
+        overridePaths: skillSourcePaths.filter(path => path !== primarySkillPath),
+        includeFiles: false,
+      },
+      ...['~/.agents/plugins'].map(path => ({
+        sourcePaths: [path], targetPath: path, overridePaths: [], includeFiles: true,
+      })),
+      ...(baseline?.pluginDirs ?? []).map(path => ({
+        sourcePaths: [path], targetPath: path, overridePaths: [], includeFiles: true,
+      })),
+      ...(baseline?.executableDirs ?? []).map(path => ({
+        sourcePaths: [path], targetPath: path, overridePaths: [], includeFiles: true,
+      })),
+      ...['~/.local/bin', '~/.npm-global/bin', '~/go/bin']
+        .map(path => ({
+          sourcePaths: [path], targetPath: path, overridePaths: [], includeFiles: true,
+        })),
+    ];
+    const uniqueDirectorySpecs = [...new Map(
+      directorySpecs.map(spec => [spec.targetPath, spec]),
+    ).values()];
+    for (const spec of uniqueDirectorySpecs) {
+      const sources = spec.sourcePaths.map(resolveSource);
+      const target = isolatedTargetPath(spec.targetPath);
+      try {
+        const synced = syncMultiUserBaselineDirectory(sources, target, {
+          includeFiles: spec.includeFiles,
+          overrideDirs: spec.overridePaths.map(isolatedTargetPath),
+          targetRoot: isolatedHome,
+        });
+        multiUserBaselineReadonlyRoots.push(...synced.readonlyRoots);
+        if (synced.linked.length || synced.preserved.length || synced.removed.length) {
+          log(`[multi-user-baseline] ${spec.targetPath}: linked=${synced.linked.length} `
+            + `preserved=${synced.preserved.length} removed=${synced.removed.length}`);
+        }
+      } catch (error) {
+        log(`[multi-user-baseline] WARN ${spec.targetPath}: ${(error as Error).message}`);
+      }
     }
   }
   // Predict reattach vs fresh BEFORE the resume pre-flight. On a persistent
@@ -8698,6 +8765,14 @@ async function spawnCli(
   // (The tmux backend re-prepends this in its pane script after rcfile load; this covers the
   // pty/direct-spawn path, whose child inherits childEnv.PATH directly.)
   childEnv.PATH = prependBotmuxBin(resolveBotmuxWrapperBinDir(process.env), childEnv.PATH);
+  if (cfg.multiUserHomeDir) {
+    childEnv.PATH = [
+      join(cfg.multiUserHomeDir, '.local', 'bin'),
+      join(cfg.multiUserHomeDir, '.npm-global', 'bin'),
+      join(cfg.multiUserHomeDir, 'go', 'bin'),
+      childEnv.PATH,
+    ].filter(Boolean).join(delimiter);
+  }
   // §5 of botmux ask v0.1.7 — `botmux ask buttons` reads these to find the
   // daemon socket, route the card back to this thread, and resolve the
   // approver allowlist against session.owner. Missing env → exit 2.
@@ -9143,6 +9218,7 @@ async function spawnCli(
       execPaths: keepExisting([...execDirs, ...execCarve]),
       readonlyRoots: keepExisting([
         ...(cfg.skillReadonlyRoots ?? []),
+        ...multiUserBaselineReadonlyRoots,
         ...(cfg.sharedCodexHome && cfg.cliId === 'codex'
           ? [join(cfg.sharedCodexHome, 'AGENTS.md'), join(cfg.sharedCodexHome, 'skills')]
           : []),
@@ -9241,6 +9317,14 @@ async function spawnCli(
         home: sandboxHome,
         cliBin: cliAdapter.resolvedBin,
         cliArgs: args,
+        pathEnv: cfg.multiUserHomeDir
+          ? [
+              join(sandboxHome, '.local', 'bin'),
+              join(sandboxHome, '.npm-global', 'bin'),
+              join(sandboxHome, 'go', 'bin'),
+              childEnv.PATH,
+            ].filter(Boolean).join(delimiter)
+          : childEnv.PATH,
         trustedBotmuxCommandPaths: [defaultGatewayEntry().command],
         mcpGatewaySocketPath: sessionMcpGatewayHost?.socketPath,
       });

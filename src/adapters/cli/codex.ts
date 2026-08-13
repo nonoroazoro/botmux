@@ -156,6 +156,10 @@ export function createCodexAdapter(pathOverride?: string): CliAdapter {
     // per-bot BOT_HOME via CODEX_HOME redirection. (Read isolation does NOT consult
     // authPaths — that only feeds the bwrap file sandbox below.)
     supportsReadIsolation: true,
+    multiUserBaseline: {
+      skillsDirs: ['~/.codex/skills'],
+      pluginDirs: ['~/.codex/.tmp/plugins/plugins'],
+    },
     // Whole ~/.codex kept REAL, not just auth.json: codex writes SQLite state/log
     // DBs (state_*.sqlite / logs_*.sqlite) + history/sessions there. The file
     // sandbox is a fresh tmpfs root where ONLY allow-listed paths are bound in.

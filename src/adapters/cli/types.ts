@@ -252,6 +252,17 @@ export interface CliAdapter {
    *  support skills (or has a non-standard layout not yet integrated). */
   readonly skillsDir?: string;
 
+  /** Host-installed capabilities projected read-only into each multi-user HOME.
+   *  Direct children are linked individually, so an isolated user's same-named
+   *  skill, plugin, or executable overrides the host baseline without mutating
+   *  it. Paths use the host HOME as their source and the isolated HOME as their
+   *  destination. Authentication, settings, caches, and locks stay private. */
+  readonly multiUserBaseline?: {
+    readonly skillsDirs?: readonly string[];
+    readonly pluginDirs?: readonly string[];
+    readonly executableDirs?: readonly string[];
+  };
+
   /** Optional: absolute path (with ~ expansion handled by caller) to a Claude
    *  Code *plugin* root. When set, built-in skills are written into
    *  `{pluginDir}/skills/<name>/SKILL.md` alongside a `.claude-plugin/plugin.json`

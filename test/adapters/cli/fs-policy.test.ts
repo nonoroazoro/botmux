@@ -25,5 +25,7 @@ describe('multi-user filesystem policy', () => {
       .toBe('none');
     expect(accessForPath(policy.rules, '/home/service/.botmux/data/sessions-cli_test.json').access)
       .toBe('none');
+    expect(accessForPath(policy.rules, '/var/lib/finder/users/alice/home/.local/bin/tea').access)
+      .toBe('readWrite');
   });
 });

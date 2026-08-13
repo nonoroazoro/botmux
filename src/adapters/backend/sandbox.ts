@@ -539,6 +539,8 @@ export function prepareDirectSandbox(opts: {
   home: string;
   cliBin: string;
   cliArgs: string[];
+  /** Worker-composed PATH, including the isolated user's projected bin dirs. */
+  pathEnv?: string;
   /** Absolute Botmux command paths already persisted in CLI MCP configs.
    * Bind the worker-generated relay shim at those exact paths so a stale or
    * tampered host wrapper cannot replace the trusted gateway entry. */
@@ -681,7 +683,8 @@ export function prepareDirectSandbox(opts: {
     HOME: opts.home,
     SESSION_DATA_DIR: canonicalDataDir,
     BOTMUX_SEND_RELAY: outbox,
-    PATH: ['/run/sbxbin', ...canonicalExecDirs, process.env.PATH ?? ''].filter(Boolean).join(':'),
+    PATH: ['/run/sbxbin', ...canonicalExecDirs, opts.pathEnv ?? process.env.PATH ?? '']
+      .filter(Boolean).join(':'),
   };
   if (process.env.BOTMUX_DAEMON_IPC_PORT) {
     env.BOTMUX_DAEMON_IPC_PORT = process.env.BOTMUX_DAEMON_IPC_PORT;
