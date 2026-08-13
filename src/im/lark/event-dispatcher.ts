@@ -1657,6 +1657,7 @@ async function maybeSendGrantRequestCard(
     messageData,
     DEFAULT_GRANT_DURATION_MS,
   );
+  const loc = localeForBot(larkAppId);
   const card = buildGrantCard(
     {
       ownerOpenId: owner,
@@ -1669,15 +1670,35 @@ async function maybeSendGrantRequestCard(
       sourceChatType,
       sourceChatName,
     },
-    localeForBot(larkAppId),
+    loc,
   );
-  await sendUserMessage(larkAppId, owner, card, 'interactive')
-    .catch(err => {
-      // 发卡失败必须撤掉刚开的 pending，否则该发送方被节流压死、owner 永远看不到卡片，
-      // 只能等 daemon 重启或别的 target 触发全表 prune 才恢复。清掉后下次 @ 会重试发卡。
-      clearPending(larkAppId, chatId, requesterOpenId);
-      logger.debug(`grant request card send failed: ${err}`);
-    });
+  try {
+    await sendUserMessage(larkAppId, owner, card, 'interactive');
+  } catch (err) {
+    // 发卡失败必须撤掉刚开的 pending，否则该发送方被节流压死、owner 永远看不到卡片，
+    // 只能等 daemon 重启或别的 target 触发全表 prune 才恢复。清掉后下次 @ 会重试发卡。
+    clearPending(larkAppId, chatId, requesterOpenId);
+    logger.debug(`grant request card send failed: ${err}`);
+    if (!requesterIsBot) {
+      await replyMessage(
+        larkAppId,
+        message.message_id,
+        t('card.grant.request_failed', undefined, loc),
+        'text',
+        sourceChatType === 'group',
+      ).catch(replyErr => logger.debug(`grant request failure reply failed: ${replyErr}`));
+    }
+    return;
+  }
+  if (!requesterIsBot) {
+    await replyMessage(
+      larkAppId,
+      message.message_id,
+      t(sourceChatType === 'group' ? 'card.grant.requested_group' : 'card.grant.requested_p2p', undefined, loc),
+      'text',
+      sourceChatType === 'group',
+    ).catch(err => logger.debug(`grant request acknowledgement failed: ${err}`));
+  }
 }
 
 // ─── Group message access check ──────────────────────────────────────────

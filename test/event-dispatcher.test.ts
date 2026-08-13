@@ -2096,7 +2096,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     expect(mockReplyMessage).not.toHaveBeenCalled();
   });
 
-  it('sends a human group request to the owner DM with source context and never replies in the source group', async () => {
+  it('sends a human group request to the owner and acknowledges it in the source topic', async () => {
     setupBotState({ allowedUsers: ['ou_owner'] });
     mockGetOwnerOpenId.mockReturnValue('ou_owner');
     mockGetChatName.mockResolvedValueOnce('Oncall Room');
@@ -2135,7 +2135,13 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     expect(groupCard).toContain('授权上述群聊');
     expect(groupCard).toContain('本次授权仅适用于群聊');
     expect(groupCard).not.toContain('授权本群对话');
-    expect(mockReplyMessage).not.toHaveBeenCalled();
+    expect(mockReplyMessage).toHaveBeenCalledWith(
+      MY_APP_ID,
+      'msg-human-request',
+      '我已向 owner 发送授权申请。批准后，我会在本话题继续处理你的消息。',
+      'text',
+      true,
+    );
   });
 
   it('routes an unknown external bot @mention when the chat is 整群授权 (allowedChatGroups)', async () => {
@@ -2442,6 +2448,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
       expect.stringContaining(OTHER_BOT_OPEN_ID),
       'interactive',
     );
+    expect(mockReplyMessage).not.toHaveBeenCalled();
   });
 
   it('retries the grant card on a later @blocked after a failed send (clears stale pending)', async () => {
@@ -2476,6 +2483,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
 
     // The failed first send did not poison the throttle: the second @ tried again.
     expect(mockSendUserMessage).toHaveBeenCalledTimes(2);
+    expect(mockReplyMessage).not.toHaveBeenCalled();
   });
 
   it('routes cross-bot @mention in chat-scope when sender is a known botmux peer', async () => {
@@ -5052,7 +5060,7 @@ describe('im.message.receive_v1 — p2p chat-mode topic reply anchoring', () => 
     }));
     expect(call![1].replyRootId).toBeUndefined();
   });
-  it('sends an unauthorized DM request to the owner DM and does not route the message', async () => {
+  it('sends an unauthorized DM request to the owner and acknowledges it in the DM', async () => {
     _resetGrantPending();
     setupBotState({ p2pMode: 'chat', allowedUsers: ['ou_owner'] });
     mockGetOwnerOpenId.mockReturnValue('ou_owner');
@@ -5081,7 +5089,38 @@ describe('im.message.receive_v1 — p2p chat-mode topic reply anchoring', () => 
     expect(p2pCard).toContain('授权该私聊');
     expect(p2pCard).toContain('仅适用于该用户与我的私聊');
     expect(p2pCard).not.toContain('授权本群对话');
-    expect(mockReplyMessage).not.toHaveBeenCalled();
+    expect(mockReplyMessage).toHaveBeenCalledWith(
+      MY_APP_ID,
+      'msg-dm-request',
+      '我已向 owner 发送授权申请。批准后，我会继续处理你的消息。',
+      'text',
+      false,
+    );
+  });
+
+  it('tells an unauthorized DM user when the owner request could not be sent', async () => {
+    _resetGrantPending();
+    setupBotState({ p2pMode: 'chat', allowedUsers: ['ou_owner'] });
+    mockGetOwnerOpenId.mockReturnValue('ou_owner');
+    mockSendUserMessage.mockRejectedValueOnce(new Error('lark 500'));
+    const request = makeUserMessageEvent({
+      senderOpenId: USER_OPEN_ID,
+      content: JSON.stringify({ text: 'can I use this bot?' }),
+      messageId: 'msg-dm-request-failed',
+      chatId: 'oc_dm_request_failed',
+      chatType: 'p2p',
+    });
+
+    await capturedHandlers['im.message.receive_v1'](request);
+    await flushEventWork();
+
+    expect(mockReplyMessage).toHaveBeenCalledWith(
+      MY_APP_ID,
+      'msg-dm-request-failed',
+      '暂时无法向 owner 发送授权申请，请稍后重试。',
+      'text',
+      false,
+    );
   });
 
   it('keeps unauthorized DMs silent when automatic grant requests are disabled', async () => {
