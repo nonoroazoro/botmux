@@ -562,6 +562,27 @@ describe('buildFollowUpContent', () => {
     expect(content).not.toContain('botmux skill show botmux-send');
   });
 
+  it('injects a deterministic poll command hint only for poll turns', () => {
+    const poll = buildFollowUpContent('帮我创建一个电影投票，选项是 A 和 B', SESSION_ID, {
+      cliId: 'codex',
+      locale: 'zh',
+    });
+    const normal = buildFollowUpContent('帮我总结这份电影名单', SESSION_ID, {
+      cliId: 'codex',
+      locale: 'zh',
+    });
+    const pollQuestion = buildFollowUpContent('投票什么时候结束？', SESSION_ID, {
+      cliId: 'codex',
+      locale: 'zh',
+    });
+
+    expect(poll).toContain('<botmux_poll>');
+    expect(poll).toContain('只执行一次 `botmux poll create');
+    expect(poll.indexOf('<botmux_poll>')).toBeLessThan(poll.indexOf('<user_message>'));
+    expect(normal).not.toContain('<botmux_poll>');
+    expect(pollQuestion).not.toContain('<botmux_poll>');
+  });
+
   it('carries the anti-resend reminder variant when config.noVisibleOutputHint is ON', () => {
     (config as { noVisibleOutputHint?: boolean }).noVisibleOutputHint = true;
     try {

@@ -5487,6 +5487,11 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
 飞书消息（在 CLI 会话内自动推断 session）:
   chat rename <新群名称>               修改当前会话所在群的名称
        --proactive                    标记为 AI 主动改名（应用 10 分钟防抖）
+  poll create --title <标题> --option <选项> --option <选项>
+       [--description <说明>] [--chat-id <oc_...>]
+                                      发送支持人类和机器人共同参与的 Botmux Poll
+  poll vote <poll-id> <序号|option-id|完整选项文本>
+                                      让当前会话所属机器人以自身身份投票
   send [content]                       发消息到当前话题（支持 stdin / --content-file）
        --images <path>                 内联图片（可重复）
        --files <path>                  附件（可重复）
@@ -10901,7 +10906,7 @@ async function runPluginCommandByName(rawCommand: string, commandArgs: string[])
 // daemon-side getBotClient/larkTransportEnabled gates remain authoritative.
 const LARK_FACING_COMMANDS = new Set([
   'send', 'dispatch', 'create-group', 'history', 'quoted', 'bots', 'grant', 'react', 'thread',
-  'vc-agent', 'report',
+  'vc-agent', 'report', 'poll',
 ]);
 if (LARK_FACING_COMMANDS.has(command) && managedOriginHasNoTransport()) {
   console.error(
@@ -11132,6 +11137,11 @@ switch (command) {
     break;
   }
   case 'send':     await cmdSend(process.argv.slice(3)); break;
+  case 'poll': {
+    const { cmdPoll } = await import('./cli/poll.js');
+    await cmdPoll(process.argv.slice(3));
+    break;
+  }
   case 'chat':     await cmdChat(process.argv.slice(3)); break;
   case 'dispatch': await cmdDispatch(process.argv.slice(3)); break;
   case 'report': await cmdReport(process.argv.slice(3)); break;

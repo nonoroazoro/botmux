@@ -526,6 +526,44 @@ botmux send --top-level --chat-id oc_xxxxxxxxxxxx "📦 自动推送内容..."
 失败 exit 1；**未做 @ 决策 exit 2**（按提示补 \`--mention\`/\`--mention-back\`/\`--no-mention\`）。
 `;
 
+const POLL_SKILL = `---
+name: botmux-poll
+description: Create or vote in single-choice polls for humans and bots. Use for 投票, 票选, creating a poll, or asking a bot to vote.
+---
+
+# botmux-poll
+
+## Create
+
+When the target, title, and options are clear, run exactly one create command:
+
+\`\`\`bash
+botmux poll create --title "Movie night" --option "The Odyssey (14:15)" --option "Option B" --chat-id oc_xxx
+\`\`\`
+
+- Use 2 to 8 \`--option\` flags. Add \`--description\` only when useful.
+- Omit \`--chat-id\` for the current chat. Resolve an explicit group target before creating.
+- In poll context, resend, repost, or send the card again means a new create with the same target, title, options, and description recovered from conversation context. Preserve them exactly and ask only for missing required fields.
+- Run immediately without announcing intent or progress. Do not retry or repair runtime files.
+- The command posts the card and is the complete response. On success, send no text and end with exactly \`BOTMUX_NOTHING_TO_SEND\`. On failure, report the exact error and stop.
+
+## Vote
+
+\`\`\`bash
+botmux poll vote poll_00000000-0000-0000-0000-000000000000 1
+\`\`\`
+
+Use an option number, \`opt_N\`, or exact text. If needed, read \`poll_id\` from the card callback JSON. Bot identity always comes from the current authenticated session.
+
+## Behavior
+
+- This is the only supported poll path. Do not read other Lark skills or docs, run help, or inspect source code, processes, sessions, or history.
+- Single choice. Each human or bot can vote only once and cannot change it.
+- Participation count is public. Per-option counts and voters stay hidden until the creator ends the poll from a private control card.
+- Humans use card buttons. Bots use \`botmux poll vote\` and display their current bot name.
+- Never expose implementation details or internal IDs unless debugging is requested.
+`;
+
 const BOTS_SKILL = `---
 name: botmux-bots
 description: 列出当前飞书群里可协作的机器人（协作花名册：含能力标签、是否有团队角色、以及你能否可靠 @ 到它）。在需要点名其他机器人协作、或交棒给队友前查看时使用。
@@ -1511,6 +1549,7 @@ export const BUILTIN_SKILLS: SkillDef[] = [
   { name: 'botmux-history', content: HISTORY_SKILL },
   { name: 'botmux-quoted', content: QUOTED_SKILL },
   { name: 'botmux-send', content: SEND_SKILL },
+  { name: 'botmux-poll', content: POLL_SKILL },
   { name: 'botmux-bots', content: BOTS_SKILL },
   { name: 'botmux-handoff', content: HANDOFF_SKILL },
   { name: 'botmux-workflow-create', content: WORKFLOW_CREATE_SKILL },

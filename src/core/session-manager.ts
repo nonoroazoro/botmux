@@ -73,6 +73,7 @@ import { resolveRegularGroupMode } from '../services/chat-reply-mode-store.js';
 import { beginReplyTargetTurn } from './reply-target.js';
 import { readDeferredTopicBinding, removeDeferredTopicBinding } from './deferred-topic-binding.js';
 import { escapeXmlTagLikeTokens } from '../utils/xml.js';
+import { renderPollPromptHint } from '../features/poll/index.js';
 
 export { getAttachmentsDir } from './attachment-path.js';
 
@@ -984,6 +985,7 @@ export function buildNewTopicPrompt(
   const mergedMessage = followUps && followUps.length > 0
     ? [userMessage, ...followUps].join('\n\n')
     : userMessage;
+  const pollPromptHint = renderPollPromptHint(mergedMessage, locale);
   const userBlock = `<user_message>\n${mergedMessage}\n</user_message>`;
   const normalizedSessionId = normalizeMetadataText(sessionId);
   const parts: string[] = [];
@@ -1008,6 +1010,7 @@ export function buildNewTopicPrompt(
   if (whiteboardBlock) parts.push(whiteboardBlock);
   if (chatContextPolicyBlock) parts.push(chatContextPolicyBlock);
   if (chatContextBlock) parts.push(chatContextBlock);
+  if (pollPromptHint) parts.push(pollPromptHint);
 
   parts.push(userBlock);
 
@@ -1120,6 +1123,7 @@ export function buildFollowUpContent(
   const roleBlock = renderRoleContextBlock(opts?.larkAppId, opts?.chatId, { followUp: true });
   const whiteboardBlock = renderWhiteboardBlock({ whiteboardId: opts?.whiteboardId });
   const summaryMemoryBlock = renderSummaryMemoryBlock(opts?.larkAppId);
+  const pollPromptHint = renderPollPromptHint(content, opts?.locale);
   const skipSessionId = opts?.isAdoptMode || (opts?.cliId
     ? createCliAdapterSync(opts.cliId, opts.cliPathOverride).injectsSessionContext
     : false);
@@ -1136,6 +1140,7 @@ export function buildFollowUpContent(
   const reminder = t(config.noVisibleOutputHint ? 'ai.followup.reminder_no_resend' : 'ai.followup.reminder', undefined, opts?.locale);
   parts.push(`<botmux_reminder>${reminder}</botmux_reminder>`);
   if (whiteboardBlock) parts.push(whiteboardBlock);
+  if (pollPromptHint) parts.push(pollPromptHint);
 
   parts.push(`<user_message>\n${content}\n</user_message>`);
 

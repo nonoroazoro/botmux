@@ -78,6 +78,7 @@ import {
   type V3DistillationCardHandlerDeps,
 } from './v3-distillation-card-handler.js';
 import { handleAskCardAction, isAskCardAction } from './ask-card.js';
+import { handlePollCardAction, isPollCardAction } from '../../features/poll/index.js';
 import { createCliAdapterSync } from '../../adapters/cli/registry.js';
 import { buildClosedSessionCard } from '../../core/closed-session-card.js';
 import { logger } from '../../utils/logger.js';
@@ -901,6 +902,9 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
   // Use the receiving bot's allowedUsers — the operator open_id in card actions
   // is scoped to the app that received the callback.
   const operatorOpenId = data?.operator?.open_id;
+  if (isPollCardAction(value?.action) && larkAppId) {
+    return handlePollCardAction(data, larkAppId);
+  }
   // ─── 机器过载告警卡动作（overload_clean_stopped / overload_suspend_idle / noop）──
   // 不绑 session。owner 强闸门 + nonce 一次性核销（每按钮各一次，防重复点/超时重投/旧卡）。
   // 点完不替换成死卡：重建同一张卡，把点过的按钮标 done+数量并 disabled，另一个仍可点。

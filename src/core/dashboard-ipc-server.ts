@@ -73,7 +73,7 @@ import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessi
 import { listOnlineDaemons } from '../utils/daemon-discovery.js';
 import { isSessionStopped } from './session-liveness.js';
 import { isSuspendableBackendType } from './persistent-backend.js';
-import { replyMessage, sendMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listAmbientChatMessages, listChatMessagesUntil, listChatBotMembers, getMessageDetail, getMessageChatId, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
+import { replyMessage, sendMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listAmbientChatMessages, listChatMessagesUntil, listChatBotMembers, getChatInfo, getMessageDetail, getMessageChatId, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
 import { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardContent, extractResources, createImgNumberer, messageMentionsBot } from '../im/lark/message-parser.js';
 import { expandMergeForward } from '../im/lark/merge-forward.js';
 import { renderQuotedMessage } from '../cli/quoted-render.js';
@@ -156,7 +156,7 @@ import {
   getBotName,
   type SessionRow,
 } from './dashboard-rows.js';
-import { getBotBrand, getBot, getBotOpenId, loadBotConfigs, readBotSkillPolicy, getBotTuiSlashAllow, type UsageDisplayMode, type MessageListenerConfig } from '../bot-registry.js';
+import { effectiveBotDisplayName, formatLarkError, getBotBrand, getBot, getBotOpenId, loadBotConfigs, readBotSkillPolicy, getBotTuiSlashAllow, type UsageDisplayMode, type MessageListenerConfig } from '../bot-registry.js';
 import { normalizeKanbanColumn, normalizeKanbanPosition, normalizeSessionTitle } from './session-board.js';
 import { validateSlashInjection } from './slash-inject.js';
 import { validateRoleLibraryPath } from './role-library.js';
@@ -168,6 +168,12 @@ import { ChatRenameCooldown, ChatRenameSerialQueue, normalizeLarkChatName } from
 import type { DaemonToWorker, ScheduledTask, ParsedSchedule, ScheduleExecutionPosition, Session } from '../types.js';
 import { sessionAnchorId, larkTransportEnabled, type DaemonSession } from './types.js';
 import { attachSkillPolicy, detachSkillPolicy } from './skills/im-command.js';
+import {
+  castBotPollVote,
+  createAndPublishPoll,
+  refreshPollCard,
+  renderPublishedPoll,
+} from '../features/poll/index.js';
 import { readSkillRegistry } from '../services/skill-registry-store.js';
 import {
   commitDeviceIsolationActivation,
@@ -454,7 +460,7 @@ function routeHasNarrowUntrustedAuth(method: string, pathname: string): boolean 
   // Session-scoped Lark reads are available to read-isolated CLIs without
   // exposing bot credentials or the shared session store. The handlers bind
   // every query to the URL session and verify its current rotating capability.
-  if (method === 'POST' && /^\/api\/sessions\/[^/]+\/(?:lark-history|lark-quoted)$/.test(pathname)) return true;
+  if (method === 'POST' && /^\/api\/sessions\/[^/]+\/(?:lark-history|lark-quoted|polls|poll-vote)$/.test(pathname)) return true;
   if (method === 'POST' && pathname === '/api/hooks/emit') return true;
   if (method === 'POST' && pathname === '/api/attention') return true;
   // Workflow v3 mutations carry their own domain-separated full-envelope
@@ -822,7 +828,7 @@ function sessionCliIpcAuth(
   ds: DaemonSession | undefined,
   sessionId: string,
   body: Record<string, unknown> | undefined,
-): { ok: true } | { ok: false; error: string } {
+): { ok: true; turnId?: string } | { ok: false; error: string } {
   const claimedAttempt = typeof body?.originDispatchAttempt === 'number'
     && Number.isSafeInteger(body.originDispatchAttempt)
     && body.originDispatchAttempt > 0
@@ -839,7 +845,12 @@ function sessionCliIpcAuth(
     claimedTurnId: typeof body?.originTurnId === 'string' ? body.originTurnId : undefined,
     claimedDispatchAttempt: claimedAttempt,
   });
-  return decision.ok ? { ok: true } : { ok: false, error: decision.error };
+  return decision.ok
+    ? {
+        ok: true,
+        ...(ds?.managedTurnOrigin?.turnId ? { turnId: ds.managedTurnOrigin.turnId } : {}),
+      }
+    : { ok: false, error: decision.error };
 }
 
 /** 向本会话 CLI 注入一条 allowlist 内的原生斜杠命令（idle 后生效）。
@@ -1407,6 +1418,127 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-quoted', async (req, res, params
     return jsonRes(res, 200, { ok: true, ...rendered });
   } catch (error) {
     return jsonRes(res, 502, {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+ipcRoute('POST', '/api/sessions/:sessionId/polls', async (req, res, params) => {
+  const body = await readJsonBody<Record<string, unknown>>(req)
+    .catch(() => ({} as Record<string, unknown>));
+  const ds = findActiveBySessionId(params.sessionId);
+  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
+  if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
+  if (sessionTransportDisabled(ds.session)) {
+    return jsonRes(res, 403, { ok: false, error: 'no_feishu_transport' });
+  }
+  const appId = ds.session.larkAppId || ds.larkAppId || cachedLarkAppId;
+  if (!appId || appId !== cachedLarkAppId) {
+    return jsonRes(res, 422, { ok: false, error: 'invalid_session_bot' });
+  }
+  const turnId = auth.turnId ?? '';
+  const creatorOpenId = turnId ? ds.session.replyTargets?.[turnId]?.senderOpenId : undefined;
+  if (!creatorOpenId) {
+    return jsonRes(res, 403, { ok: false, error: 'current_user_required' });
+  }
+  const title = typeof body.title === 'string' ? body.title : '';
+  const description = typeof body.description === 'string' ? body.description : undefined;
+  const chatId = typeof body.chatId === 'string' && body.chatId.trim()
+    ? body.chatId.trim()
+    : ds.session.chatId;
+  const options = Array.isArray(body.options)
+    ? body.options.filter((option): option is string => typeof option === 'string')
+    : [];
+  if (!/^oc_[A-Za-z0-9_-]+$/u.test(chatId) || chatId.length > 256) {
+    return jsonRes(res, 400, { ok: false, error: 'invalid_chat_id' });
+  }
+  try {
+    const countGroupMembers = ds.chatType === 'group' || chatId !== ds.session.chatId;
+    const [chatInfo, botMembers] = countGroupMembers
+      ? await Promise.all([
+          getChatInfo(appId, chatId).catch(() => undefined),
+          listChatBotMembers(appId, chatId).catch(() => undefined),
+        ])
+      : [undefined, undefined];
+    const eligibleVoterCount = chatInfo && botMembers
+      ? chatInfo.userCount + botMembers.filter(member => member.source === 'configured').length
+      : undefined;
+    const poll = await createAndPublishPoll(
+      {
+        ownerLarkAppId: appId,
+        creatorOpenId,
+        chatId,
+        ...(eligibleVoterCount ? { eligibleVoterCount } : {}),
+        title,
+        options,
+        ...(description !== undefined ? { description } : {}),
+      },
+      ds.chatType === 'p2p' ? ds.session.chatId : undefined,
+    );
+    return jsonRes(res, 200, {
+      ok: true,
+      pollId: poll.id,
+      messageId: poll.messageId,
+      chatId: poll.chatId,
+      title: poll.title,
+      options: poll.options,
+    });
+  } catch (error) {
+    return jsonRes(res, 400, {
+      ok: false,
+      error: formatLarkError(error) ?? (error instanceof Error ? error.message : String(error)),
+    });
+  }
+});
+
+ipcRoute('POST', '/api/sessions/:sessionId/poll-vote', async (req, res, params) => {
+  const body = await readJsonBody<Record<string, unknown>>(req)
+    .catch(() => ({} as Record<string, unknown>));
+  const ds = findActiveBySessionId(params.sessionId);
+  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
+  if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
+  if (sessionTransportDisabled(ds.session)) {
+    return jsonRes(res, 403, { ok: false, error: 'no_feishu_transport' });
+  }
+  const appId = ds.session.larkAppId || ds.larkAppId || cachedLarkAppId;
+  if (!appId || appId !== cachedLarkAppId) {
+    return jsonRes(res, 422, { ok: false, error: 'invalid_session_bot' });
+  }
+  const pollId = typeof body.pollId === 'string' ? body.pollId : '';
+  const option = typeof body.option === 'string' ? body.option : '';
+  const result = castBotPollVote({
+    pollId,
+    option,
+    larkAppId: appId,
+    displayName: effectiveBotDisplayName(getBot(appId)),
+  });
+  if (!result.ok) return jsonRes(res, 404, { ok: false, error: result.error });
+  let cardUpdated = false;
+  try {
+    cardUpdated = await refreshPollCard({
+      pollId,
+      ownerLarkAppId: result.poll.ownerLarkAppId,
+      currentLarkAppId: appId,
+    });
+  } catch { /* The vote remains durable and the next render catches up. */ }
+  return jsonRes(res, 200, {
+    ok: true,
+    pollId,
+    optionId: result.poll.votes[`bot:${appId}`]?.optionId,
+    cardUpdated,
+  });
+});
+
+ipcRoute('POST', '/api/polls/:pollId/render', async (_req, res, params) => {
+  if (!cachedLarkAppId) return jsonRes(res, 503, { ok: false, error: 'larkAppId_not_set' });
+  try {
+    await renderPublishedPoll(params.pollId, cachedLarkAppId);
+    return jsonRes(res, 200, { ok: true });
+  } catch (error) {
+    return jsonRes(res, 404, {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     });
