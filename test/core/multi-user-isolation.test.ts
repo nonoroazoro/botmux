@@ -8,8 +8,8 @@ import { resolveMultiUserSessionPaths } from '../../src/core/multi-user-isolatio
 
 const roots: string[] = [];
 const defaultGitIdentity = {
-  name: 'Finder Master',
-  email: 'finder-master@botmux.local',
+  name: 'Product Assistant',
+  email: 'product-assistant@botmux.local',
 } as const;
 
 function resolveAlice(root: string): ReturnType<typeof resolveMultiUserSessionPaths> {
@@ -131,7 +131,7 @@ describe('resolveMultiUserSessionPaths', () => {
     const result = resolveAlice(root);
     writeFileSync(
       join(result.homeDir, '.gitconfig'),
-      '[user]\n\tname = Finder Master\n\temail = finder-master@botmux.local\n',
+      '[user]\n\tname = Product Assistant\n\temail = product-assistant@botmux.local\n',
       { mode: 0o600 },
     );
 

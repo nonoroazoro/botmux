@@ -83,9 +83,9 @@ describe('syncMultiUserBaselineDirectory', () => {
     const personalCommon = join(root, 'user', '.agents', 'skills');
     addSkill(source, 'bits', 'adapter');
     addSkill(source, 'shared', 'adapter');
-    addSkill(commonSource, 'tea', 'common');
+    addSkill(commonSource, 'sample-tool', 'common');
     addSkill(commonSource, 'shared', 'common');
-    addSkill(personalCommon, 'tea', 'personal');
+    addSkill(personalCommon, 'sample-tool', 'personal');
 
     const result = syncMultiUserBaselineDirectory(
       [source, commonSource],
@@ -94,23 +94,23 @@ describe('syncMultiUserBaselineDirectory', () => {
     );
 
     expect(result.linked).toEqual(['bits', 'shared']);
-    expect(result.preserved).toEqual(['tea']);
+    expect(result.preserved).toEqual(['sample-tool']);
     expect(readFileSync(join(target, 'shared', 'SKILL.md'), 'utf8')).toBe('adapter');
-    expect(readFileSync(join(personalCommon, 'tea', 'SKILL.md'), 'utf8')).toBe('personal');
+    expect(readFileSync(join(personalCommon, 'sample-tool', 'SKILL.md'), 'utf8')).toBe('personal');
   });
 
   it('links executable and plugin metadata files only when files are enabled', () => {
     const { source, target } = fixture();
-    writeFileSync(join(source, 'tea'), 'binary');
+    writeFileSync(join(source, 'sample-tool'), 'binary');
     writeFileSync(join(source, 'marketplace.json'), '{}');
 
     syncMultiUserBaselineDirectory(source, target);
-    expect(existsSync(join(target, 'tea'))).toBe(false);
+    expect(existsSync(join(target, 'sample-tool'))).toBe(false);
 
     const result = syncMultiUserBaselineDirectory(source, target, { includeFiles: true });
-    expect(result.linked).toEqual(['marketplace.json', 'tea']);
-    expect(lstatSync(join(target, 'tea')).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(target, 'tea'))).toBe(join(realpathSync(source), 'tea'));
+    expect(result.linked).toEqual(['marketplace.json', 'sample-tool']);
+    expect(lstatSync(join(target, 'sample-tool')).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(target, 'sample-tool'))).toBe(join(realpathSync(source), 'sample-tool'));
   });
 
   it('adds new baseline entries and removes only stale managed links', () => {
