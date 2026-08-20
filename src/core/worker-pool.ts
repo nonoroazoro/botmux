@@ -222,7 +222,6 @@ import { anchorUsageForDaemonSession, recordOwnershipForDaemonSession, recordUsa
 import type { CliId } from '../adapters/cli/types.js';
 import { isStructuredBridgeAdoptCli } from '../services/structured-bridge-clis.js';
 import { resolveEffectivePluginIds } from './plugins/effective.js';
-import { ensureGatewayEntry } from './plugins/mcp/gateway-installer.js';
 import type { CliTurnPayload, CodexAppTurnInput, DaemonToWorker, WorkerToDaemon, Session, DisplayMode } from '../types.js';
 import { activeSessionKey, sessionKey, sessionAnchorId, storedSessionAnchorId, isDocNativeSession, larkTransportEnabled, type DaemonSession } from './types.js';
 import { DONE_REACTION_EMOJI_TYPE } from './pending-response.js';
@@ -1674,16 +1673,10 @@ export function ensureCliSkills(cliId: CliId, cliPathOverride?: string): void {
   skillsInstalledCliIds.add(cliId);
 }
 
-/**
- * Ensure per-CLI environment is set up for this daemon lifecycle: install
- * built-in skills and the single stable Botmux MCP Gateway entry.
- * Both steps are idempotent and best-effort.
- */
+/** Ensure built-in CLI integration for this daemon lifecycle. */
 export function ensureCliEnv(cliId: CliId, cliPathOverride?: string): void {
   cleanupGlobalBotmuxSkillsOnce();
   ensureCliSkills(cliId, cliPathOverride);
-  const report = ensureGatewayEntry(createCliAdapterSync(cliId, cliPathOverride));
-  if (report.warning) logger.warn(`[mcp-gateway] ${cliId}: ${report.warning}`);
 }
 
 /** The user's global skills dir that botmux must NOT pollute (Claude now injects

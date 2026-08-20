@@ -80,7 +80,7 @@ import {
   evaluateVcMeetingManagedSend,
 } from './services/vc-meeting-send-policy.js';
 import { TurnTerminalDeduper } from './services/turn-terminal-deduper.js';
-import { defaultGatewayEntry, ensureGatewayEntry } from './core/plugins/mcp/gateway-installer.js';
+import { defaultGatewayEntry } from './core/plugins/mcp/gateway-installer.js';
 import {
   sessionMcpGatewayPathRegex,
   startSessionMcpGatewayHost,
@@ -8100,16 +8100,6 @@ async function spawnCli(
         ...effectiveReadyHookInstall,
         configPath: join(claudeDataDir!, 'settings.json'),
       };
-    }
-    if (cliAdapter.mcpGateway) {
-      const isolatedConfigPath = isClaudeFam
-        ? join(claudeDataDir!, '.claude.json')
-        : join(isolatedCodexHome ?? isolationBotHome, 'config.toml');
-      const report = ensureGatewayEntry({
-        id: cliAdapter.id,
-        mcpGateway: { ...cliAdapter.mcpGateway, configPath: isolatedConfigPath },
-      });
-      if (report.warning) log(`[mcp-gateway] WARN ${report.warning}`);
     }
     if (!isClaudeFam) {
       // The CLI child and its dedicated worker must resolve the same Codex data
