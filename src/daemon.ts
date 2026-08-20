@@ -3447,6 +3447,7 @@ function scheduleAllowedUsersResolveRetry(larkAppId: string, attempt = 1): void 
       } catch {
         return;
       }
+      if (bot.config.apiOnly) return;
       const configured = bot.config.allowedUsers ?? [];
       if (configured.length === 0) return;
       // Fingerprint the config we resolve against. A /revoke or `set allowedUsers`
