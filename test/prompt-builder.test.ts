@@ -118,6 +118,8 @@ describe('buildNewTopicPrompt', () => {
     expect(prompt).toContain('字面量');
     expect(prompt).toContain('JSON.stringify');
     expect(prompt).toContain('--content-file');
+    expect(prompt).toContain('Markdown、反引号、命令片段或多行');
+    expect(prompt).toContain('禁止放进双引号位置参数');
   });
 
   it('tells non-injecting CLIs to silently obey hidden launch context and answer only user_message', () => {
@@ -552,11 +554,12 @@ describe('buildFollowUpContent', () => {
     expect(content.indexOf('<botmux_reminder>')).toBeLessThan(content.indexOf('<user_message>'));
     expect(content.indexOf('<sender ')).toBeGreaterThan(content.indexOf('</user_message>'));
     expect(content.indexOf('<mentions>')).toBeGreaterThan(content.indexOf('</user_message>'));
-    // Complex send guidance is discoverable once in the opening catalog; keep
-    // every follow-up reminder intentionally tiny. By default (experimental
-    // anti-resend toggle OFF) it is exactly #554's nothing-to-send sentinel
-    // baseline — no anti-resend clause appended.
-    expect(content).toContain('<botmux_reminder>有内容要发给用户就必须先 botmux send；只有本轮没有任何要发的了（已 send 完，或确实无需回复）才让 final 只输出 BOTMUX_NOTHING_TO_SEND，它不是省略回复的快捷方式</botmux_reminder>');
+    // The follow-up reminder keeps the send contract compact while repeating
+    // the shell-safety rule that protects Markdown backticks on every turn.
+    expect(content).toContain('<botmux_reminder>有内容要发给用户就必须先 botmux send；');
+    expect(content).toContain('含 Markdown、反引号或多行正文必须用 quoted heredoc/stdin');
+    expect(content).toContain('禁止放进双引号位置参数');
+    expect(content).toContain('final 只输出 BOTMUX_NOTHING_TO_SEND');
     expect(content).not.toContain('别因「无输出」提示重发');
     expect(content).not.toContain('JSON.stringify');
     expect(content).not.toContain('botmux skill show botmux-send');
@@ -601,10 +604,12 @@ describe('buildFollowUpContent', () => {
     // (preserveMarkTimeMs). That reverse hint weakened multi-agent collaboration
     // (bridge-forwarded finals can't carry an @mention), so Hermes now shares
     // the standard path. With the anti-resend toggle OFF (default) that is
-    // exactly #554's nothing-to-send sentinel baseline — same as codex/traex.
+    // the same compact send and shell-safety contract as codex/traex.
     const content = buildFollowUpContent('hello', SESSION_ID, { cliId: 'hermes' });
 
-    expect(content).toContain('<botmux_reminder>有内容要发给用户就必须先 botmux send；只有本轮没有任何要发的了（已 send 完，或确实无需回复）才让 final 只输出 BOTMUX_NOTHING_TO_SEND，它不是省略回复的快捷方式</botmux_reminder>');
+    expect(content).toContain('<botmux_reminder>有内容要发给用户就必须先 botmux send；');
+    expect(content).toContain('含 Markdown、反引号或多行正文必须用 quoted heredoc/stdin');
+    expect(content).toContain('final 只输出 BOTMUX_NOTHING_TO_SEND');
     expect(content).not.toContain('普通文字回复不要调用 `botmux send`');
     expect(content).not.toContain('直接把给用户看的答案写在 final');
   });

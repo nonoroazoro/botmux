@@ -270,7 +270,7 @@ JSON 格式，与 \`botmux history\` 的单条消息字段一致，并附带 \`r
 
 const SEND_SKILL = `---
 name: botmux-send
-description: 向飞书话题发送消息。用户在飞书上阅读看不到终端输出，需要用户看到的内容（关键结论、方案、最终结果、进度更新）必须通过 botmux send 发送。支持图文混排（图片穿插在 markdown 正文中）、文本、图片/文件附件、原始 interactive 卡片 JSON、@mention。**当你自主执行任务撞到只有人类才能解除的硬阻碍、无法靠自己继续时（需要授权/凭证、要人拍不可逆决策、缺访问权限、需求歧义自己定不了），回消息时带 \`--attention\` 举手**——既把"我卡在哪、需要你做什么"发给用户，又把本会话标进 dashboard「需要你」列，让人一眼看到哪个任务卡住、为什么卡。
+description: 向飞书话题发送 agent 已决定要让用户看到的消息。用户在飞书上看不到终端输出。支持图文混排、文本、图片或文件附件、原始 interactive 卡片 JSON 和 @mention。**当你自主执行任务撞到只有人类才能解除的硬阻碍、无法靠自己继续时（需要授权/凭证、要人拍不可逆决策、缺访问权限、需求歧义自己定不了），回消息时带 \`--attention\` 举手**，既把"我卡在哪、需要你做什么"发给用户，又把本会话标进 dashboard「需要你」列，让人一眼看到哪个任务卡住、为什么卡。
 ---
 
 # botmux-send — 向飞书话题发送消息
@@ -281,18 +281,7 @@ description: 向飞书话题发送消息。用户在飞书上阅读看不到终�
 
 **格式自动处理**：内容含 markdown 语法时自动用飞书卡片（schema 2.0）发送，原生渲染；纯文本走普通消息。**该用 md 就用 md**——结构化内容（列表、表格、代码块）不要手撸成纯文本。
 
-## 什么时候用
-
-- 关键结论、方案（等用户确认再执行）
-- 最终结果
-- 进度更新（长任务的中途汇报）
-- 需要用户回复的问题
-
-## 什么时候不用
-
-- 中间过程的调试输出
-- 给自己看的分析笔记
-- 纯粹的代码操作（编辑/运行命令）
+本 Skill 只定义消息传输方式，不决定 agent 应该说什么或何时说。当你已经决定要向当前飞书会话发送消息时，使用本命令。中间调试输出和内部分析不需要发送。
 
 ## 卡住了需要人介入：\`--attention\`
 
@@ -310,7 +299,7 @@ botmux send --attention=blocked --mention-back "缺 TOS 上传密钥，拿不到
 - 用户**一旦回复本会话**，举手信号**自动撤下**，你按新指示继续即可。无需手动清除。
 - **只用于回复当前会话的文本/卡片消息**：不能与 \`--top-level\` / \`--chat-id\` / \`--into\` / \`--voice\` 混用（否则消息发到别处、撤下绑定会裂，或绕过举手置位路径）。也必须有文本正文（看板要显示 reason）。
 
-**什么时候不要 \`--attention\`**：常规进度汇报、你自己查得到/能合理假设的事、只是想确认一下——都用普通 \`send\`。这是"我真卡住了、必须人来"的信号，不是闲聊也不是汇报。需要用户在**给定选项里二选一**那种用 \`botmux ask\`（发按钮、阻塞等结果）。
+**什么时候不要 \`--attention\`**：没有遇到必须由人解除的硬阻碍时都用普通 \`send\`。这是"我真卡住了、必须人来"的信号。需要用户在**给定选项里二选一**时用 \`botmux ask\`（发按钮、阻塞等结果）。
 
 ## 用法
 
@@ -318,7 +307,7 @@ botmux send --attention=blocked --mention-back "缺 TOS 上传密钥，拿不到
 
 **正文输入契约**：\`botmux send [content]\` 接收原始正文，不是 JSON；只有 \`--card-json\` / \`--card-file\` 的卡片输入才按 JSON 解析。不要先对普通正文执行 \`JSON.stringify\`、把换行手动替换成 \`\\n\`，再把结果塞进位置参数；外层工具协议会自行编码命令字符串，shell / botmux 也不会把字面量 \`\\n\` 反解成换行。
 
-位置参数只用于单行正文。多行正文不要写成 \`botmux send "第一行\\n第二行"\`，必须直接走 quoted heredoc / stdin；在 Windows/PowerShell 里发送包含中文或 emoji 的多行内容时，必须先写 UTF-8 文件，再用 \`--content-file\`，不要把中文直接通过 here-string、\`echo\` 或管道送进 stdin。
+位置参数只用于不含 shell 特殊字符的单行纯文本。含 Markdown、反引号、命令片段或多行的正文不得放进双引号位置参数，必须直接走 quoted heredoc / stdin。否则 shell 会在 \`botmux send\` 收到正文前执行反引号或其他 command substitution，导致内容丢失并诱发错误重发。在 Windows/PowerShell 里发送包含中文或 emoji 的多行内容时，必须先写 UTF-8 文件，再用 \`--content-file\`，不要把中文直接通过 here-string、\`echo\` 或管道送进 stdin。
 
 \`\`\`bash
 # 错误：JSON.stringify / 二次转义后的外层引号和 \\n 会被原样发送
@@ -329,12 +318,10 @@ botmux send "分析完成，核心问题是 X"
 
 # Unix shell: heredoc
 botmux send <<'EOF'
-## 分析报告
+## Result
 
-1. 发现问题 A
-2. 建议方案 B
-
-需要你确认后我再动手。
+- Item A
+- Item B
 EOF
 
 # 管道
@@ -345,12 +332,10 @@ echo "构建成功 ✅" | botmux send
 # Windows PowerShell: 中文/emoji 多行内容
 $msg = Join-Path $env:TEMP "botmux-message.md"
 @'
-## 分析报告
+## Result
 
-1. 发现问题 A
-2. 建议方案 B
-
-需要你确认后我再动手。
+- Item A
+- Item B
 '@ | Set-Content -LiteralPath $msg -Encoding utf8
 botmux send --content-file $msg
 \`\`\`
@@ -444,7 +429,7 @@ botmux send --mention ou_xxx "帮忙看下这段代码"
 
 每条回复**必须显式做出 @ 决策**，否则 \`botmux send\` 报错（exit 2）不发送。三选一：
 
-| flag | 何时用 |
+| flag | 作用 |
 |---|---|
 | \`--mention <ou_xxx:Name>\` | 点名某人/某 bot（可重复） |
 | \`--mention-back\` | @ 回**本轮触发消息的发送者**（open_id 自动从会话取，你不用记） |
@@ -452,17 +437,13 @@ botmux send --mention ou_xxx "帮忙看下这段代码"
 
 > ⚠️ \`--mention-back\` / \`--no-mention\` 是开关，后面不跟任何参数；要 @ 具体的人用 \`--mention <open_id:名字>\`。正文来源按 \`--content-file > 位置参数 > stdin\` 选择，多行正文推荐只放在 heredoc/stdin 中。
 
-决策规则（**先按内容价值决定要不要 @，再按收件人是谁选 @ 方式**）：
-- **有实质结论、需要对方继续看 / 确认 / 决策** → 需要 @：收件人就是触发这轮的那个人/bot 用 \`--mention-back\`；收件人是别人用 \`--mention\` 点名。⚠️ 多人 / 多 bot 会话里，回复对象常常**不是**触发这轮的人——这种情况别用 \`--mention-back\`（它只会 @ 触发者），要用 \`--mention <open_id:名字>\` 显式点名你真正想回的人。
-- **纯记录 / 低优先级进度 / 简短确认（"收到""在看"）** → \`--no-mention\`，别打扰。
-- **如果只是没信息量的"收到"** → 不如不发，等下一条有内容时再回。
-- ⚠️ 别把 \`--no-mention\` 当默认随手带；也别无意义地 @ 打扰人。
+只按接收人选择 flag：通知本轮触发者用 \`--mention-back\`；通知其他指定的人或 bot 用 \`--mention\`；不通知任何接收人用 \`--no-mention\`。多人或多 bot 会话中，如果目标不是本轮触发者，必须用 \`--mention <open_id:名字>\` 显式点名。
 
 \`\`\`bash
-# 回复触发你的那个人，并 @ 回 ta
-botmux send --mention-back "好的，已处理完成。"
-# 纯状态更新，不想惊动任何人
-botmux send --no-mention "后台任务还在跑，预计 5 分钟。"
+# 通知本轮触发者
+botmux send --mention-back "消息内容"
+# 不通知任何接收人
+botmux send --no-mention "消息内容"
 \`\`\`
 
 （可设环境变量 \`BOTMUX_REQUIRE_MENTION_DECISION=false\` 关闭此硬门。）
@@ -473,7 +454,7 @@ botmux send --no-mention "后台任务还在跑，预计 5 分钟。"
 
 \`\`\`bash
 # 默认：自动引用本轮触发消息
-botmux send --no-mention "收到，开始处理。"
+botmux send --no-mention "消息内容"
 # 引用某条特定历史消息
 botmux send --quote om_xxxxxx --no-mention "针对上面这条补充一点"
 # 发独立消息、不引用任何人

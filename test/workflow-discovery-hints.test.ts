@@ -57,6 +57,27 @@ describe('always-on Workflow discovery hint', () => {
   });
 });
 
+describe('message transport guidance', () => {
+  it('does not prescribe plans or progress updates as messages', () => {
+    const prompts = [
+      buildBotmuxShellHints('zh').join('\n'),
+      buildBotmuxSystemPromptText({ locale: 'zh' }),
+      buildBotmuxShellHints('en').join('\n'),
+      buildBotmuxSystemPromptText({ locale: 'en' }),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt).not.toContain('关键结论、方案');
+      expect(prompt).not.toContain('进度更新');
+      expect(prompt).not.toContain('plans (wait for user approval before acting)');
+      expect(prompt).not.toContain('progress updates');
+    }
+
+    expect(prompts[0]).toContain('当你已经决定要向用户发送消息时');
+    expect(prompts[2]).toContain('When you have decided to send a message to the user');
+  });
+});
+
 describe('anti-resend guidance (thinking-only nudge false-alarm) — experimental, gated on config.noVisibleOutputHint', () => {
   it('is ABSENT by default (toggle OFF) — hints match the pre-feature baseline', () => {
     setNoVisibleOutputHint(false);

@@ -2245,10 +2245,9 @@ export async function resumeSession(
 // ─── Scheduled task execution ────────────────────────────────────────────────
 
 /**
- * Prompt preamble for silent scheduled fires. The regular first-turn wrapper
- * instructs the model to post progress updates via `botmux send`; a silent
- * monitoring task needs the opposite default — say nothing unless the alert
- * condition in the task prompt is met. Exported for tests.
+ * Prompt preamble for silent scheduled fires. Regular turns leave message
+ * timing to the active agent, while silent monitoring tasks must say nothing
+ * unless the alert condition in the task prompt is met. Exported for tests.
  */
 export function buildSilentScheduleHint(taskName: string, locale?: Locale): string {
   if (locale === 'en') {
@@ -2490,8 +2489,7 @@ export async function executeScheduledTask(
 
   refreshCliVersion(bot.config);
 
-  // Silent fires flip the model's default from "post progress via botmux send"
-  // to "say nothing unless the alert condition is met".
+  // Silent fires explicitly say nothing unless the alert condition is met.
   const firePrompt = silent
     ? `${buildSilentScheduleHint(task.name, localeForBot(larkAppId))}\n\n${task.prompt}`
     : task.prompt;

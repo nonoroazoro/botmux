@@ -170,11 +170,11 @@ export function validateMentionDecision(args: MentionDecisionArgs): MentionDecis
   const decided = args.hasMentionArgs || args.mentionBack || args.noMention;
   if (decided) return { ok: true };
 
-  // No decision made — guide by message VALUE (not by human-vs-bot). Avoid
-  // letting --no-mention become the lazy default, and avoid meaningless @.
+  // Keep the error limited to the required transport controls. Content and
+  // communication timing remain the active agent's decision.
   return {
     ok: false,
-    error: '本条需显式 @ 决策（别把 --no-mention 当默认）：有实质结论、要对方继续看/确认/决策 → --mention-back（或 --mention <ou:Name> 点名）；纯记录/低优先级进度/简短确认 → --no-mention；若只是没信息量的"收到"，不如不发，等有内容再回。',
+    error: '缺少 @ 决策：请显式选择 --mention <ou:Name>、--mention-back 或 --no-mention。',
   };
 }
 

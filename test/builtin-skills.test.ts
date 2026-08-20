@@ -7,19 +7,37 @@ import { describe, it, expect } from 'vitest';
 import { ASK_SKILL, BUILTIN_SKILLS, RETIRED_SKILL_NAMES, WHITEBOARD_SKILL, WHITEBOARD_SKILL_NAME } from '../src/skills/definitions.js';
 
 describe('built-in botmux-send skill', () => {
+  it('defines transport without prescribing routine agent narration', () => {
+    const skill = BUILTIN_SKILLS.find(s => s.name === 'botmux-send');
+    expect(skill).toBeDefined();
+    const content = skill?.content ?? '';
+    expect(content).toContain('本 Skill 只定义消息传输方式');
+    expect(content).toContain('不决定 agent 应该说什么或何时说');
+    expect(content).not.toContain('关键结论、方案（等用户确认再执行）');
+    expect(content).not.toContain('进度更新（长任务的中途汇报）');
+    expect(content).not.toContain('先按内容价值决定要不要 @');
+    expect(content).not.toContain('低优先级进度');
+    expect(content).not.toContain('收到，开始处理');
+    expect(content).not.toContain('后台任务还在跑');
+  });
+
   it('teaches safe multiline sends across Unix and Windows shells', () => {
     const skill = BUILTIN_SKILLS.find(s => s.name === 'botmux-send');
     expect(skill).toBeDefined();
-    expect(skill!.content).toContain("botmux send <<'EOF'");
-    expect(skill!.content).toContain('Windows/PowerShell');
-    expect(skill!.content).toContain('--content-file');
-    expect(skill!.content).toContain('Set-Content -LiteralPath $msg -Encoding utf8');
-    expect(skill!.content).toContain('不要把中文直接通过 here-string');
-    expect(skill!.content).toContain('botmux send [content]` 接收原始正文');
-    expect(skill!.content).toContain('只有 `--card-json` / `--card-file` 的卡片输入才按 JSON 解析');
-    expect(skill!.content).toContain('JSON.stringify');
-    expect(skill!.content).toContain('外层工具协议会自行编码命令字符串');
-    expect(skill!.content).toContain('字面量 `\\n` 反解成换行');
+    const content = skill?.content ?? '';
+    expect(content).toContain("botmux send <<'EOF'");
+    expect(content).toContain('Windows/PowerShell');
+    expect(content).toContain('--content-file');
+    expect(content).toContain('Set-Content -LiteralPath $msg -Encoding utf8');
+    expect(content).toContain('不要把中文直接通过 here-string');
+    expect(content).toContain('botmux send [content]` 接收原始正文');
+    expect(content).toContain('只有 `--card-json` / `--card-file` 的卡片输入才按 JSON 解析');
+    expect(content).toContain('JSON.stringify');
+    expect(content).toContain('外层工具协议会自行编码命令字符串');
+    expect(content).toContain('字面量 `\\n` 反解成换行');
+    expect(content).toContain('含 Markdown、反引号、命令片段或多行');
+    expect(content).toContain('不得放进双引号位置参数');
+    expect(content).toContain('command substitution');
   });
 
   it('warns that mention-back/no-mention are switches without values', () => {

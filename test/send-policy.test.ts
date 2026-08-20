@@ -221,12 +221,14 @@ describe('validateMentionDecision', () => {
     expect(validateMentionDecision({ ...base, noMention: true }).ok).toBe(true);
   });
 
-  it('fails (no decision) with content-based guidance (not human-vs-bot)', () => {
+  it('fails without prescribing message content or timing', () => {
     const r = validateMentionDecision({ ...base });
     expect(r.ok).toBe(false);
-    expect(r.error).toContain('实质结论');
     expect(r.error).toContain('--mention-back');
     expect(r.error).toContain('--no-mention');
+    expect(r.error).not.toContain('实质结论');
+    expect(r.error).not.toContain('进度');
+    expect(r.error).not.toContain('收到');
   });
 
   it('rejects --no-mention combined with --mention', () => {
