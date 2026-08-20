@@ -300,8 +300,8 @@ class CodexAppServerProbe {
       try {
         ({ preview } = await this.readThreadMetadata(threadId, Math.min(remaining, 2000)));
       } catch (err) {
-        if (!isThreadNotLoadedError(err, threadId)) throw err;
         if (Date.now() >= deadline) return undefined;
+        if (!isThreadNotLoadedError(err, threadId)) throw err;
       }
       if (preview) return preview;
       await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(1, deadline - Date.now()))));

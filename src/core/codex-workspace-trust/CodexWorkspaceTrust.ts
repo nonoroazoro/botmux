@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, isAbsolute } from 'node:path';
 import { atomicWriteFileSync } from '../../utils/atomic-write.js';
 import { withFileLockSync } from '../../utils/file-lock.js';
 
@@ -17,6 +17,7 @@ export function ensureCodexWorkspaceTrusted(
   if (!isAbsolute(configPath)) throw new Error('Codex config path must be absolute');
   if (!isAbsolute(workspacePath)) throw new Error('Codex workspace path must be absolute');
 
+  mkdirSync(dirname(configPath), { recursive: true, mode: 0o700 });
   return withFileLockSync(configPath, () => {
     const original = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
     const eol = original.includes('\r\n') ? '\r\n' : '\n';

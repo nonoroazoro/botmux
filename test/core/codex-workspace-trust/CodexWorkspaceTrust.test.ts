@@ -20,6 +20,16 @@ afterEach(() => {
 });
 
 describe('ensureCodexWorkspaceTrusted', () => {
+  it('creates the config directory for a fresh identity home', () => {
+    const root = mkdtempSync(join(tmpdir(), 'botmux-codex-trust-empty-home-'));
+    roots.push(root);
+    const configPath = join(root, '.codex', 'config.toml');
+    const workspace = join(root, 'workspace');
+
+    expect(ensureCodexWorkspaceTrusted(configPath, workspace)).toBe(true);
+    expect(readFileSync(configPath, 'utf8')).toContain('trust_level = "trusted"');
+  });
+
   it('creates an identity-scoped trust entry', () => {
     const { root, configPath } = fixture();
     const workspace = join(root, 'workspace');

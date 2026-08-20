@@ -39,6 +39,24 @@ describe('ordinary IM during real worker init', () => {
     const fakeCodex = join(root, 'fake-codex');
     writeFileSync(fakeCodex, `#!/usr/bin/env node
 if (process.argv.includes('app-server')) {
+  let buffer = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', chunk => {
+    buffer += chunk;
+    for (;;) {
+      const newline = buffer.indexOf('\\n');
+      if (newline < 0) break;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      if (!line.trim()) continue;
+      const request = JSON.parse(line);
+      if (request.id === undefined) continue;
+      const result = request.method === 'thread/read'
+        ? { thread: { updatedAt: 1 } }
+        : {};
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\\n');
+    }
+  });
   setInterval(() => {}, 1_000);
 } else {
   setTimeout(() => process.stdout.write('›\\n'), 2_000);
@@ -62,7 +80,10 @@ if (process.argv.includes('app-server')) {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     children.add(child);
-    child.on('message', raw => messages.push(raw as WorkerToDaemon));
+    child.on('message', raw => {
+      messages.push(raw as WorkerToDaemon);
+      logs.push(`[ipc] ${JSON.stringify(raw)}\n`);
+    });
     child.stdout?.on('data', chunk => logs.push(chunk.toString()));
     child.stderr?.on('data', chunk => logs.push(chunk.toString()));
 
@@ -132,7 +153,10 @@ setInterval(() => {}, 1_000);
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     children.add(child);
-    child.on('message', raw => messages.push(raw as WorkerToDaemon));
+    child.on('message', raw => {
+      messages.push(raw as WorkerToDaemon);
+      logs.push(`[ipc] ${JSON.stringify(raw)}\n`);
+    });
     child.stdout?.on('data', chunk => logs.push(chunk.toString()));
     child.stderr?.on('data', chunk => logs.push(chunk.toString()));
 
@@ -183,6 +207,24 @@ setInterval(() => {}, 1_000);
     writeFileSync(fakeCodex, `#!/usr/bin/env node
 const fs = require('node:fs');
 if (process.argv.includes('app-server')) {
+  let buffer = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', chunk => {
+    buffer += chunk;
+    for (;;) {
+      const newline = buffer.indexOf('\\n');
+      if (newline < 0) break;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      if (!line.trim()) continue;
+      const request = JSON.parse(line);
+      if (request.id === undefined) continue;
+      const result = request.method === 'thread/read'
+        ? { thread: { updatedAt: 1 } }
+        : {};
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\\n');
+    }
+  });
   setInterval(() => {}, 1_000);
 } else {
   let initialTurnCompleted = false;
@@ -210,9 +252,8 @@ if (process.argv.includes('app-server')) {
         HOME: root,
         SESSION_DATA_DIR: dataDir,
         BOTMUX_SESSION_ID: 'sid-worker-init-order',
-        // Keep the real 7s title-metadata await that opens the race window,
-        // but collapse Codex's unrelated history.jsonl submit polling so this
-        // ordering probe stays deterministic under full-suite contention.
+        // Collapse unrelated polling so this ordering probe remains
+        // deterministic under full-suite contention.
         BOTMUX_TIME_SCALE: '0.05',
         LARK_APP_ID: 'app_test',
         LARK_APP_SECRET: 'secret',
@@ -220,7 +261,10 @@ if (process.argv.includes('app-server')) {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     children.add(child);
-    child.on('message', raw => messages.push(raw as WorkerToDaemon));
+    child.on('message', raw => {
+      messages.push(raw as WorkerToDaemon);
+      logs.push(`[ipc] ${JSON.stringify(raw)}\n`);
+    });
     child.stdout?.on('data', chunk => logs.push(chunk.toString()));
     child.stderr?.on('data', chunk => logs.push(chunk.toString()));
 
