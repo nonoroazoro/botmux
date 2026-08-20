@@ -78,6 +78,30 @@ describe('message transport guidance', () => {
   });
 });
 
+describe('repository checkout guidance', () => {
+  it('requires every CLI path to sync local default-branch checkouts before code work', () => {
+    const prompts = [
+      buildBotmuxShellHints('zh').join('\n'),
+      buildBotmuxSystemPromptText({ locale: 'zh' }),
+      buildBotmuxShellHints('en').join('\n'),
+      buildBotmuxSystemPromptText({ locale: 'en' }),
+      BOTMUX_SHELL_HINTS.join('\n'),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt).toContain('Clone missing repos unless the user opts out');
+      expect(prompt).toContain('switch to the remote default branch');
+      expect(prompt).toContain('fast-forward unless the user asks to continue current work');
+      expect(prompt).toContain('Never reset, stash, overwrite, or discard user work');
+      expect(prompt).toContain('ask the user to log in');
+      expect(prompt).toContain('Inspect the synced working tree only');
+      expect(prompt).toContain('never remote code search or view');
+      expect(prompt).toContain('`git show` remote paths');
+      expect(prompt).toContain('merge requests');
+    }
+  });
+});
+
 describe('anti-resend guidance (thinking-only nudge false-alarm) — experimental, gated on config.noVisibleOutputHint', () => {
   it('is ABSENT by default (toggle OFF) — hints match the pre-feature baseline', () => {
     setNoVisibleOutputHint(false);

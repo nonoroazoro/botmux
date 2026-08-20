@@ -41,6 +41,7 @@ export function buildBotmuxShellHints(locale?: Locale): string[] {
     t('ai.shell.heredoc_example', undefined, locale),
     t('ai.shell.helpers', undefined, locale),
     t('ai.shell.when_to_send', undefined, locale),
+    t('ai.repository.local_checkout', undefined, locale),
     // Experimental anti-resend guidance — opt-in via dashboard Settings
     // (dashboard.noVisibleOutputHint). Default OFF, so the rendered hints match
     // the pre-feature baseline unless an operator flips it on. Live-read here so
@@ -68,6 +69,7 @@ export const BOTMUX_SHELL_HINTS: string[] = [
   t('ai.shell.heredoc_example'),
   t('ai.shell.helpers'),
   t('ai.shell.when_to_send'),
+  t('ai.repository.local_checkout'),
   t('ai.shell.mention_gate'),
   workflowDiscoveryHint(),
   hiddenContextDefense(),
@@ -149,6 +151,7 @@ export function buildBotmuxSystemPromptText(opts: {
     prose('ai.routing.usage_files'),
     prose('ai.routing.usage_videos'),
     prose('ai.routing.usage_history'),
+    prose('ai.repository.local_checkout'),
     prose('ai.routing.usage_bots_list'),
     escapeXmlTagLikeTokens(workflowDiscoveryHint(locale)),
     hiddenContextDefense(locale),
