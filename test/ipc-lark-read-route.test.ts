@@ -9,6 +9,7 @@ import {
 import * as workerPool from '../src/core/worker-pool.js';
 import * as quotedRender from '../src/cli/quoted-render.js';
 import * as larkClient from '../src/im/lark/client.js';
+import * as messageHistoryPage from '../src/im/lark/message-history-page/index.js';
 import * as messageParser from '../src/im/lark/message-parser.js';
 
 const CAPABILITY = 'a11ce123'.repeat(8);
@@ -64,7 +65,10 @@ function mockSession(): void {
 describe('session-scoped Lark read IPC', () => {
   it('reads only the authenticated chat without exposing credentials', async () => {
     mockSession();
-    const list = vi.spyOn(larkClient, 'listChatMessages').mockResolvedValue([{}]);
+    const list = vi.spyOn(messageHistoryPage, 'listMessageHistoryPage').mockResolvedValue({
+      messages: [{}],
+      hasMore: false,
+    });
     vi.spyOn(messageParser, 'parseApiMessage').mockReturnValue({
       messageId: 'om_one',
       rootId: CHAT_ID,
@@ -75,7 +79,7 @@ describe('session-scoped Lark read IPC', () => {
       createTime: '1',
     } as any);
 
-    const response = await post('lark-history', { scope: 'session', limit: 20 });
+    const response = await post('lark-history', { scope: 'session', pageSize: 20 });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -85,7 +89,15 @@ describe('session-scoped Lark read IPC', () => {
       scope: 'chat',
       messages: [{ messageId: 'om_one', content: 'issue context' }],
     });
-    expect(list).toHaveBeenCalledWith(APP_ID, CHAT_ID, 20);
+    expect(list).toHaveBeenCalledWith({
+      larkAppId: APP_ID,
+      chatId: CHAT_ID,
+      scope: 'chat',
+      rootMessageId: undefined,
+      beforeCreateTime: undefined,
+      cursor: undefined,
+      pageSize: 20,
+    });
   });
 
   it('rejects a stale capability before any Lark read', async () => {

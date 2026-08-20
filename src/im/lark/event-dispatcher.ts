@@ -10,14 +10,14 @@ import { atomicWriteFileSync } from '../../utils/atomic-write.js';
 import { join } from 'node:path';
 import { getBot, getAllBots, findOncallChat, getOwnerOpenId, loadBotConfigs, type BotState } from '../../bot-registry.js';
 import { config, isVcMeetingAgentGloballyEnabled, vcMeetingAgentGlobalListenerBotAppId } from '../../config.js';
-import { getChatInfo, getChatMode, getCachedChatMode, getChatName, listChatMessagesUntil, resolveSiblingBotBySenderOpenId, replyMessage, sendMessage, sendUserMessage, isHumanOpenId, updateMessage } from './client.js';
+import { getChatMode, getCachedChatMode, getChatName, listChatMessagesUntil, resolveSiblingBotBySenderOpenId, replyMessage, sendMessage, sendUserMessage, isHumanOpenId, updateMessage } from './client.js';
 import { resolveSender } from './identity-cache.js';
 import { logger } from '../../utils/logger.js';
-import { BoundedMap } from '../../utils/bounded-map.js';
 import { serializeByAnchor } from '../../utils/anchor-serializer.js';
 import { parseForceTopicInvocation } from '../../core/command-handler.js';
 import { shouldAutoStartOnNewTopic } from '../../core/auto-start.js';
 import { resolveNonsupportMessage, stripLeadingMentions, mentionOpenId, mentionAppId, extractMentionIdentities, messageMentionsBot, type MentionIdentity } from './message-parser.js';
+import { messageStartsWithMention } from './leading-mention/index.js';
 import { recordObservedBots, listObservedBots } from '../../services/observed-bots-store.js';
 import { isTeamBot, recordTeamBot } from '../../services/team-bots-store.js';
 import { isTeamGroupChat } from '../../services/team-groups-store.js';
@@ -554,17 +554,6 @@ export async function checkRequiredScopes(larkAppId: string): Promise<void> {
   }
 }
 
-// ─── Group chat stats cache ───────────────────────────────────────────────
-//
-// chat.get returns both user_count (real users only) and bot_count (bots).
-// One API call, one cache — used to gate auto-replies in multi-bot/multi-user
-// groups (oncall chats often have 3rd-party oncall/form/AI-search bots).
-
-export const CHAT_CACHE_TTL = 5 * 60_000; // 5 minutes
-// Bounded: keyed per chat; TTL gates freshness on read, the cap stops the
-// entry count growing with every distinct chat the bot ever serves.
-const chatStatsCache = new BoundedMap<string, { userCount: number; botCount: number; fetchedAt: number }>(1000);
-
 // ─── Event callback ACK safety ──────────────────────────────────────────────
 //
 // The Lark WS SDK sends exactly one response frame per event and only AFTER the
@@ -785,46 +774,6 @@ export function __resetEventClaimsForTest(): void {
   // The message path now dedupes via the persistent seen-message store; clear its
   // in-memory cache too so cases reusing the same message_id don't suppress each other.
   _resetSeenMessagesForTest();
-}
-
-export async function getGroupStats(larkAppId: string, chatId: string): Promise<{ userCount: number; botCount: number }> {
-  const cacheKey = `${larkAppId}:${chatId}`;
-  const cached = chatStatsCache.get(cacheKey);
-  if (cached && Date.now() - cached.fetchedAt < CHAT_CACHE_TTL) {
-    return { userCount: cached.userCount, botCount: cached.botCount };
-  }
-  try {
-    const info = await getChatInfo(larkAppId, chatId);
-    chatStatsCache.set(cacheKey, { userCount: info.userCount, botCount: info.botCount, fetchedAt: Date.now() });
-    return info;
-  } catch (err) {
-    // Soft failure — the fallback below assumes worst case (multi-user,
-    // multi-bot → require @mention). No user-visible regression, so debug.
-    logger.debug(`Failed to get chat stats for ${chatId}, using safe fallback: ${err}`);
-    if (cached) return { userCount: cached.userCount, botCount: cached.botCount };
-    // Fallback: assume multi-person, multi-bot → require @mention to be safe.
-    return { userCount: 999, botCount: 999 };
-  }
-}
-
-/**
- * Drop the cached group stats for one chat — called when a membership-change
- * event that is VISIBLE to this app arrives (user add/delete broadcast, or our
- * own bot being added/removed), so the 1v1 relax gate sees fresh counts on the
- * very next message instead of coasting on stale numbers for up to
- * CHAT_CACHE_TTL. TTL 继续保留,作为事件未订阅（老应用）时的兜底。
- * 注意跨进程边界:「别的 bot 进群/离群」事件只推给当事 bot 自己的 app,
- * 一 bot 一 daemon 部署下此函数够不到兄弟进程的缓存(见 handler 处注释)。
- */
-export function invalidateChatStats(larkAppId: string, chatId: string): void {
-  if (chatStatsCache.delete(`${larkAppId}:${chatId}`)) {
-    logger.debug(`[group-stats] invalidated cached stats for ${chatId} (${larkAppId}): membership changed`);
-  }
-}
-
-/** Test-only: clear the group-stats cache between cases. */
-export function __resetChatStatsForTest(): void {
-  chatStatsCache.clear();
 }
 
 // ─── Cross-bot open_id mapping ──────────────────────────────────────────
@@ -1107,6 +1056,18 @@ export function isBotMentioned(larkAppId: string, message: any, _senderOpenId: s
 
   // Single source of truth shared with the poll + dashboard-preview legs.
   return messageMentionsBot(message, larkAppId, botOpenId);
+}
+
+/**
+ * Check whether a group message directly addresses this bot at its start.
+ *
+ * @param larkAppId The receiving bot application.
+ * @param message The inbound Lark message.
+ * @returns Whether the first semantic token mentions this bot.
+ */
+export function isBotDirectlyAddressed(larkAppId: string, message: any): boolean {
+  const botOpenId = getBot(larkAppId).botOpenId;
+  return messageStartsWithMention(message, { openId: botOpenId, appId: larkAppId });
 }
 
 /** Does this message @mention a *specific other member* (a person or bot that
@@ -1705,37 +1666,21 @@ async function maybeSendGrantRequestCard(
 
 /**
  * Check group message addressing:
- * - 'allowed'     -> sender is allowed, bot was @mentioned or solo group
- * - 'not_allowed' -> bot was @mentioned but sender is not in allowlist
- * - 'ignore'      -> not addressed to bot at all
+ * - 'allowed'     -> the bot is the leading addressee and the sender is allowed
+ * - 'not_allowed' -> the bot is the leading addressee but the sender is not allowed
+ * - 'ignore'      -> the group lobby message does not directly address the bot
  */
 export async function checkGroupMessageAccess(
   larkAppId: string, message: any, chatId: string, senderOpenId: string | undefined, memberUnionId?: string,
 ): Promise<'allowed' | 'not_allowed' | 'ignore'> {
-  const mentioned = isBotMentioned(larkAppId, message, senderOpenId);
-  // 群消息访问检查只在人路径调用，union 走 memberUnionId 腿（不进 bot-trust）。
+  const mentioned = isBotDirectlyAddressed(larkAppId, message);
+  // Group access checks run only on the human sender path. The union identity
+  // is evaluated through memberUnionId and never enters bot trust.
   const isAllowed = canTalk(larkAppId, chatId, senderOpenId, undefined, memberUnionId, 'group');
 
   logger.debug(`Check group message access: mentioned=${mentioned}, isAllowed=${isAllowed}`);
   if (mentioned) {
     return isAllowed ? 'allowed' : 'not_allowed';
-  }
-
-  // No @mention — only allow if sender is the sole human in the group
-  // AND this is the only bot in the chat. With multiple bots, require @mention
-  // to disambiguate.
-  //
-  // 若消息 @ 了别的具体成员（mentionsAnotherMember），群必然不是 1人1bot——
-  // 只有群成员能被 @，多出的那个 @ 本身就是人数变化的证据。上游可能还抱着
-  // 陈旧缓存 {1,1}（刚拉了新 bot 的 TTL 窗口），这会直接跳过人数查询落到
-  // 'ignore'，挡住「用户 @ 新 bot、老 bot 跟着回复」。群聊 @ 策略 never/ambient
-  // 在调用方（relax 条款）已先行结算，这里不受影响。
-  if (isAllowed && !mentionsAnotherMember(larkAppId, message)) {
-    const { userCount, botCount } = await getGroupStats(larkAppId, chatId);
-    logger.debug(`Group user count: ${userCount}, bot count: ${botCount}`);
-    if (userCount <= 1 && botCount <= 1) {
-      return 'allowed';
-    }
   }
 
   return 'ignore';
@@ -1989,7 +1934,7 @@ async function pollMessageListenersOnce(larkAppId: string, handlers: EventHandle
         senderOpenId: resolved.senderOpenId,
         senderTypeRaw: rawSender.senderTypeRaw,
         senderIdentityUnverified: resolved.identityUnverified,
-        explicitlyMentionedThisBot: isBotMentioned(larkAppId, data.message, resolved.senderOpenId),
+        explicitlyMentionedThisBot: isBotDirectlyAddressed(larkAppId, data.message),
       });
       if (!match) continue;
 
@@ -2203,7 +2148,7 @@ async function maybeApplySharedTopicSeed(input: {
   // @mentions another specific member (person/bot) without @ing us: that is a
   // redirect to someone else, so we back off (mentionsAnotherMember).
   const seedMentionMode = resolveGroupMentionMode(larkAppId);
-  if (!isBotMentioned(larkAppId, message, senderOpenId)
+  if (!isBotDirectlyAddressed(larkAppId, message)
       && !(seedMentionMode === 'never'
         || (seedMentionMode === 'ambient' && !mentionsAnotherMember(larkAppId, message)))) return undefined;
   const freshMode = routing.scope === 'thread'
@@ -2838,7 +2783,7 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
               senderOpenId,
               senderTypeRaw: sender?.sender_type,
               senderIdentityUnverified,
-              explicitlyMentionedThisBot: isBotMentioned(larkAppId, message, senderOpenId),
+              explicitlyMentionedThisBot: isBotDirectlyAddressed(larkAppId, message),
             })
           : undefined;
         if (botMessageListener) {
@@ -3039,35 +2984,50 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
       await ensureDefaultOncallBound(larkAppId, chatId, chatType).catch(err =>
         logger.warn(`[oncall:${larkAppId}] pre-permission auto-bind failed for ${chatId.substring(0, 12)}: ${err}`),
       );
-      // 人的路径（bot 发送方已在上面的分支 return）：union 走 memberUnionId 腿，
-      // 不进 bot-trust 腿——teamBot 只认 bot-locked union。
+      // Human union identities use memberUnionId and never enter bot trust.
       const isAllowed = canTalk(larkAppId, chatId, senderOpenId, undefined, humanSenderUnionId, chatType);
+      const directlyAddressedThisBot = isBotDirectlyAddressed(larkAppId, message);
+      const currentTopicAnchor = message.root_id && message.thread_id
+        ? message.root_id
+        : undefined;
+      const currentTopicAlias = chatType === 'group' && currentTopicAnchor
+        ? (handlers.resolveReplyThreadAlias?.(currentTopicAnchor, chatId, larkAppId) ?? null)
+        : null;
+      const ownsCurrentTopic = chatType === 'group' && currentTopicAnchor
+        ? (handlers.isSessionOwner?.(currentTopicAnchor, larkAppId) ?? false)
+          || Boolean(currentTopicAlias)
+        : false;
+      const commandMentionMode = chatType === 'group'
+        ? resolveGroupMentionMode(larkAppId)
+        : undefined;
+      const commandEligible = chatType !== 'group'
+        || directlyAddressedThisBot
+        || ownsCurrentTopic
+        || commandMentionMode === 'never'
+        || commandMentionMode === 'ambient';
 
-      // /introduce — collaboration handshake. Intercept before any routing
-      // so the command never reaches a CLI session (each @ed bot's daemon
-      // independently records the mentions[] open_ids + names). 无需授权：
-      // 任何人都能登记花名册（只记 observed，不授予任何权限）。
-      if (await tryHandleIntroduceCommand(larkAppId, message, senderOpenId)) {
+      // Intercept collaboration commands before CLI routing. Group lobby
+      // commands require this bot to be the leading addressee. Commands inside
+      // an owned topic continue without another bot mention.
+      if (commandEligible && await tryHandleIntroduceCommand(larkAppId, message, senderOpenId)) {
         return;
       }
 
-      if (await tryHandleReplyModeCommand(larkAppId, message, senderOpenId, isAllowed)) {
+      if (commandEligible && await tryHandleReplyModeCommand(larkAppId, message, senderOpenId, isAllowed)) {
         return;
       }
 
-      if (await tryHandleSubstituteCommand(larkAppId, message, senderOpenId)) {
+      if (commandEligible && await tryHandleSubstituteCommand(larkAppId, message, senderOpenId)) {
         return;
       }
 
-      // /grant、/revoke — 群内授权元命令。在路由/spawn 之前拦截（仅 owner，需明确 @ 本 bot），
-      // 否则会被当成 prompt 喂给 CLI 会话。
-      if (await tryHandleGrantCommand(larkAppId, message, senderOpenId)) {
+      // Authorization commands are intercepted before routing and spawning.
+      if (commandEligible && await tryHandleGrantCommand(larkAppId, message, senderOpenId)) {
         return;
       }
 
-      // /invite — 把群外 bot 拉进本群的元命令。与 /grant 同款拦截模型（仅 owner，
-      // 需明确 @ 本 bot），防止进路由/spawn，也防多 bot 重复执行拉人。
-      if (await tryHandleInviteCommand(larkAppId, message, senderOpenId)) {
+      // Invite commands use the same owner-only interception boundary.
+      if (commandEligible && await tryHandleInviteCommand(larkAppId, message, senderOpenId)) {
         return;
       }
 
@@ -3103,7 +3063,7 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
       if (routing.scope === 'chat' && chatType === 'p2p' && message.root_id && message.thread_id) {
         replyRootId = message.root_id;
       }
-      const explicitlyMentionedThisBot = isBotMentioned(larkAppId, message, senderOpenId);
+      const explicitlyMentionedThisBot = directlyAddressedThisBot;
       const messageListener = chatType === 'group'
         ? evaluateMessageListener({
             bot: getBot(larkAppId),
@@ -3129,25 +3089,21 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
       // substitute target (the overwhelming majority on the hot path).
       const substituteCfg = getBot(larkAppId).config.substituteMode;
       let substituteChatMode: 'group' | 'topic' | undefined;
-      // chats 白名单在 getChatMode 之前（纯内存判断走在 API roundtrip 前），
-      // 对普通群与话题群统一生效：白名单是「替身可触发的群」清单，与群形态无关。
+      // Check the substitute chat allowlist before the chat-mode API call.
       if (substituteCfg?.enabled === true && chatType === 'group' && isSubstituteAllowedChat(substituteCfg, chatId)) {
         const chatMode = await getChatMode(larkAppId, chatId);
         const modeSupported = chatMode === 'group'
-          // 话题群支持默认开（缺省=开，normalize 只在显式 false 时关）。
+          // Topic groups are enabled unless explicitly disabled.
           || (chatMode === 'topic' && substituteCfg.topicGroups !== false);
         if (modeSupported && isSubstituteEnabledForChat(larkAppId, chatId)) {
           substituteChatMode = chatMode as 'group' | 'topic';
         }
       }
-      // 黑名单硬静默：命中黑名单的群里，一条「本该触发替身」的消息（@ 到了配置的
-      // 替身对象、但没有直接 @ 本 bot）必须当作没读到——直接 return，不只是清 trigger。
-      // 只清 trigger 不够：消息会继续 fall-through 到通用群消息门，若 bot 在该群有活跃
-      // 会话 / 是 solo 群 / mentionMode 放开，仍会被喂进去并弹卡片（用户实测现象）。
-      // 直接 @ 本 bot（explicitlyMentionedThisBot）不受影响：黑名单只静音替身代答，
-      // 不静音「直接找 bot 问问题」。/substitute 命令已在上方 command 处理器拦截。
+      // An excluded lobby drops substitute triggers unless the user directly
+      // addresses this bot. Owned-topic turns always remain agent input.
       if (substituteCfg?.enabled === true
           && chatType === 'group'
+          && !ownsCurrentTopic
           && !explicitlyMentionedThisBot
           && isSubstituteExcludedChat(substituteCfg, chatId)
           && resolveSubstituteTrigger(larkAppId, message)) {
@@ -3168,17 +3124,9 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
       if (substituteTrigger && substituteChatMode === 'topic'
           && substituteCfg?.topicActiveSessionTrigger === false
           && (handlers.isSessionOwner?.(routing.anchor, larkAppId) ?? false)) {
-        // 话题里已有本 bot 活跃会话 + 用户关掉了「活跃话题也触发」：
-        // 单独 @替身对象 是明确转交，必须在任何通用免 @ 规则前直接让路；
-        // 只清掉 metadata 不够，1v1 群/mentionMode=never 仍会把消息喂给 bot。
+        // Disable substitute metadata without dropping the owned-topic turn.
+        // The agent still receives the complete message and interprets it.
         substituteTrigger = undefined;
-        if (!explicitlyMentionedThisBot) {
-          logger.debug(
-            `[substitute:${larkAppId}] active-topic trigger disabled; backing off ` +
-            `msg=${messageId.substring(0, 12)} thread=${String(routing.anchor).substring(0, 12)}`,
-          );
-          return;
-        }
       }
       if (substituteTrigger) {
         if (substituteChatMode === 'group') {
@@ -3205,23 +3153,11 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
         );
       }
 
-      // Shared-mode follow-up: a non-@ message inside a Lark thread can belong
-      // to the regular group's chat-scope session when that root was registered
-      // as a shared-topic alias. Whether a 普通群 answers it without an @mention
-      // is governed by the bot-global mention policy: 'always' (default) keeps
-      // "@ required" so this fold-back is skipped (non-@ thread chatter falls
-      // through to the gate below and is ignored — only an explicit @ continues
-      // a shared topic); 'topic', 'never' and 'ambient' enable the seamless
-      // no-@ fold-back. Carve-out: under 'topic' / 'ambient', a non-@ reply
-      // that @mentions another specific member (person/bot) is a redirect to
-      // someone else → back off, don't fold it in (mentionsAnotherMember).
-      // 'never' stays unconditional by design.
-      const mentionModeForAlias = resolveGroupMentionMode(larkAppId);
-      if (!explicitlyMentionedThisBot
-          && mentionModeForAlias !== 'always'
-          && !((mentionModeForAlias === 'topic' || mentionModeForAlias === 'ambient') && mentionsAnotherMember(larkAppId, message))
-          && routing.scope === 'thread' && message.root_id && message.thread_id && chatType === 'group') {
-        const alias = handlers.resolveReplyThreadAlias?.(message.root_id, chatId, larkAppId) ?? null;
+      // A reply inside a registered shared topic belongs to that topic's
+      // existing agent session. Mention placement and meaning are model input,
+      // not transport routing signals once the topic exists.
+      if (routing.scope === 'thread' && message.root_id && message.thread_id && chatType === 'group') {
+        const alias = currentTopicAlias;
         if (alias) {
           const freshMode = await getChatMode(larkAppId, chatId, { forceRefresh: true });
           if (freshMode === 'group') {
@@ -3423,83 +3359,40 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
         );
       }
 
-      // Permission gating — same shape as before, just keyed on
+      // Permission gating is keyed on
       // `ownsSession` (anchor-aware) instead of "rootId presence":
       //
-      //   ownsSession + 1v1 group → relax (no @mention required)
-      //   ownsSession + multi     → require @mention
-      //   !ownsSession (group)    → require @mention + allowlist
-      //   p2p                     → allowlist only
+      //   owned topic          -> every allowed message continues the session
+      //   group lobby          -> apply the configured mention policy
+      //   p2p                  -> allowlist only
       if (chatType === 'group') {
         const mentionMode = resolveGroupMentionMode(larkAppId);
-        // 消息里 @ 了别的具体成员,就已经证明群不是 1人1bot（只有群成员能被 @）——
-        // 此刻末条 solo 放行必然不成立,而 stats 只被末条消费,直接跳过这次（可能
-        // 昂贵的）人数查询。这在「刚拉了新 bot、用户 @ 新 bot」窗口里尤为重要：
-        // 拦截老 bot 的同时不再为它反复刷新陈旧缓存。
         const mentionsOther = mentionsAnotherMember(larkAppId, message);
-        let stats: { userCount: number; botCount: number } | null = null;
-        if (ownsSession && !replyRootId && !mentionsOther && mentionMode !== 'never') {
-          stats = await getGroupStats(larkAppId, chatId);
-        }
-        // replyRootId means this turn has already been explicitly addressed
-        // to the bot by shared-topic logic (possibly from inside an existing
-        // Lark thread). Do not re-run the generic group @ gate, which would
-        // reject multi-bot thread replies simply because `routing.scope` was
-        // folded back to chat-scope.
-        //
-        // The bot-global mention policy drops the @ requirement:
-        //   • 'never' — answer EVERY un-@ message from talk-allowed senders
-        //     (incl. brand-new non-@ top-level → spawns/continues a session),
-        //     unconditionally. Intended for dedicated / on-call groups.
-        //   • 'ambient' — like 'never' (answer un-@ messages), EXCEPT when the
-        //     message @mentions another specific member (person/bot) without
-        //     @ing us — that is a redirect to someone else, so we back off and
-        //     stay quiet (mentionsAnotherMember). @all does not count as a
-        //     redirect. Best for multi-bot / multi-person groups that want a
-        //     default responder which yields the moment you address someone else.
-        //   • 'topic' — only inside a topic the bot already owns: a non-@ reply
-        //     INSIDE such a thread (new-topic / 话题群 thread the bot owns, or a
-        //     shared-topic alias via replyRootId) continues without @, while a
-        //     brand-new top-level conversation still requires @. If the user
-        //     explicitly @mentions another member/bot without @ing this bot,
-        //     treat it as a hand-off and stay quiet.
-        // Both gated on isAllowed so restricted groups still only react to
-        // permitted senders. (The shared fold-back's replyRootId is already
-        // handled by the first clause. `mentionMode` 已在块首解析,用于 stats
-        // 惰性获取。)
-        // 话题群 owned-topic 免@续话不再无条件放行（#336 引入的默认行为回归：
-        // 多人群里旁人不 @ 也会触发 bot）。现在与普通群共用同一套「群聊 @ 策略」:
-        // 默认 'always' 在多人群里必须 @，想要话题内免@续话就把 mentionMode 配成
-        // 'topic'（下方条款已同时覆盖话题群 thread 与普通群 shared topic），
-        // 'never'/'ambient' 亦按各自语义生效。1人1bot 的 solo 群仍走末条放行。
-        // 注：pairedForwardSeed 仅在 never/ambient 模式下产生，且 ambient redirect
-        // 已在配对前排除，故 isAllowed=true 时下方 never/ambient 条款必然放行；
-        // 不在此单独加 clause，以免 isAllowed=false 时绕过权限检查。
-        // 末条 solo 放行另有 `!mentionsOther` 守卫：消息 @ 了别的具体成员时,
-        // 群必然不是 1人1bot（只有群成员能被 @），且是指给别人的——拦住「刚拉新 bot、
-        // 缓存仍是陈旧 {1,1} 时老 bot 跟着回复」的误放行。never 条款在前已短路,
-        // 故该守卫不影响「群聊 @ 策略」配置的 never 语义。
+        // replyRootId identifies a registered shared topic. Do not apply the
+        // group lobby gate after folding that topic back to chat scope.
+        // Explicit 'never' and 'ambient' policies may also relax lobby routing.
+        // Ambient routing yields when another specific member is addressed.
+        // Every allowed message inside an owned topic continues that agent
+        // session. Complete text and mention identities pass through unchanged,
+        // so the agent interprets references and handoffs semantically.
         const relax = (!!replyRootId && isAllowed)
           || (!!substituteTrigger && isAllowed)
           || !!messageListener
+          || (ownsSession && isAllowed && !!message.thread_id)
           || (isAllowed && mentionMode === 'never')
-          || (isAllowed && mentionMode === 'ambient' && !mentionsOther)
-          || (isAllowed && mentionMode === 'topic' && ownsSession && !!message.thread_id && !mentionsOther)
-          || (ownsSession && isAllowed && !!stats && !mentionsOther && stats.userCount <= 1 && stats.botCount <= 1);
+          || (isAllowed && mentionMode === 'ambient' && !mentionsOther);
         if (!relax) {
           const access = await checkGroupMessageAccess(larkAppId, message, chatId, senderOpenId, humanSenderUnionId);
           if (access === 'not_allowed') {
-            // 入口 A：无权限者 @bot → 向 owner 私聊发送授权申请卡。
-            // 覆盖 ownsSession 真假两种情况，但绝不把该消息喂进已有 session。
+            // Send an authorization request to the owner, but never deliver an
+            // unauthorized message into an existing session.
             await maybeSendGrantRequestCard(larkAppId, message, chatId, senderOpenId, data);
             logger.debug(`Ignoring group message from non-allowed user: ${senderOpenId} (grant request card path)`);
             return;
           }
           if (access === 'ignore') {
-            // 主动开工 — 场景②: a non-@ message that seeds a brand-new topic in
-            // a 话题群 auto-starts a session when the bot opted in. Everything
-            // else (regular-group chatter, thread replies, disabled bots) keeps
-            // the original ignore. Sender is intentionally not gated (D4).
+            // An explicitly enabled topic group may auto-start from a new topic
+            // seed. Ordinary group lobby chatter remains ignored.
             const autoTopic = shouldAutoStartOnNewTopic({
               enabled: getBot(larkAppId).config.autoStartOnNewTopic === true,
               scope: autoTopicSeedScope,
@@ -3636,14 +3529,6 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
       const chatIdForKey: string | undefined = data?.chat_id;
       const operatorForKey: string | undefined = data?.operator_id?.open_id;
       const eventKey = `im.chat.member.bot.added_v1:${larkAppId}:${eventIdForKey(data) ?? `${chatIdForKey ?? 'unknown'}:${operatorForKey ?? 'unknown'}`}`;
-      // 飞书只把 bot.added 推给「进群的那个 bot 自己的 app」(官方文档语義,
-      // codex 复审证实),且生产是 PM2「一 bot 一 daemon 进程」(daemon.ts
-      // "Load the assigned bot (one daemon per bot)")——同群其他 bot 的缓存在
-      // 别的进程,这里够不到,只能清自己的 key。覆盖增量其实很小:新添进群
-      // 时本 bot 此前若恰有该群条目（曾被移出又拉回),避免带着上轮陈旧数放行。
-      // 「拉了别的 bot 进群→存量 bot 陈旧」方向无事件信号,靠 relax 末条款的
-      // mentionsAnotherMember 守卫 + TTL 兜底。
-      if (chatIdForKey) invalidateChatStats(larkAppId, chatIdForKey);
       scheduleAckSafeEvent(eventKey, async () => {
       try {
         const chatId: string | undefined = data?.chat_id;
@@ -3660,23 +3545,6 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
         logger.error(`Error handling bot-added event: ${err}`);
       }
       }, 'bot-added event');
-    },
-    // bot.deleted 同样只推给被移出的 bot 自己的 app——清自己的 key 即可(语义
-    // 同 bot.added:进程边界上够不到兄弟 daemon;「别的 bot 离群→存量 bot
-    // 陈旧」靠①守卫+TTL)。user.added/deleted_v1 推给群内已订阅的所有 bot
-    // app,每个 bot 自己的 WS 都收到,各自清自己那条。纯本地 map 删除,同步
-    // 处理、即时 ACK,不进 work 队列;去重也不必要——失效是幂等的。
-    'im.chat.member.bot.deleted_v1': (data: any) => {
-      const chatId: string | undefined = data?.chat_id;
-      if (chatId) invalidateChatStats(larkAppId, chatId);
-    },
-    'im.chat.member.user.added_v1': (data: any) => {
-      const chatId: string | undefined = data?.chat_id;
-      if (chatId) invalidateChatStats(larkAppId, chatId);
-    },
-    'im.chat.member.user.deleted_v1': (data: any) => {
-      const chatId: string | undefined = data?.chat_id;
-      if (chatId) invalidateChatStats(larkAppId, chatId);
     },
     // 文档评论入口（/watch-comment / /subscribe-lark-doc）。notice 事件主要覆盖 @Bot
     // 通知；普通评论由 daemon 应用身份轮询补齐，不依赖逐文件 subscribe API。

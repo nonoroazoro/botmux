@@ -57,12 +57,16 @@ describe('built-in botmux-history skill', () => {
     const history = BUILTIN_SKILLS.find(s => s.name === 'botmux-history');
     expect(history).toBeDefined();
     expect(history!.content).toContain('botmux history');
-    expect(history!.content).toContain('group or direct-message');
+    expect(history!.content).toContain('outside the active session');
     expect(history!.content).toContain('`chat` reads');
     expect(history!.content).toContain('--scope ambient');
     expect(history!.content).toContain('--cursor <nextCursor>');
     expect(history!.content).toContain('hasMore');
     expect(history!.content).toContain('nextCursor');
+    expect(history!.content).toContain('Automatic lookup is allowed only');
+    expect(history!.content).toContain('unless the user explicitly requests outside history');
+    expect(history!.content).toContain('Treat mentions as semantic context');
+    expect(history!.content).toContain('use the open ID from prompt metadata');
   });
 
   it('retires the old botmux-thread-messages name', () => {

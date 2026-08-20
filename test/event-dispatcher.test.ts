@@ -148,7 +148,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
 // ─── Imports (must be after mocks) ──────────────────────────────────────────
 
 import { __resetAnchorQueues } from '../src/utils/anchor-serializer.js';
-import { __pollMessageListenersOnceForTest, __resetEventClaimsForTest, __resetChatStatsForTest, canOperate, canTalk, checkGroupMessageAccess, decideRouting, ensureBotOpenId, isBotMentioned, mentionsAnotherMember, markForwardFollowupsSessionsReady, startLarkEventDispatcher, writeBotInfoFile, type EventHandlers } from '../src/im/lark/event-dispatcher.js';
+import { __pollMessageListenersOnceForTest, __resetEventClaimsForTest, canOperate, canTalk, checkGroupMessageAccess, decideRouting, ensureBotOpenId, isBotDirectlyAddressed, isBotMentioned, mentionsAnotherMember, markForwardFollowupsSessionsReady, startLarkEventDispatcher, writeBotInfoFile, type EventHandlers } from '../src/im/lark/event-dispatcher.js';
 import {
   VC_BOT_MEETING_ACTIVITY_EVENT,
   VC_BOT_MEETING_ENDED_EVENT,
@@ -1388,6 +1388,34 @@ describe('isBotMentioned', () => {
       mentions: [{ key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } }],
     };
     expect(isBotMentioned(MY_APP_ID, message, undefined)).toBe(false);
+  });
+});
+
+describe('isBotDirectlyAddressed', () => {
+  beforeEach(() => {
+    setupBotState();
+  });
+
+  it('accepts the bot as the leading addressee', () => {
+    const message = {
+      mentions: [
+        { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
+        { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
+      ],
+      content: JSON.stringify({ text: '@_bot inspect @_person messages' }),
+    };
+    expect(isBotDirectlyAddressed(MY_APP_ID, message)).toBe(true);
+  });
+
+  it('rejects the bot when another person is the leading addressee', () => {
+    const message = {
+      mentions: [
+        { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
+        { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
+      ],
+      content: JSON.stringify({ text: '@_person ask @_bot to handle this' }),
+    };
+    expect(isBotDirectlyAddressed(MY_APP_ID, message)).toBe(false);
   });
 });
 
@@ -3079,7 +3107,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     }));
   });
 
-  it('requires @mention in multi-bot thread even if bot owns session', async () => {
+  it('continues an owned topic without a mention in a multi-bot group', async () => {
     const event = makeUserMessageEvent({
       senderOpenId: USER_OPEN_ID,
       content: JSON.stringify({ text: 'hello everyone' }),
@@ -3088,8 +3116,6 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
       chatType: 'group',
     });
     handlers.isSessionOwner.mockReturnValue(true);
-    // Multi-bot stats — the relax check needs botCount > 1 to fail and force
-    // the @mention requirement back on.
     mockGetChatInfo.mockResolvedValue({ userCount: 1, botCount: 2 });
     mockListChatBotMembers.mockResolvedValue([
       { openId: MY_OPEN_ID, name: 'BotA' },
@@ -3099,8 +3125,11 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    // No @mention → should NOT be routed even though bot owns session
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      anchor: 'root-thread-7',
+      scope: 'thread',
+      larkAppId: MY_APP_ID,
+    }));
   });
 
   it('processes @mentioned message in multi-bot thread', async () => {
@@ -4068,9 +4097,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
-  it('substituteMode: 话题群 topicActiveSessionTrigger=false keeps the original back-off in owned topics', async () => {
-    // @了别人=转交别人：关掉「活跃话题也触发」后，替身触发不再抢会话，
-    // 消息落回 mentionsAnotherMember 让路 → 双 handler 都不该被调。
+  it('substituteMode: disabling active-topic triggers still delivers the turn to the topic agent', async () => {
     setupBotState({
       allowedUsers: [USER_OPEN_ID],
       substituteMode: {
@@ -4097,10 +4124,14 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await flushEventWork();
 
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'thread',
+      anchor: 'topic-root-sub-3',
+      substituteTrigger: undefined,
+    }));
   });
 
-  it('substituteMode: topicActiveSessionTrigger=false also backs off under mentionMode=never', async () => {
+  it('substituteMode: disabling active-topic triggers preserves delivery under mentionMode=never', async () => {
     setupBotState({
       allowedUsers: [USER_OPEN_ID],
       regularGroupMentionMode: 'never',
@@ -4128,7 +4159,11 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await flushEventWork();
 
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'thread',
+      anchor: 'topic-root-sub-never',
+      substituteTrigger: undefined,
+    }));
   });
 
   it('substituteMode: 话题群 topicActiveSessionTrigger=false still triggers in topics WITHOUT a session', async () => {
@@ -4427,7 +4462,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
-  it('shared follow-up with mention mode topic yields when the reply @mentions ANOTHER bot', async () => {
+  it('delivers another bot mention inside a shared topic for semantic interpretation', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID], regularGroupMentionMode: 'topic' });
     mockGetChatMode.mockResolvedValue('group');
     mockGetChatInfo.mockResolvedValue({ userCount: 3, botCount: 2 });
@@ -4447,12 +4482,17 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'chat',
+      anchor: 'chat-reply-mode',
+      replyRootId: 'msg-topic-alias-1',
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
-    expect(handlers.resolveReplyThreadAlias).not.toHaveBeenCalled();
+    expect(handlers.resolveReplyThreadAlias).toHaveBeenCalled();
   });
 
-  it('shared follow-up thread reply WITHOUT @ is ignored by default (mention mode always → @ required even in topics)', async () => {
+  it('shared follow-up thread reply without a mention continues the topic by default', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID] }); // default = always
     mockGetChatMode.mockResolvedValue('group');
     handlers.resolveReplyThreadAlias.mockReturnValue({ chatId: 'chat-reply-mode', sessionId: 'sess-chat' });
@@ -4469,11 +4509,14 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    // No fold-back: the non-@ thread message is left to the normal "@ required"
-    // gate, so neither handler fires (the alias resolver is never consulted).
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'chat',
+      anchor: 'chat-reply-mode',
+      replyRootId: 'msg-topic-alias-1',
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
-    expect(handlers.resolveReplyThreadAlias).not.toHaveBeenCalled();
+    expect(handlers.resolveReplyThreadAlias).toHaveBeenCalled();
   });
 
   it('mention mode never: a non-@ top-level message from an allowed user is answered (no @ required)', async () => {
@@ -4528,7 +4571,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
-  it('mention mode topic: a reply inside an owned thread that @mentions ANOTHER bot is ignored — yields the turn', async () => {
+  it('delivers another bot mention inside an owned topic for semantic interpretation', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID], regularGroupMentionMode: 'topic' });
     mockGetChatMode.mockResolvedValue('group');
     mockGetChatInfo.mockResolvedValue({ userCount: 3, botCount: 2 });
@@ -4548,11 +4591,15 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'thread',
+      anchor: 'owned-topic-root',
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
-  it('mention mode always (default): a non-@ reply inside an owned thread is ignored in a multi-person group (@ required even in topics)', async () => {
+  it('mention mode always: a non-mentioned reply inside an owned topic continues the session', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID] }); // default always
     mockGetChatMode.mockResolvedValue('group');
     mockGetChatInfo.mockResolvedValue({ userCount: 3, botCount: 1 });
@@ -4571,13 +4618,15 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'thread',
+      anchor: 'owned-topic-root',
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
-  it('topic group default (always): a non-@ reply inside an owned topic is ignored in a multi-person group', async () => {
-    // #336 曾无条件放行「owned-topic 免@续话」，导致多人话题群里旁人不 @ 也触发
-    // bot。现在话题群与普通群共用「群聊 @ 策略」：默认 always 必须 @。
+  it('topic group default: a non-mentioned reply inside an owned topic continues the session', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID] }); // default always
     mockGetChatMode.mockResolvedValue('topic');
     mockGetChatInfo.mockResolvedValue({ userCount: 3, botCount: 1 });
@@ -4596,7 +4645,11 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'thread',
+      anchor: 'owned-topic-root',
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
@@ -4655,10 +4708,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
-  it('topic group default, MULTI-bot: a non-@ reply inside an owned topic is ignored (@ required)', async () => {
-    // Regression for the #336 relax leaking into multi-bot topics: with 2+ bots
-    // in the group, every co-resident bot owns a session on the same thread
-    // anchor, so a non-@ (or @-someone-else) reply must NOT be answered.
+  it('topic group default: a non-mentioned reply continues its owned topic in a multi-bot group', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID] }); // default always
     mockGetChatMode.mockResolvedValue('topic');
     mockGetChatInfo.mockResolvedValue({ userCount: 3, botCount: 2 });
@@ -4677,14 +4727,15 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'thread',
+      anchor: 'owned-topic-root',
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
-  it('topic group default: a reply @mentioning ANOTHER member inside an owned topic backs off', async () => {
-    // Redirect carve-out (mirrors ambient): "@SomeoneElse do X" inside the
-    // topic addresses someone else — this bot must stay quiet even though it
-    // owns a session here and the group has no other bot.
+  it('topic group default: a human mention inside an owned topic is delivered for semantic interpretation', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID] }); // default always
     mockGetChatMode.mockResolvedValue('topic');
     mockGetChatInfo.mockResolvedValue({ userCount: 3, botCount: 1 });
@@ -4692,7 +4743,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     handlers.isSessionOwner.mockImplementation((anchor: string) => anchor === 'owned-topic-root');
     const event = makeUserMessageEvent({
       senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: '@Other please take this one' }),
+      content: JSON.stringify({ text: 'inspect the messages from @Other and fix the issue' }),
       mentions: [{ key: '@_other', name: 'Other', id: { open_id: 'ou_other_member' } }],
       rootId: 'owned-topic-root',
       threadId: 'owned-topic-root',
@@ -4704,7 +4755,11 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'thread',
+      anchor: 'owned-topic-root',
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
@@ -4753,6 +4808,54 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await flushEventWork();
 
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+  });
+
+  it('group lobby ignores a bot mention when another member is addressed first', async () => {
+    setupBotState({ allowedUsers: [USER_OPEN_ID] });
+    mockGetChatMode.mockResolvedValue('group');
+    handlers.isSessionOwner.mockReturnValue(false);
+    const event = makeUserMessageEvent({
+      senderOpenId: USER_OPEN_ID,
+      content: JSON.stringify({ text: '@_person you can ask @_bot to handle this' }),
+      messageId: 'msg-lobby-secondary-bot-mention',
+      chatId: 'chat-lobby-secondary-bot-mention',
+      chatType: 'group',
+      mentions: [
+        { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
+        { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
+      ],
+    });
+
+    await capturedHandlers['im.message.receive_v1'](event);
+    await flushEventWork();
+
+    expect(handlers.handleNewTopic).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+  });
+
+  it('group lobby accepts the bot as the leading addressee and preserves later mentions', async () => {
+    setupBotState({ allowedUsers: [USER_OPEN_ID] });
+    mockGetChatMode.mockResolvedValue('group');
+    handlers.isSessionOwner.mockReturnValue(false);
+    const event = makeUserMessageEvent({
+      senderOpenId: USER_OPEN_ID,
+      content: JSON.stringify({ text: '@_bot inspect @_person messages' }),
+      messageId: 'msg-lobby-leading-bot-mention',
+      chatId: 'chat-lobby-leading-bot-mention',
+      chatType: 'group',
+      mentions: [
+        { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
+        { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
+      ],
+    });
+
+    await capturedHandlers['im.message.receive_v1'](event);
+    await flushEventWork();
+
+    expect(handlers.handleNewTopic).toHaveBeenCalledWith(event, expect.objectContaining({
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleThreadReply).not.toHaveBeenCalled();
   });
 
@@ -4904,14 +5007,14 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 
-  it('ambient: a follow-up inside a shared-topic alias thread that @mentions another member does NOT fold back (yields)', async () => {
+  it('ambient: a human mention inside a shared-topic alias folds back for semantic interpretation', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID], regularGroupMentionMode: 'ambient' });
     mockGetChatMode.mockResolvedValue('group');
     handlers.resolveReplyThreadAlias.mockReturnValue({ chatId: 'chat-ambient-alias', sessionId: 'sess-chat' });
     handlers.isSessionOwner.mockImplementation((anchor: string) => anchor === 'chat-ambient-alias');
     const event = makeUserMessageEvent({
       senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: '@Someone 你接着看' }),
+      content: JSON.stringify({ text: 'inspect @Someone messages and continue' }),
       rootId: 'msg-ambient-alias-1',
       messageId: 'msg-ambient-alias-redirect',
       chatId: 'chat-ambient-alias',
@@ -4922,10 +5025,13 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    // The fold-back is skipped (redirect) → the alias resolver is never consulted
-    // and the message is not pulled into the shared chat session.
-    expect(handlers.resolveReplyThreadAlias).not.toHaveBeenCalled();
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+    expect(handlers.resolveReplyThreadAlias).toHaveBeenCalled();
+    expect(handlers.handleThreadReply).toHaveBeenCalledWith(event, expect.objectContaining({
+      scope: 'chat',
+      anchor: 'chat-ambient-alias',
+      replyRootId: 'msg-ambient-alias-1',
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
   });
 });
@@ -6606,7 +6712,8 @@ describe('im.message.receive_v1 — /introduce command', () => {
     chatId?: string;
     messageId?: string;
   }) {
-    const text = `/introduce${opts.extraText ?? ''}`;
+    const mentionPrefix = opts.mentions.map(mention => mention.key).join(' ');
+    const text = `${mentionPrefix ? `${mentionPrefix} ` : ''}/introduce${opts.extraText ?? ''}`;
     return makeUserMessageEvent({
       senderOpenId: USER_OPEN_ID,
       content: JSON.stringify({ text }),
@@ -6788,7 +6895,7 @@ describe('im.message.receive_v1 — /introduce command', () => {
   });
 
   it('allows /introduce from any user (no auth gate): records + acks, never reaches CLI', async () => {
-    // sender NOT in allowedUsers — /introduce should STILL work（只记花名册、不授权）。
+    // The command records observed bots without granting conversation access.
     mockGetBot.mockReturnValue({
       config: { larkAppId: MY_APP_ID, larkAppSecret: 'secret', cliId: 'claude-code', allowedUsers: ['ou_some_other_human'] },
       botOpenId: MY_OPEN_ID,
@@ -6796,6 +6903,7 @@ describe('im.message.receive_v1 — /introduce command', () => {
     });
     const event = makeIntroduceEvent({
       mentions: [
+        { key: '@_a', name: 'BotA', id: { open_id: MY_OPEN_ID } },
         { key: '@_b', name: 'BotB', id: { open_id: OTHER_BOT_OPEN_ID } },
       ],
     });
@@ -6803,8 +6911,8 @@ describe('im.message.receive_v1 — /introduce command', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    expect(mockRecordObservedBots).toHaveBeenCalled();   // 任何人都能登记
-    expect(mockReplyMessage).toHaveBeenCalled();          // 仍然回执 ack
+    expect(mockRecordObservedBots).toHaveBeenCalled();
+    expect(mockReplyMessage).toHaveBeenCalled();
     // Still intercepted: never falls through to CLI handlers
     expect(handlers.handleNewTopic).not.toHaveBeenCalled();
     expect(handlers.handleThreadReply).not.toHaveBeenCalled();
@@ -6865,6 +6973,27 @@ describe('im.message.receive_v1 — /introduce command', () => {
     await flushEventWork();
 
     expect(mockRecordObservedBots).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not consume a lobby command when another member is addressed first', async () => {
+    const event = makeUserMessageEvent({
+      senderOpenId: USER_OPEN_ID,
+      content: JSON.stringify({ text: '@_person ask @_bot to run /introduce' }),
+      mentions: [
+        { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
+        { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
+      ],
+      chatType: 'group',
+      messageId: 'msg-secondary-command-mention',
+    });
+
+    await capturedHandlers['im.message.receive_v1'](event);
+    await flushEventWork();
+
+    expect(mockRecordObservedBots).not.toHaveBeenCalled();
+    expect(mockReplyMessage).not.toHaveBeenCalled();
+    expect(handlers.handleNewTopic).not.toHaveBeenCalled();
+    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
   });
 
   it('triggers on rich-text (post) form: tag:"at" + text " /introduce"', async () => {
@@ -7625,214 +7754,5 @@ describe('startLarkEventDispatcher — 长连接死后自愈 (reconnect-exhauste
     expect(ws.start).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();
-  });
-});
-
-describe('1v1 陈旧缓存守门 — 拉新 bot 后 @ 新 bot 时老 bot 不跟回', () => {
-  // 复现并钉住生产投诉:原 1人1bot 群被拉进第二个 bot 后,旧 bot 的
-  // group-stats 缓存仍是 {1,1}（TTL 5min 内）。此刻用户 @ 新 bot,
-  // 旧 bot 误按 solo 放行 → 跟着回复。修复①(solo 判定加 mentionsAnotherMember
-  // 守卫)在消息到达当下立即拦死该投诉路径;②(成员变更事件驱动
-  // invalidateChatStats)只负责把「有人进/出群、本 bot 被移出又拉回」这些
-  // 事件可见方向的纯文本窗口也压到秒级——别的 bot 进群方向无事件(见下),
-  // 靠①+TTL。①只影响 never 之外的策略:never 语义由前序条款先行结算。
-  //
-  // ②的投递+部署边界（codex 两轮复审证实,见 PR #691 review）:
-  // im.chat.member.bot.added/deleted_v1 只推给「进群/被移出的那个 bot 自己的
-  // app」,且生产是 PM2 一 bot 一 daemon 进程、chatStatsCache 进程内——bot 事件
-  // 只能清自己的 key(覆盖「本 bot 被移出又拉回」类自身残留)。user.added/
-  // deleted_v1 广播给群内所有已订阅 bot,各自清自己那条。「别的 bot 进群/离群
-  // →本 bot 陈旧」无事件信号且跨进程,靠①守卫 + TTL 兜底。
-  let handlers: ReturnType<typeof makeHandlers>;
-
-  const CHAT = 'chat-stale-1v1';
-
-  function startStaleOwnedGroup(mentionMode?: 'always' | 'topic' | 'never' | 'ambient') {
-    setupBotState({ allowedUsers: [USER_OPEN_ID], ...(mentionMode ? { regularGroupMentionMode: mentionMode } : {}) });
-    mockGetChatMode.mockResolvedValue('group');
-    // 陈旧现场:真实群已是 1人2bot,但这些调用方拿到的还是 TTL 内的老值。
-    mockGetChatInfo.mockResolvedValue({ userCount: 1, botCount: 1 });
-    handlers.resolveReplyThreadAlias.mockReturnValue(null);
-    handlers.isSessionOwner.mockImplementation((anchor: string) => anchor === CHAT);
-    startLarkEventDispatcher(MY_APP_ID, 'secret', handlers);
-  }
-
-  function atOtherBotEvent(messageId: string, senderOpenId = USER_OPEN_ID) {
-    return makeUserMessageEvent({
-      senderOpenId,
-      content: JSON.stringify({ text: '@BotB 帮我看一下这个问题' }),
-      mentions: [{ key: '@_bot_b', name: 'BotB', id: { open_id: OTHER_BOT_OPEN_ID } }],
-      messageId,
-      chatId: CHAT,
-      chatType: 'group',
-    });
-  }
-
-  beforeEach(() => {
-    capturedHandlers = {};
-    __resetAnchorQueues();
-    __resetEventClaimsForTest();
-    __resetChatStatsForTest();
-    _resetGrantPending();
-    handlers = makeHandlers();
-    mockFindOncallChat.mockReturnValue(undefined);
-    // 本组用例必须亲自摆出陈旧 {1,1};beforeEach 全局默认 {3,1} 不能泄漏进来。
-    mockGetChatInfo.mockReset();
-  });
-
-  it('① 默认 always + 陈旧 {1,1}:@ 别的 bot 时老 bot 静默（ownsSession 也不会触发 solo 放行）', async () => {
-    startStaleOwnedGroup();
-    await capturedHandlers['im.message.receive_v1'](atOtherBotEvent('msg-at-newbot-1'));
-    await flushEventWork();
-
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
-    expect(handlers.handleNewTopic).not.toHaveBeenCalled();
-    // @ 了别人时 solo 不可能成立,连人数查询都该省掉(顺带避免顺手刷新陈旧缓存)。
-    expect(mockGetChatInfo).not.toHaveBeenCalled();
-  });
-
-  it('① 无会话路径（checkGroupMessageAccess）:@ 别的 bot 同样不被陈旧 {1,1} 误放行', async () => {
-    startStaleOwnedGroup();
-    handlers.isSessionOwner.mockReturnValue(false); // 老 bot 在此群还没有会话
-
-    // 第一条纯文本:真·1v1 时代的老 bot 会直接开工（此调用把 {1,1} 写入缓存）。
-    await capturedHandlers['im.message.receive_v1'](makeUserMessageEvent({
-      senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: 'hi bot' }),
-      messageId: 'msg-plain-opens-1',
-      chatId: CHAT,
-      chatType: 'group',
-    }));
-    await flushEventWork();
-    expect(handlers.handleNewTopic).toHaveBeenCalledTimes(1);
-
-    // 拉了新 bot 之后(CLI 侧这里仍是同一老缓存 key),用户 @ 新 bot:
-    await capturedHandlers['im.message.receive_v1'](atOtherBotEvent('msg-at-newbot-2'));
-    await flushEventWork();
-    expect(handlers.handleNewTopic).toHaveBeenCalledTimes(1); // 没有第二次放行
-    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
-    // @ 了别人时连人数查询都省掉——getChatInfo 全程只在第一条真·solo 消息时调过一次。
-    expect(mockGetChatInfo).toHaveBeenCalledTimes(1);
-  });
-
-  it('① 遵循 dashboard「群聊 @ 策略」:never 模式下 @ 别的 bot 依旧应答', async () => {
-    startStaleOwnedGroup('never');
-    await capturedHandlers['im.message.receive_v1'](atOtherBotEvent('msg-at-newbot-never'));
-    await flushEventWork();
-
-    expect(handlers.handleThreadReply).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      anchor: CHAT,
-      larkAppId: MY_APP_ID,
-    }));
-    // never 语义不依赖人数:根本不发起 stats 查询。
-    expect(mockGetChatInfo).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    'im.chat.member.bot.added_v1',
-    'im.chat.member.bot.deleted_v1',
-  ] as const)('② %s 只清本 bot 自己的 key(生产=一 bot 一 daemon,够不到兄弟进程)', async (eventName) => {
-    // 真实投递+部署语义(codex 两轮复审证实):bot.added/deleted 只推给当事 bot
-    // 自己的 app;且生产 PM2 一 bot 一 daemon 进程,chatStatsCache 进程内——
-    // 事件到达时只能清自己的 key。覆盖增量=本 bot 被移出又拉回等「自己的条目
-    // 跨上轮残留」场景;「别的 bot 进群→本 bot 陈旧」方向无事件,靠①+TTL。
-    startStaleOwnedGroup(); // 首次判定后缓存本 bot 视角的 {1,1}
-
-    await capturedHandlers['im.message.receive_v1'](makeUserMessageEvent({
-      senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: 'seed the cache' }),
-      messageId: `msg-seed-${eventName}`,
-      chatId: CHAT,
-      chatType: 'group',
-    }));
-    await flushEventWork();
-    expect(handlers.handleThreadReply).toHaveBeenCalledTimes(1);
-    expect(mockGetChatInfo).toHaveBeenCalledTimes(1);
-
-    capturedHandlers[eventName]({ chat_id: CHAT, operator_id: { open_id: USER_OPEN_ID } });
-    // 飞书侧人数变化(以本 bot 被拉回后真实形态为例):
-    mockGetChatInfo.mockResolvedValue({ userCount: 1, botCount: 2 });
-
-    await capturedHandlers['im.message.receive_v1'](makeUserMessageEvent({
-      senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: 'post-change plain text' }),
-      messageId: `msg-post-${eventName}`,
-      chatId: CHAT,
-      chatType: 'group',
-    }));
-    await flushEventWork();
-
-    // 失效→重查→{1,2}→不再按 solo 放行;失效退化成 no-op 会命中陈旧 {1,1} 续放。
-    expect(handlers.handleThreadReply).toHaveBeenCalledTimes(1);
-    expect(handlers.handleNewTopic).not.toHaveBeenCalled();
-    expect(mockGetChatInfo).toHaveBeenCalledTimes(2);
-  });
-
-  it.each([
-    'im.chat.member.user.added_v1',
-    'im.chat.member.user.deleted_v1',
-  ] as const)('② %s(广播给群内所有已订阅 bot)失效自己那条缓存', async (eventName) => {
-    // fresh 值只需满足「非 solo」来证明判定用了新数,不必模拟各事件的真实增减方向。
-    const freshStats = { userCount: 2, botCount: 1 };
-    startStaleOwnedGroup();
-
-    await capturedHandlers['im.message.receive_v1'](makeUserMessageEvent({
-      senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: 'seed the cache' }),
-      messageId: `msg-seed-${eventName}`,
-      chatId: CHAT,
-      chatType: 'group',
-    }));
-    await flushEventWork();
-    expect(handlers.handleThreadReply).toHaveBeenCalledTimes(1);
-
-    expect(capturedHandlers[eventName]).toBeTypeOf('function');
-    capturedHandlers[eventName]({ chat_id: CHAT, operator_id: { open_id: USER_OPEN_ID } });
-    mockGetChatInfo.mockResolvedValue(freshStats);
-
-    await capturedHandlers['im.message.receive_v1'](makeUserMessageEvent({
-      senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: 'post-change plain text' }),
-      messageId: `msg-post-${eventName}`,
-      chatId: CHAT,
-      chatType: 'group',
-    }));
-    await flushEventWork();
-
-    expect(handlers.handleThreadReply).toHaveBeenCalledTimes(1);
-    expect(mockGetChatInfo).toHaveBeenCalledTimes(2);
-  });
-
-  it('② 发在别的群的成员事件不误伤本群缓存（按 larkAppId:chatId 精确失效）', async () => {
-    startStaleOwnedGroup();
-
-    await capturedHandlers['im.message.receive_v1'](makeUserMessageEvent({
-      senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: 'seed' }),
-      messageId: 'msg-seed-otherchat',
-      chatId: CHAT,
-      chatType: 'group',
-    }));
-    await flushEventWork();
-    expect(handlers.handleThreadReply).toHaveBeenCalledTimes(1);
-
-    // 别的群加了 bot —— 只清那个群的缓存:
-    capturedHandlers['im.chat.member.bot.added_v1']({
-      chat_id: 'chat-unrelated',
-      operator_id: { open_id: USER_OPEN_ID },
-    });
-
-    await capturedHandlers['im.message.receive_v1'](makeUserMessageEvent({
-      senderOpenId: USER_OPEN_ID,
-      content: JSON.stringify({ text: 'still 1v1 here' }),
-      messageId: 'msg-after-otherchat',
-      chatId: CHAT,
-      chatType: 'group',
-    }));
-    await flushEventWork();
-
-    // 本群缓存命中(没有多余重查),仍按 1v1 放行。
-    expect(handlers.handleThreadReply).toHaveBeenCalledTimes(2);
-    expect(mockGetChatInfo).toHaveBeenCalledTimes(1);
   });
 });

@@ -7,14 +7,16 @@ describe('buildHistoryLookupContext', () => {
     const context = buildHistoryLookupContext('group', 'thread', 'en');
 
     expect(context).toContain('botmux history --scope ambient');
-    expect(context).toContain('look into this bug');
+    expect(context).toContain('New group topic, first turn');
+    expect(context).toContain('automatic lookup applies to this turn only');
   });
 
   it('uses chat history for a direct message', () => {
     const context = buildHistoryLookupContext('p2p', 'thread', 'en');
 
     expect(context).toContain('botmux history --scope chat');
-    expect(context).toContain('direct-message history');
+    expect(context).toContain('earlier direct messages');
+    expect(context).toContain('automatic lookup applies to this turn only');
   });
 
   it('uses the current scope for a chat-scoped group session', () => {
@@ -22,5 +24,6 @@ describe('buildHistoryLookupContext', () => {
 
     expect(context).toContain('run `botmux history`');
     expect(context).not.toContain('--scope ambient');
+    expect(context).toContain('automatic lookup applies to this turn only');
   });
 });

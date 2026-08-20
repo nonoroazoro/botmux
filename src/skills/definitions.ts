@@ -149,14 +149,21 @@ botmux chat rename "支付链路排障｜待验证" --proactive
 
 const HISTORY_SKILL = `---
 name: botmux-history
-description: Read paginated Lark history for the current session. Use proactively when a request depends on earlier group or direct-message context, especially references such as "this bug", "continue", or "what we discussed".
+description: Read paginated Lark history when the current turn needs chat context outside the active session.
 ---
 
 # Lark History
 
-Read one page at a time, newest page first. Each page contains 20 messages by default and is ordered chronologically for analysis.
+Read one page at a time. Start with the newest page. Messages within a page are ordered chronologically.
 
-When \`hasMore\` is true and the relevant context is not present, repeat the same scope with \`--cursor <nextCursor>\`. Do not ask the user to repeat context before reading the relevant history pages.
+- Automatic lookup is allowed only when the prompt marks a new topic or session first turn and the request needs earlier chat context.
+- In an existing topic, use session context unless the user explicitly requests outside history.
+
+When an allowed lookup returns \`hasMore=true\` and the relevant context is not present, repeat the same scope with \`--cursor <nextCursor>\`.
+
+## Mentions
+
+Treat mentions as semantic context, not routing signals. If the user asks to inspect a mentioned person's messages, use the open ID from prompt metadata and filter history by sender. Do not fetch history when the mention only assigns or references that person.
 
 ## Commands
 
