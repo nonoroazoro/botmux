@@ -31,6 +31,80 @@ afterEach(() => {
 });
 
 describe('ordinary IM during real worker init', () => {
+  it('publishes progress while a Codex turn waits for a restarted CLI', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'botmux-worker-startup-progress-'));
+    tempDirs.add(root);
+    const dataDir = join(root, 'session');
+    mkdirSync(dataDir, { recursive: true });
+    const fakeCodex = join(root, 'fake-codex');
+    writeFileSync(fakeCodex, `#!/usr/bin/env node
+if (process.argv.includes('app-server')) {
+  setInterval(() => {}, 1_000);
+} else {
+  setTimeout(() => process.stdout.write('›\\n'), 2_000);
+  setInterval(() => {}, 1_000);
+}
+`);
+    chmodSync(fakeCodex, 0o755);
+
+    const messages: WorkerToDaemon[] = [];
+    const logs: string[] = [];
+    const child = spawn(process.execPath, ['--import', 'tsx', resolve('src/worker.ts')], {
+      cwd: resolve('.'),
+      env: {
+        ...process.env,
+        HOME: root,
+        SESSION_DATA_DIR: dataDir,
+        BOTMUX_SESSION_ID: 'sid-worker-startup-progress',
+        LARK_APP_ID: 'app_test',
+        LARK_APP_SECRET: 'secret',
+      },
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    });
+    children.add(child);
+    child.on('message', raw => messages.push(raw as WorkerToDaemon));
+    child.stdout?.on('data', chunk => logs.push(chunk.toString()));
+    child.stderr?.on('data', chunk => logs.push(chunk.toString()));
+
+    child.send({
+      type: 'init',
+      sessionId: 'sid-worker-startup-progress',
+      chatId: 'oc_test',
+      rootMessageId: 'om_root',
+      workingDir: dataDir,
+      cliId: 'codex',
+      cliPathOverride: fakeCodex,
+      backendType: 'pty',
+      prompt: '',
+      resume: true,
+      cliSessionId: 'thread-existing',
+      nativeSessionTitle: 'Existing title',
+      larkAppId: 'app_test',
+      larkAppSecret: 'secret',
+    } satisfies DaemonToWorker);
+
+    await waitFor(() => messages.some(message => message.type === 'ready'), logs);
+    child.send({ type: 'restart' } satisfies DaemonToWorker);
+    await waitFor(() => logs.some(line => line.includes('Restart requested (daemon request)')), logs);
+    child.send({
+      type: 'message',
+      content: 'LIST_KNOWLEDGE_DURING_BOOT',
+      turnId: 'om_startup_turn',
+    } satisfies DaemonToWorker);
+
+    await waitFor(() => messages.some(message =>
+      message.type === 'screen_update'
+      && message.status === 'working'
+      && message.turnId === 'om_startup_turn'), logs, 5_000);
+
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: 'screen_update',
+      content: '',
+      status: 'working',
+      turnId: 'om_startup_turn',
+    }));
+  }, 15_000);
+
   it('queues a concurrent follow-up instead of rejecting it before cliAdapter is ready', async () => {
     const root = mkdtempSync(join(tmpdir(), 'botmux-worker-init-concurrency-'));
     tempDirs.add(root);

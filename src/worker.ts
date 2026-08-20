@@ -6232,6 +6232,26 @@ function publishScreenStatus(status: 'working' | 'idle', opts?: { force?: boolea
   });
 }
 
+/**
+ * Publishes immediate progress for a turn held behind CLI startup.
+ *
+ * The regular screen sampler is paused while awaiting the first prompt. Without
+ * this explicit edge, the daemon cannot create the new turn card until startup
+ * finishes, which makes a safely queued message look lost to the user.
+ *
+ * @param input The queued CLI input.
+ */
+function publishQueuedTurnStatus(input: PendingCliInput): void {
+  if (!input.turnId) return;
+  send({
+    type: 'screen_update',
+    content: '',
+    status: 'working',
+    turnId: input.turnId,
+    dispatchAttempt: input.dispatchAttempt,
+  });
+}
+
 function markPromptReady(): void {
   // Only screen readiness plus a non-shell pane leaf may release a launch that
   // was previously blocked. Transcript/task callbacks can arrive while the
@@ -7197,6 +7217,7 @@ function sendToPty(
   // DISPATCHED.
   if (cliRestartInProgress || !backend) {
     freshnessInputQueue.enqueueNormal(next);
+    publishQueuedTurnStatus(next);
     log(`Queued message while CLI backend is restarting (${pendingMessages.length} pending)`);
     return true;
   }
@@ -7258,6 +7279,7 @@ function sendToPty(
     flushPending();  // fire-and-forget async; no-op if already flushing
   } else {
     if (!mergedQueued) log(`Queued message (${pendingMessages.length} pending): "${content.substring(0, 80)}" — ${cliName()} ${awaitingFirstPrompt ? 'still booting' : 'is busy'}`);
+    if (awaitingFirstPrompt) publishQueuedTurnStatus(next);
     // Same false-idle trap as post-submit (see flushPending): do not let
     // "busy marker absent" declare ready for transcript-backed CLIs.
     if (cliAdapter?.reliableTurnTerminal !== true) {
