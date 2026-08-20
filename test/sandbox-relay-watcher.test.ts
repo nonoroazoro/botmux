@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { startOutboxWatcher } from '../src/adapters/backend/sandbox.js';
@@ -46,6 +46,7 @@ describe('sandbox relay watcher host handoff', () => {
         preparedPath,
         localLinkMode: process.env.BOTMUX_CARD_LOCAL_LINK_MODE,
         relayEnv: process.env.BOTMUX_SEND_RELAY ?? null,
+        daemonSecretPath: process.env.BOTMUX_DAEMON_IPC_SECRET_PATH ?? null,
         sessionId: value('--session-id'),
       }));
     `);
@@ -66,6 +67,7 @@ describe('sandbox relay watcher host handoff', () => {
       ...process.env,
       BOTMUX_SEND_RELAY: outbox,
       BOTMUX_CARD_PREPARED_CONTENT_FILE: '/untrusted/stale-prepared.md',
+      BOTMUX_DAEMON_IPC_SECRET_PATH: '/untrusted/stale-secret',
     }, 'forced-session', { cliPath: fixture });
 
     try {
@@ -88,6 +90,7 @@ describe('sandbox relay watcher host handoff', () => {
         preparedPath: string;
         localLinkMode: string;
         relayEnv: string | null;
+        daemonSecretPath: string | null;
         sessionId: string;
       };
 
@@ -98,6 +101,7 @@ describe('sandbox relay watcher host handoff', () => {
         selected: 'PREPARED',
         localLinkMode: 'disabled',
         relayEnv: null,
+        daemonSecretPath: join(userInfo().homedir, '.botmux', '.dashboard-secret'),
         sessionId: 'forced-session',
       });
       expect(dirname(child.rawPath)).toBe(join(root, 'relay-staging'));

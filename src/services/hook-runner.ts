@@ -411,6 +411,13 @@ export function emitHookEventLocal(event: HookEvent, body: Record<string, unknow
   }
 }
 
+export function resolveHookForwardSecretPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (env.BOTMUX_HOST_RELAY_AUTHORIZED !== '1') return undefined;
+  return env.BOTMUX_DAEMON_IPC_SECRET_PATH?.trim() || undefined;
+}
+
 function runHooksLocally(payload: HookPayload): void {
   const event = payload.event;
   const hooks = loadHookConfigs().filter(hook => hook.event === event && filterMatches(hook.filter, payload));
@@ -476,7 +483,9 @@ async function forwardEmitToDaemon(event: HookEvent, payload: HookPayload, larkA
         signal: ctrl.signal,
       } satisfies RequestInit;
       let secret: string | undefined;
-      try { secret = loadDaemonIpcSecret(); } catch { /* Seatbelt/read-isolated CLI */ }
+      try {
+        secret = loadDaemonIpcSecret(resolveHookForwardSecretPath());
+      } catch { /* Seatbelt/read-isolated CLI */ }
       const res = secret
         ? await fetchDaemonIpc(daemon.ipcPort, '/api/hooks/emit', request, secret)
         : await fetch(`http://127.0.0.1:${daemon.ipcPort}/api/hooks/emit`, request);

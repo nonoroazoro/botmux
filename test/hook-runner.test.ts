@@ -9,6 +9,7 @@ import {
   loadHookConfigs,
   parseHookCommand,
   prepareHookPayload,
+  resolveHookForwardSecretPath,
   runHookCommandForTest,
   type HookConfig,
 } from '../src/services/hook-runner.js';
@@ -91,6 +92,18 @@ describe('loadHookConfigs', () => {
         redact: { fullContentEvents: ['session.requires_attention'] },
       },
     ]);
+  });
+});
+
+describe('resolveHookForwardSecretPath', () => {
+  it('accepts the host-provided secret path only for an authorized relay child', () => {
+    expect(resolveHookForwardSecretPath({
+      BOTMUX_HOST_RELAY_AUTHORIZED: '1',
+      BOTMUX_DAEMON_IPC_SECRET_PATH: ' /host/.botmux/.dashboard-secret ',
+    })).toBe('/host/.botmux/.dashboard-secret');
+    expect(resolveHookForwardSecretPath({
+      BOTMUX_DAEMON_IPC_SECRET_PATH: '/untrusted/secret',
+    })).toBeUndefined();
   });
 });
 

@@ -1019,6 +1019,7 @@ export function buildRelayHostEnv(
   const env: NodeJS.ProcessEnv = { ...baseEnv };
   delete env.BOTMUX_SEND_RELAY;
   delete env.BOTMUX_CARD_PREPARED_CONTENT_FILE;
+  delete env.BOTMUX_DAEMON_IPC_SECRET_PATH;
   if (preparedContentFile) {
     env.BOTMUX_CARD_LOCAL_LINK_MODE = 'disabled';
     env.BOTMUX_CARD_PREPARED_CONTENT_FILE = preparedContentFile;
@@ -1158,6 +1159,11 @@ export function startOutboxWatcher(
       // then re-apply only what the host authorized; cmdSend still re-validates
       // the exact receipt/IM origin carried below.
       requestEnv.BOTMUX_HOST_RELAY_AUTHORIZED = '1';
+      requestEnv.BOTMUX_DAEMON_IPC_SECRET_PATH = join(
+        userInfo().homedir,
+        '.botmux',
+        '.dashboard-secret',
+      );
       delete requestEnv.BOTMUX_TURN_ID;
       delete requestEnv.BOTMUX_DISPATCH_ATTEMPT;
       if (trustedOrigin?.turnId !== undefined) requestEnv.BOTMUX_TURN_ID = trustedOrigin.turnId;
