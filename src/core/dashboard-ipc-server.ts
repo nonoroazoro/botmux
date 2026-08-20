@@ -76,6 +76,7 @@ import { isSessionStopped } from './session-liveness.js';
 import { isSuspendableBackendType } from './persistent-backend.js';
 import { replyMessage, sendMessage, sendUserMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listAmbientChatMessages, listChatMessagesUntil, listChatBotMembers, getChatInfo, getMessageDetail, getMessageChatId, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
 import { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardContent, extractResources, createImgNumberer, messageMentionsBot } from '../im/lark/message-parser.js';
+import { listMessageHistoryPage } from '../im/lark/message-history-page/index.js';
 import { expandMergeForward } from '../im/lark/merge-forward.js';
 import { renderQuotedMessage } from '../cli/quoted-render.js';
 import { buildFollowUpCliInput, persistStreamCardState, resumeSession, spawnDashboardSession, activateQueuedSession, closeCliMismatchedSessionsForBot, suspendActiveSessionsForBot, downloadResources } from './session-manager.js';
@@ -1789,11 +1790,15 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-history', async (req, res, param
     return jsonRes(res, 403, { ok: false, error: 'no_feishu_transport' });
   }
 
-  const parsedLimit = typeof body.limit === 'number' ? body.limit : Number(body.limit);
-  const limit = Math.min(
-    Math.max(Number.isFinite(parsedLimit) ? Math.floor(parsedLimit) : 50, 1),
-    200,
+  const parsedPageSize = typeof body.pageSize === 'number' ? body.pageSize : Number(body.pageSize);
+  const pageSize = Math.min(
+    Math.max(Number.isFinite(parsedPageSize) ? Math.floor(parsedPageSize) : 20, 1),
+    50,
   );
+  const cursor = typeof body.cursor === 'string' ? body.cursor : undefined;
+  if (cursor && (cursor.length > 2048 || /[\u0000-\u001f\u007f]/u.test(cursor))) {
+    return jsonRes(res, 400, { ok: false, error: 'invalid_cursor' });
+  }
   const requestedScope = typeof body.scope === 'string' ? body.scope : 'session';
   if (!['session', 'thread', 'chat', 'ambient'].includes(requestedScope)) {
     return jsonRes(res, 400, { ok: false, error: 'invalid_scope' });
@@ -1801,7 +1806,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-history', async (req, res, param
   const isChatScope = session.scope === 'chat';
   const effectiveScope = requestedScope === 'session'
     ? (isChatScope ? 'chat' : 'thread')
-    : requestedScope;
+    : requestedScope as 'thread' | 'chat' | 'ambient';
   if (effectiveScope === 'thread' && isChatScope) {
     return jsonRes(res, 400, { ok: false, error: 'chat_scope_has_no_thread' });
   }
@@ -1816,14 +1821,16 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-history', async (req, res, param
         .catch(() => null);
       ambientBeforeCreateTime = root?.items?.[0]?.create_time;
     }
-    const raw = effectiveScope === 'chat'
-      ? await listChatMessages(appId, session.chatId, limit)
-      : effectiveScope === 'ambient'
-        ? await listAmbientChatMessages(appId, session.chatId, limit, {
-            beforeCreateTime: ambientBeforeCreateTime,
-            excludeRootMessageId: session.rootMessageId,
-          })
-        : await listThreadMessages(appId, session.chatId, session.rootMessageId, limit);
+    const page = await listMessageHistoryPage({
+      larkAppId: appId,
+      chatId: session.chatId,
+      scope: effectiveScope,
+      rootMessageId: isChatScope ? undefined : session.rootMessageId,
+      beforeCreateTime: ambientBeforeCreateTime,
+      cursor,
+      pageSize,
+    });
+    const raw = page.messages;
     const withCardJson = body.withCardJson === true;
     const messages = await Promise.all(raw.map(async (message: any) => {
       const numberer = createImgNumberer();
@@ -1868,6 +1875,9 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-history', async (req, res, param
       } : {}),
       messages,
       total: messages.length,
+      pageSize,
+      hasMore: page.hasMore,
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
       ...(messages.some(message => (message as any).resources?.length || message.msgType === 'interactive') ? {
         hint: '查看某条消息的附件图片/文件或卡片全文：botmux quoted <messageId>；需要原始卡片 JSON：botmux quoted <messageId> --raw 或本命令加 --with-card-json',
       } : {}),

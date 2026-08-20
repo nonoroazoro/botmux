@@ -149,40 +149,37 @@ botmux chat rename "支付链路排障｜待验证" --proactive
 
 const HISTORY_SKILL = `---
 name: botmux-history
-description: 需要查看当前飞书会话历史消息时触发。话题/thread 会话默认拉话题内消息；普通群 chat-scope 会话拉整群最近 N 条（默认 50，用 --limit 调节）。普通群通过 /t 或 per-bot 配置开出的 thread 会话也按话题内读取。在 thread 内如果需要 thread 外的群聊上下文，用 --scope ambient。适合"看看之前聊了什么"、"最近的消息"、"上下文"类请求。在 CLI 会话内自动推断 session-id。
+description: Read paginated Lark history for the current session. Use proactively when a request depends on earlier group or direct-message context, especially references such as "this bug", "continue", or "what we discussed".
 ---
 
-# botmux-history — 读取会话消息历史
+# Lark History
 
-想回顾当前飞书会话里用户之前发过什么、别的机器人说了什么时使用。**话题群和普通群都支持**：默认按当前 session 范围读取；话题/thread 会话只返回当前话题内消息，普通群 chat-scope 会话返回整群最近 N 条（默认 50，按时间倒序取尾部、再按时间正序返回）。普通群通过 \`/t\` 或 per-bot 的普通群开话题回复配置启动时，也会是 thread 会话。觉得历史太多就把 \`--limit\` 调小，需要更多上下文就调大。
+Read one page at a time, newest page first. Each page contains 20 messages by default and is ordered chronologically for analysis.
 
-如果你在 thread 里需要读取 thread 外的群聊上下文（典型场景：用户在普通群讨论后用 \`/t\` 或普通群开话题回复单开话题叫你处理），使用 \`botmux history --scope ambient --limit 20\`。它会读取当前 thread 所在群里、thread root 之前的最近消息，并排除当前 thread 本身，适合作为环境上下文。注意隐私边界：ambient 会读取 thread 外群聊消息，仅在用户明确需要群聊背景时使用，并优先使用较小的 limit。
+When \`hasMore\` is true and the relevant context is not present, repeat the same scope with \`--cursor <nextCursor>\`. Do not ask the user to repeat context before reading the relevant history pages.
 
-## 用法
+## Commands
 
 \`\`\`bash
-# 拉取最近 50 条（默认）
+# Current session scope
 botmux history
 
-# 拉取最近 100 条
-botmux history --limit 100
+# Group context outside the current thread
+botmux history --scope ambient
 
-# 指定 session-id（不在 CLI 会话内时用）
-botmux history --session-id <uuid>
+# Direct-message or complete chat history
+botmux history --scope chat
 
-# 在 thread 内读取 thread 外的群聊环境上下文（/t 场景优先用这个）
-botmux history --scope ambient --limit 20
+# Next page, preserving the original scope
+botmux history --scope ambient --cursor <nextCursor>
 
-# 在 thread 内强制读取整个群聊最近消息（包含其他话题/卡片，噪音更大）
-botmux history --scope chat --limit 50
-
-# 附带每张卡片的原始结构化 JSON（告警卡等自动化解析场景；输出会变大）
-botmux history --with-card-json
+# Optional page size from 1 to 50
+botmux history --page-size 20
 \`\`\`
 
-## 输出
+## Output
 
-JSON 格式，字段：
+The response is JSON:
 
 \`\`\`json
 {
@@ -190,32 +187,33 @@ JSON 格式，字段：
   "chatId": "...",
   "scope": "thread" | "chat" | "ambient",
   "sessionScope": "thread" | "chat",
-  "rootMessageId": "...",     // 仅 sessionScope=thread 时存在（包括 scope=ambient）
-  "ambient": {                 // 仅 scope=ambient 时存在
+  "rootMessageId": "...",
+  "ambient": {
     "source": "chat",
     "beforeCreateTime": "...",
     "excludeRootMessageId": "..."
   },
   "messages": [
     { "messageId": "...", "senderId": "...", "senderType": "user|app", "msgType": "text|post|interactive", "content": "...", "createTime": "...",
-      "resources": [{"type":"image","key":"img_v3_xxx","name":"img_v3_xxx.jpg"}],  // 仅含附件的消息有；key+name，不自动下载
-      "cardJson": { }              // 仅 --with-card-json 且 msgType=interactive 时有：原始卡片结构化 JSON
+      "resources": [{"type":"image","key":"img_v3_xxx","name":"img_v3_xxx.jpg"}],
+      "cardJson": { }
     }
   ],
-  "total": 17,
-  "hint": "..."                    // 有附件/卡片时出现：提示用 botmux quoted 查看附件与卡片全文
+  "total": 20,
+  "pageSize": 20,
+  "hasMore": true,
+  "nextCursor": "..."
 }
 \`\`\`
 
-## 注意
+## Scope and Resources
 
-- \`scope=thread\`：只返回属于当前话题的消息（按 rootMessageId 过滤）
-- \`scope=chat\`：返回当前群整群最近 N 条消息（不限于 session 创建之后，需要更老的就把 --limit 调大）
-- \`scope=ambient\`：返回当前 thread 外的群聊上下文，默认排除当前 thread，并优先限制在 thread root 创建前，适合 \`/t\` 后补充群内讨论背景；仅在用户明确需要群聊背景时使用，并优先小 \`--limit\`
-- \`senderType="app"\` 表示机器人发的消息（包括 Claude Code / Codex / 其它 bot），\`"user"\` 表示用户
-- **合并转发**消息会自动展开：\`msgType\` 变为 \`merge_forward_expanded\`，\`content\` 是 \`<forwarded_messages>...</forwarded_messages>\` XML（含 \`<participants>\` 别名表 + 嵌套 \`<msg from="A">\` 节点），与 daemon 实时事件路径一致
-- **卡片消息**的 \`content\` 是可读文本渲染；图片只有 \`[图片 N]\` 占位符 + \`resources\` 里的 key，**不自动下载**。要看图片实际内容（如报警卡里的趋势图）或消息全文，对该条消息的 id 跑 \`botmux quoted <messageId>\`（任意消息 id 均可，附件会下载到本地）；要机器可读的原始卡片 JSON，用 \`--with-card-json\` 或 \`botmux quoted <messageId> --raw\`
-- 需要先把 JSON 读进来再做总结，不要直接把 JSON 扔给用户
+- \`thread\` reads the current thread.
+- \`chat\` reads the current group or direct-message conversation.
+- \`ambient\` reads group messages outside the current thread and before its root.
+- \`session\` resolves to \`thread\` or \`chat\` from the session type.
+- Use \`botmux quoted <messageId>\` to download resources or inspect a complete card.
+- Use \`--with-card-json\` only when structured card data is required.
 `;
 
 const QUOTED_SKILL = `---

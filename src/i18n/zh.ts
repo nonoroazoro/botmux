@@ -693,7 +693,7 @@ export const messages: Record<string, string> = {
   'ai.routing.usage_images': '- 附带图片：`botmux send --images /path/to/img.png "说明文字"`',
   'ai.routing.usage_files': '- 附带文件：`botmux send --files /path/to/file.pdf "请查收"`',
   'ai.routing.usage_videos': '- 附带视频预览：`botmux send --videos /path/to/demo.mp4 --video-covers /path/to/cover.png --no-mention "预览"`',
-  'ai.routing.usage_history': '- 需要上下文时用 `botmux history` 读取之前的对话。',
+  'ai.routing.usage_history': '- 当用户请求的含义可能依赖之前的消息时，例如“帮我看下这个问题”“继续处理”“按刚才说的做”，先主动运行 `botmux history` 获取当前群聊或私聊的历史，再开始处理。不要要求用户重复上下文。thread 中若背景可能在 thread 外，使用 `botmux history --scope ambient`；未找到且 `hasMore=true` 时，用返回的 `nextCursor` 继续读取下一页。',
   'ai.routing.usage_bots_list': '- 查看当前可协作的机器人：`botmux bots list`',
 
   // ─── AI identity (multi-bot routing rules) ───────────────────────────────
@@ -716,7 +716,7 @@ export const messages: Record<string, string> = {
   'ai.shell.how_to_send': '把消息发给用户（唯一方式）：用 Bash 执行 `botmux send "消息内容"`；附带图片用 `--images /path`，附带文件用 `--files /path`，附带视频预览用 `--videos /path.mp4 --video-covers /cover.png`。',
   'ai.shell.multiline_heredoc': '含 Markdown、反引号、命令片段或多行的正文必须走 quoted heredoc / stdin（或 UTF-8 `--content-file`）；禁止放进双引号位置参数，也禁止写成 `botmux send "第一行\\n第二行"`。不要先 `JSON.stringify` / JSON 转义，shell / botmux 不会把字面量 `\\n` 还原成换行。',
   'ai.shell.heredoc_example': "正确多行示例：\n```bash\nbotmux send <<'EOF'\n第一行\n第二行\nEOF\n```",
-  'ai.shell.helpers': '辅助命令：`botmux history`（读取当前会话历史）、`botmux quoted <message_id>`（按需读取被引用的消息，仅在 prompt 头部出现 `[用户引用了消息 ...]` 提示时使用）、`botmux bots list`（查看当前可协作的机器人）。',
+  'ai.shell.helpers': '辅助命令：`botmux history`（分页读取当前群聊或私聊历史）、`botmux quoted <message_id>`（按需读取被引用的消息，仅在 prompt 头部出现 `[用户引用了消息 ...]` 提示时使用）、`botmux bots list`（查看当前可协作的机器人）。当用户请求的含义可能依赖之前的消息时，例如“帮我看下这个问题”“继续处理”“按刚才说的做”，先主动运行 `botmux history`，不要要求用户重复上下文；thread 中若背景可能在 thread 外，使用 `--scope ambient`。未找到且 `hasMore=true` 时，用 `--cursor <nextCursor>` 读取下一页。',
   'ai.shell.when_to_send': '消息传输规则：只 print/echo 不算回复。当你已经决定要向用户发送消息时，必须先用 `botmux send` 发出去。只有当本轮没有任何内容要再发时，即该发的已经 send 完，或本轮确实无需回复（例如整条消息是指派给别的机器人），才让最终 assistant message 只输出 `BOTMUX_NOTHING_TO_SEND`（意为「没有要发的了」，不必解释沉默）。它不是省略回复的快捷方式：该回复却没 send 就用它收尾等于漏回复。',
   'ai.shell.no_visible_output_ok': '`botmux send` 成功（退出码 0）即代表已送达用户；本轮终端没有可见文本、直接结束是正常的。若看到「你上一条回复没有可见输出，请继续产出用户可见回复」之类提示，那是底层 CLI 的误判——不要重发，除非 `botmux send` 自己报错。',
   'ai.shell.mention_gate': '@ 决策（硬性）：每条 `botmux send` 必须显式三选一，否则报错不发。回复并通知本轮触发者用 `--mention-back`；通知其他指定的人或 bot 用 `--mention <open_id:名字>`；消息确实不需要通知任何接收人时用 `--no-mention`。不要把 `--no-mention` 当默认，也不要无意义 @。是否应发送消息由 agent 自行判断。',
@@ -1289,7 +1289,10 @@ export const messages: Record<string, string> = {
   // *hint*, not the transcript, and carries NO count (zero first-turn network
   // probe): signals that prior topic context exists and points at
   // `botmux history` for on-demand retrieval (thread-scope by default).
-  'prompt.topic_context': '[本条是话题内的回复，此话题在你之前已有前情消息（话题根 + 可能的其它回复），你没有留存。需要这些前情时用 `botmux history` 查看（默认读本话题；用 `--limit` 控制条数，`botmux quoted <消息id>` 取某条的附件）。]',
+  'prompt.topic_context': '[本条是话题内的回复，此话题在你之前已有前情消息，包括话题根和可能的其它回复。需要这些前情时运行 `botmux history`；若 `hasMore=true`，使用 `--cursor <nextCursor>` 继续翻页。使用 `botmux quoted <消息id>` 读取某条消息的附件。]',
+  'prompt.history_lookup.group_thread': '[历史上下文提示：当前会话来自群聊 thread。当用户请求可能依赖前文时，例如“帮我看一下这个 bug”“继续处理”或“按刚才说的做”，必须先读取历史，再分析和执行。当前 thread 的历史使用 `botmux history`；如果指代内容很可能来自 thread 外的群聊讨论，使用 `botmux history --scope ambient`。未找到且 `hasMore=true` 时，用相同 scope 和 `--cursor <nextCursor>` 读取下一页。不要让用户重复上下文。不依赖前文时无需读取。]',
+  'prompt.history_lookup.group_chat': '[历史上下文提示：当前会话来自群聊。当用户请求可能依赖群聊前文时，例如“帮我看一下这个 bug”“继续处理”或“按刚才说的做”，必须先运行 `botmux history`，再分析和执行；未找到且 `hasMore=true` 时，用 `--cursor <nextCursor>` 读取下一页。不要让用户重复上下文。不依赖前文时无需读取。]',
+  'prompt.history_lookup.p2p': '[历史上下文提示：当前会话来自私聊。当用户请求可能依赖私聊前文时，例如“帮我看一下这个 bug”“继续处理”或“按刚才说的做”，必须先运行 `botmux history --scope chat`，再分析和执行；未找到且 `hasMore=true` 时，用相同 scope 和 `--cursor <nextCursor>` 读取下一页。不要让用户重复上下文。不依赖前文时无需读取。]',
 
   // Markdown / contextual reply card chrome
   'card.you': '你',

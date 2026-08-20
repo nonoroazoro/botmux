@@ -5517,9 +5517,9 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
     @ 硬门：每条回复须三选一 --mention/--mention-back/--no-mention，否则报错不发。
     （可设 BOTMUX_REQUIRE_MENTION_DECISION=false 关闭硬门）
   bots list                            列出当前群聊中的机器人（含 open_id）
-  history [--limit N] [--scope session|thread|chat|ambient] [--with-card-json]
-                                       拉取当前会话的消息历史 (JSON)。默认按 session scope：话题/话题群 → 话题内，普通群 → 整群；
-                                       thread 会话里可用 --scope ambient 读取 thread 外的群聊上下文；
+  history [--page-size N] [--cursor token] [--scope session|thread|chat|ambient] [--with-card-json]
+                                       分页拉取当前会话的消息历史 (JSON)，默认每页 20 条并返回 nextCursor；
+                                       thread 会话里可用 --scope ambient 分页读取 thread 外的群聊上下文；
                                        --with-card-json 为每张卡片附原始结构化 JSON（消息均带 resources 附件 key）
   quoted <message_id> [--raw]          按消息 id 拉取单条消息 (JSON) 并下载附件到本地；id 取自引用提示行或 history 输出，
                                        --raw 附原始内容（卡片 → cardJson，其它 → rawContent）
@@ -6205,12 +6205,18 @@ async function resolveSessionAppId(sessionIdArg: string | undefined): Promise<{ 
 async function cmdHistory(rest: string[]): Promise<void> {
   // No-transport turn has no Feishu chat history to read — central hard gate.
   assertTurnTransportOrExit('history');
-  // Clamp to a positive count: the underlying list helpers treat pageSize <= 0
-  // (and non-finite) as "unlimited / read the whole chat", which is reserved for
-  // internal callers. A stray `--limit 0` or a typo like `--limit abc` (→ NaN)
-  // must NOT silently dump the entire history.
-  const parsedLimit = parseInt(argValue(rest, '--limit') ?? '50', 10);
-  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
+  const parsedPageSize = parseInt(
+    argValue(rest, '--page-size') ?? argValue(rest, '--limit') ?? '20',
+    10,
+  );
+  const pageSize = Number.isFinite(parsedPageSize) && parsedPageSize > 0
+    ? Math.min(parsedPageSize, 50)
+    : 20;
+  const cursor = argValue(rest, '--cursor');
+  if (cursor && (cursor.length > 2048 || /[\u0000-\u001f\u007f]/u.test(cursor))) {
+    console.error('Invalid history cursor');
+    process.exit(1);
+  }
   const scopeArg = argValue(rest, '--scope') ?? 'session';
   const sessionIdArg = argValue(rest, '--session-id');
   const validScopes = new Set(['session', 'thread', 'chat', 'ambient']);
@@ -6225,7 +6231,7 @@ async function cmdHistory(rest: string[]): Promise<void> {
       const response = await requestSessionLarkProxy({
         operation: 'lark-history',
         sessionId: sessionIdArg,
-        body: { limit, scope: scopeArg, withCardJson },
+        body: { pageSize, cursor, scope: scopeArg, withCardJson },
       });
       const payload = { ...response };
       delete payload.ok;
@@ -6245,7 +6251,8 @@ async function cmdHistory(rest: string[]): Promise<void> {
   // be refused even from a normal turn (env gate above can't see the argument).
   assertSessionTransportOrExit({ chatId: s.chatId, larkAppId: appId }, 'history');
 
-  const { getMessageDetail, listAmbientChatMessages, listThreadMessages, listChatMessages } = await import('./im/lark/client.js');
+  const { getMessageDetail } = await import('./im/lark/client.js');
+  const { listMessageHistoryPage } = await import('./im/lark/message-history-page/index.js');
   const { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardContent, extractResources, createImgNumberer } = await import('./im/lark/message-parser.js');
   const { expandMergeForward } = await import('./im/lark/merge-forward.js');
   try {
@@ -6258,7 +6265,7 @@ async function cmdHistory(rest: string[]): Promise<void> {
     const isChatScope = s.scope === 'chat';
     const effectiveScope = scopeArg === 'session'
       ? (isChatScope ? 'chat' : 'thread')
-      : scopeArg;
+      : scopeArg as 'thread' | 'chat' | 'ambient';
 
     if (effectiveScope === 'thread' && isChatScope) {
       console.error('当前 session 是 chat-scope，没有 thread 历史可读取。请使用 --scope chat。');
@@ -6282,14 +6289,16 @@ async function cmdHistory(rest: string[]): Promise<void> {
       }
     }
 
-    const raw = effectiveScope === 'chat'
-      ? await listChatMessages(appId, s.chatId, limit)
-      : effectiveScope === 'ambient'
-        ? await listAmbientChatMessages(appId, s.chatId, limit, {
-            beforeCreateTime: ambientBeforeCreateTime,
-            excludeRootMessageId: s.rootMessageId,
-          })
-        : await listThreadMessages(appId, s.chatId, s.rootMessageId, limit);
+    const page = await listMessageHistoryPage({
+      larkAppId: appId,
+      chatId: s.chatId,
+      scope: effectiveScope,
+      rootMessageId: isChatScope ? undefined : s.rootMessageId,
+      beforeCreateTime: ambientBeforeCreateTime,
+      cursor,
+      pageSize,
+    });
+    const raw = page.messages;
     // Expand merge_forward to <forwarded_messages> XML, mirroring the live event
     // path in daemon.ts. Each message gets its own numberer with resources
     // assigned BEFORE text extraction, so in-body [图片 N] placeholders match
@@ -6351,6 +6360,9 @@ async function cmdHistory(rest: string[]): Promise<void> {
       } : {}),
       messages,
       total: messages.length,
+      pageSize,
+      hasMore: page.hasMore,
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
       // Discoverability: agents reading history often need the actual image
       // bytes (alert charts) or the raw card JSON — both live one command away.
       ...(messages.some(m => (m as any).resources?.length || m.msgType === 'interactive') ? {

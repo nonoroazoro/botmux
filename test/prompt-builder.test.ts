@@ -136,6 +136,14 @@ describe('buildNewTopicPrompt', () => {
     expect(routing).not.toContain('&amp;lt;');
   });
 
+  it('tells the agent to proactively read Lark history for context-dependent requests', () => {
+    const prompt = buildNewTopicPrompt('帮我看下这个问题', SESSION_ID, 'codex');
+
+    expect(prompt).toContain('先主动运行 `botmux history`');
+    expect(prompt).toContain('当前群聊或私聊历史');
+    expect(prompt).toContain('使用 `--scope ambient`');
+  });
+
   it('gives Hermes the standard botmux-send routing hints like other structured-bridge CLIs', () => {
     // #365 previously steered Hermes AWAY from `botmux send` (reverse guidance)
     // as a redundant belt-and-braces on top of the real dedup fix

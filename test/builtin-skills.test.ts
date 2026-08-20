@@ -53,17 +53,16 @@ describe('built-in botmux-send skill', () => {
 });
 
 describe('built-in botmux-history skill', () => {
-  it('replaces botmux-thread-messages and documents普通群 / 话题群 dual behavior', () => {
+  it('documents paginated group, direct-message, and thread history', () => {
     const history = BUILTIN_SKILLS.find(s => s.name === 'botmux-history');
     expect(history).toBeDefined();
     expect(history!.content).toContain('botmux history');
-    // Description must mention 普通群 so普通群 bots actually trigger the skill.
-    expect(history!.content).toContain('普通群');
-    expect(history!.content).toContain('scope=chat');
+    expect(history!.content).toContain('group or direct-message');
+    expect(history!.content).toContain('`chat` reads');
     expect(history!.content).toContain('--scope ambient');
-    expect(history!.content).toContain('thread 外的群聊上下文');
-    expect(history!.content).toContain('仅在用户明确需要群聊背景时使用');
-    expect(history!.content).toContain('sessionScope=thread');
+    expect(history!.content).toContain('--cursor <nextCursor>');
+    expect(history!.content).toContain('hasMore');
+    expect(history!.content).toContain('nextCursor');
   });
 
   it('retires the old botmux-thread-messages name', () => {

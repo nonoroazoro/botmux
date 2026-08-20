@@ -86,6 +86,7 @@ import { expandMergeForward } from './im/lark/merge-forward.js';
 import { bindResourcesToMessage, composeForwardFollowupContent, mergeMessageMentions } from './im/lark/forward-followup-content.js';
 import { buildQuoteHint } from './im/lark/quote-hint.js';
 import { buildTopicThreadContext } from './im/lark/topic-root-context.js';
+import { buildHistoryLookupContext } from './im/lark/history-lookup-context/index.js';
 import { logger } from './utils/logger.js';
 import { gracefulProcessExitCode } from './pm2-graceful-exit.js';
 import { applyAllowedUsersResolve } from './utils/allowed-users-apply.js';
@@ -16189,6 +16190,12 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
     ? ''
     : buildQuoteHint(parsed, scope, anchor, localeForBot(larkAppId));
   const codexAppApplicationContext = vcMeetingApplicationContext(ctx);
+  // Tell the agent how to fetch prior Lark context without preloading message
+  // content. The LLM decides whether the request depends on history, while
+  // botmux deterministically selects the identity-safe history scope.
+  const historyLookupContext = ctx.forwardSeedData
+    ? ''
+    : buildHistoryLookupContext(chatType, scope, localeForBot(larkAppId));
   // 普通群「对已有消息发起话题再 @」：入站是话题内回复（root_id 指向另一条更早
   // 的话题根消息），bot 从未留存该话题历史，且正文里没有任何信号表明存在话题根+
   // 前情。首轮注入一行 hint（非全文、零网络请求），提示 CLI 可用 `botmux history`
@@ -16201,9 +16208,9 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
     : '';
   // 话题 hint 同样前置到 codex-app 结构化 sidecar lane（与 quote hint 一致双 lane
   // 下发），否则 codex-app（clean input）bot 走 sidecar 时会静默丢掉该 hint。
-  const codexAppMessageContext = topicThreadContext + codexAppQuoteContext + (workflowGrillPrompt ?? '');
+  const codexAppMessageContext = historyLookupContext + topicThreadContext + codexAppQuoteContext + (workflowGrillPrompt ?? '');
   const userPromptContent = stripLeadingMentions(content, parsed.mentions);
-  const promptContent = topicThreadContext + codexAppQuoteContext + codexAppApplicationContext + userPromptContent;
+  const promptContent = historyLookupContext + topicThreadContext + codexAppQuoteContext + codexAppApplicationContext + userPromptContent;
 
   // Resolve sender identity for <sender> tag injection. The first call to
   // resolveSender for an unseen open_id may await contact.v3.user.get with a
