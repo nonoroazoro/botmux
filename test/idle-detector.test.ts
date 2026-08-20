@@ -255,6 +255,22 @@ describe('IdleDetector: quiescence detection', () => {
     detector.dispose();
   });
 
+  it('recovers ready evidence from a current viewport snapshot', () => {
+    const detector = new IdleDetector(makeCli({ readyPattern: /›/ }));
+    const cb = vi.fn();
+    detector.onIdle(cb);
+
+    detector.feed('Codex startup output without a composer');
+    vi.advanceTimersByTime(5_000);
+    expect(cb).not.toHaveBeenCalled();
+
+    detector.feed('conversation tail\n› Find and fix a bug');
+    vi.advanceTimersByTime(2_000);
+
+    expect(cb).toHaveBeenCalledTimes(1);
+    detector.dispose();
+  });
+
   it('should delay idle if spinner was recently seen', () => {
     const detector = new IdleDetector(makeCli());
     const cb = vi.fn();

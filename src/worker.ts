@@ -10131,6 +10131,22 @@ async function spawnCli(
   const firstPromptBackend = backend;
   const releaseFirstPromptTimeout = (elapsedMs: number, forced: boolean): void => {
     if (!awaitingFirstPrompt || backend !== firstPromptBackend) return;
+    if (
+      !forced
+      && cliAdapter?.readyPattern
+      && idleDetector
+      && backendScreenEvidenceIsAuthoritativeForMutation()
+    ) {
+      try {
+        const currentScreen = captureBackendScreen(firstPromptBackend);
+        if (currentScreen) {
+          idleDetector.feed(currentScreen);
+          log(`First prompt timeout refreshed ${cliName()} readiness from the current viewport`);
+        }
+      } catch (err) {
+        log(`First prompt viewport refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     if (!shouldReleaseFirstPromptTimeout({
       deferFirstPromptTimeoutUntilReady: cliAdapter?.deferFirstPromptTimeoutUntilReady === true,
       hasReadyPattern: !!cliAdapter?.readyPattern,
