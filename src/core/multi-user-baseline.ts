@@ -188,7 +188,11 @@ export function syncMultiUserBaselineDirectory(
       const lexicalEntry = join(canonicalSource, entry.name);
       let canonicalEntry: string;
       try { canonicalEntry = realpathSync(lexicalEntry); } catch { continue; }
-      sourceEntries.set(entry.name, canonicalEntry);
+      // Keep the projected link pointed at the stable host entry. Package
+      // managers commonly move that entry between versioned targets during an
+      // upgrade. The canonical target is mounted read-only below, but must not
+      // be persisted as the user's link target.
+      sourceEntries.set(entry.name, lexicalEntry);
       if (canonicalEntry !== lexicalEntry) result.readonlyRoots.push(canonicalEntry);
     }
   }

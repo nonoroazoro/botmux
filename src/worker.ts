@@ -17,6 +17,7 @@ import { mkdirSync, writeFileSync, unlinkSync, rmdirSync, existsSync, statSync, 
 import { atomicWriteFileSync } from './utils/atomic-write.js';
 import { join, basename, dirname, delimiter, isAbsolute, relative } from 'node:path';
 import { syncMultiUserBaselineDirectory } from './core/multi-user-baseline.js';
+import { ensureCodexWorkspaceTrusted } from './core/codex-workspace-trust/index.js';
 import { resolveBotmuxWrapperBinDir, prependBotmuxBin } from './core/botmux-wrapper.js';
 import { homedir, tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -7975,6 +7976,9 @@ async function spawnCli(
   // `sandbox` at daemon startup; honored here too for an unmigrated read-only
   // BOTS_CONFIG.
   const sandboxRequested = cfg.sandbox === true || cfg.readIsolation === true || sandboxEnabled();
+  const buildArgsWorkingDir = sandboxRequested
+    ? (() => { try { return realpathSync(cfg.workingDir); } catch { return cfg.workingDir; } })()
+    : cfg.workingDir;
   const backendIsolationGate = backendSandboxCompatibilityError({
     backendType: effectiveBackendType,
     fileSandboxRequested: sandboxRequested,
@@ -8133,6 +8137,16 @@ async function spawnCli(
       // A worker owns one session, so this process-local redirect cannot leak
       // between bots or sessions.
       process.env.CODEX_HOME = isolatedCodexHome;
+    }
+  }
+  if (cfg.cliId === 'codex' && cfg.disableCliBypass !== true) {
+    const activeCodexHome = isolatedCodexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex');
+    const configPath = join(activeCodexHome, 'config.toml');
+    try {
+      const changed = ensureCodexWorkspaceTrusted(configPath, buildArgsWorkingDir);
+      if (changed) log(`[codex] Trusted workspace in identity-scoped config: ${buildArgsWorkingDir}`);
+    } catch (error) {
+      throw new Error(`Could not trust the Codex workspace: ${(error as Error).message}`);
     }
   }
   if (cfg.multiUserHomeDir) {
@@ -8659,9 +8673,6 @@ async function spawnCli(
   // root (only canonical /data00/... is bound), so the CLI's chdir/readlink
   // ENOENTs and it aborts with "No such file or directory (os error 2)". Off
   // sandbox this is a no-op (same dir); best-effort if unresolvable.
-  const buildArgsWorkingDir = sandboxRequested
-    ? (() => { try { return realpathSync(cfg.workingDir); } catch { return cfg.workingDir; } })()
-    : cfg.workingDir;
   const args = cliAdapter.buildArgs({
     sessionId: effectiveAdapterSessionId,
     resume: effectiveResume,

@@ -113,6 +113,30 @@ describe('syncMultiUserBaselineDirectory', () => {
     expect(readlinkSync(join(target, 'sample-tool'))).toBe(join(realpathSync(source), 'sample-tool'));
   });
 
+  it('keeps projected executable links stable across version changes', () => {
+    const { root, source, target } = fixture();
+    const firstVersion = join(root, 'versions', '1.0.0', 'bin', 'sample-tool');
+    const secondVersion = join(root, 'versions', '2.0.0', 'bin', 'sample-tool');
+    mkdirSync(resolve(firstVersion, '..'), { recursive: true });
+    mkdirSync(resolve(secondVersion, '..'), { recursive: true });
+    writeFileSync(firstVersion, 'first');
+    writeFileSync(secondVersion, 'second');
+    symlinkSync(firstVersion, join(source, 'sample-tool'));
+
+    const first = syncMultiUserBaselineDirectory(source, target, { includeFiles: true });
+    expect(readlinkSync(join(target, 'sample-tool'))).toBe(join(realpathSync(source), 'sample-tool'));
+    expect(realpathSync(join(target, 'sample-tool'))).toBe(realpathSync(firstVersion));
+    expect(first.readonlyRoots).toContain(realpathSync(firstVersion));
+
+    unlinkSync(join(source, 'sample-tool'));
+    symlinkSync(secondVersion, join(source, 'sample-tool'));
+
+    const second = syncMultiUserBaselineDirectory(source, target, { includeFiles: true });
+    expect(readlinkSync(join(target, 'sample-tool'))).toBe(join(realpathSync(source), 'sample-tool'));
+    expect(realpathSync(join(target, 'sample-tool'))).toBe(realpathSync(secondVersion));
+    expect(second.readonlyRoots).toContain(realpathSync(secondVersion));
+  });
+
   it('adds new baseline entries and removes only stale managed links', () => {
     const { source, target } = fixture();
     addSkill(source, 'bits');
