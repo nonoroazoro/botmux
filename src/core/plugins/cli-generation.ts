@@ -1,6 +1,7 @@
 import type { CliAdapter, CliId } from '../../adapters/cli/types.js';
 import type { BotConfig } from '../../bot-registry.js';
 import type { GlobalConfig } from '../../global-config.js';
+import type { PersonalPrincipal } from '../capabilities/index.js';
 import { prepareSkillDelivery } from '../skills/delivery.js';
 import { renderSkillCatalogBlock } from '../skills/prompt.js';
 import { prepareSessionSkillPrompt } from '../skills/session-runtime.js';
@@ -39,6 +40,7 @@ export function prepareCliPluginGeneration(opts: {
   bot: Pick<BotConfig, 'larkAppId' | 'name' | 'plugins' | 'skills'>;
   global?: Pick<GlobalConfig, 'plugins'>;
   dataDir?: string;
+  personalPrincipal?: PersonalPrincipal;
   cliId: CliId;
   adapter: CliAdapter;
   workingDir: string;
@@ -67,6 +69,9 @@ export function prepareCliPluginGeneration(opts: {
     prompt: opts.replacesPriorGeneration ? '' : opts.prompt,
     botPolicy: opts.bot.skills,
     pluginSkills: pluginSkills.skills,
+    dataDir: opts.dataDir,
+    larkAppId: opts.bot.larkAppId,
+    personalPrincipal: opts.personalPrincipal,
   });
   const delivery = prepareSkillDelivery(
     opts.adapter,

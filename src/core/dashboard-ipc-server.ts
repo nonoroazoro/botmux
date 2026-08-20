@@ -1,7 +1,8 @@
 // src/core/dashboard-ipc-server.ts
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { logger } from '../utils/logger.js';
@@ -69,15 +70,15 @@ import { readGlobalConfig } from '../global-config.js';
 import { normalizeChatReplyMode, setChatReplyMode, type ChatReplyMode } from '../services/chat-reply-mode-store.js';
 import * as chatFirstSeenStore from '../services/chat-first-seen-store.js';
 import * as scheduler from './scheduler.js';
-import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessionsRegistry, transferSession, deliverWriteLinkCardToOwners, forkWorker, suspendWorker, killWorker, latestPerBotEnvForRestart, getDaemonReplyCardUsageSnapshot, sessionSupportsWebTerminal, sendWorkerSessionInput, isSessionTransferring } from './worker-pool.js';
+import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessionsRegistry, transferSession, deliverWriteLinkCardToOwners, forkWorker, suspendWorker, killWorker, latestPerBotEnvForRestart, getDaemonReplyCardUsageSnapshot, parkStreamCard, sessionSupportsWebTerminal, sendWorkerInput, sendWorkerSessionInput, isSessionTransferring } from './worker-pool.js';
 import { listOnlineDaemons } from '../utils/daemon-discovery.js';
 import { isSessionStopped } from './session-liveness.js';
 import { isSuspendableBackendType } from './persistent-backend.js';
-import { replyMessage, sendMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listAmbientChatMessages, listChatMessagesUntil, listChatBotMembers, getChatInfo, getMessageDetail, getMessageChatId, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
+import { replyMessage, sendMessage, sendUserMessage, resolveUnionIdFromOpenId, listThreadMessages, listChatMessages, listAmbientChatMessages, listChatMessagesUntil, listChatBotMembers, getChatInfo, getMessageDetail, getMessageChatId, getUserProfile, getUserProfileStrict, resolveAllowedUsersWithMap, type ChatBotMember } from '../im/lark/client.js';
 import { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardContent, extractResources, createImgNumberer, messageMentionsBot } from '../im/lark/message-parser.js';
 import { expandMergeForward } from '../im/lark/merge-forward.js';
 import { renderQuotedMessage } from '../cli/quoted-render.js';
-import { resumeSession, spawnDashboardSession, activateQueuedSession, closeCliMismatchedSessionsForBot, suspendActiveSessionsForBot, downloadResources } from './session-manager.js';
+import { buildFollowUpCliInput, persistStreamCardState, resumeSession, spawnDashboardSession, activateQueuedSession, closeCliMismatchedSessionsForBot, suspendActiveSessionsForBot, downloadResources } from './session-manager.js';
 import { parseSpawnRequest } from './session-create.js';
 import { cleanupMaterializedDashboardImages, materializeDashboardImages } from './dashboard-images.js';
 import { locateLimiter } from './dashboard-locate.js';
@@ -100,7 +101,7 @@ import { validateTriggerRequest, type TriggerResponse } from '../services/trigge
 import { resolveCliSelection, selectionKeyForBot } from '../setup/cli-selection.js';
 import { checkCliAvailability } from '../setup/cli-availability.js';
 import { enrichHistorySenders, type HistoryBotInfo } from '../dashboard/history-senders.js';
-import { listPendingAsks, submitAskFromDesktop } from './ask-broker.js';
+import { listPendingAsks, registerAsk as registerAskBroker, submitAskFromDesktop } from './ask-broker.js';
 import { getMessageListenerConfig, sanitizeMessageListenerUpdate, updateMessageListenerConfig, validateMessageListenerUpdate } from '../services/message-listener-store.js';
 import {
   MAX_MESSAGE_LISTENER_PROMPT_BYTES,
@@ -156,18 +157,37 @@ import {
   getBotName,
   type SessionRow,
 } from './dashboard-rows.js';
-import { effectiveBotDisplayName, formatLarkError, getBotBrand, getBot, getBotOpenId, loadBotConfigs, readBotSkillPolicy, getBotTuiSlashAllow, type UsageDisplayMode, type MessageListenerConfig } from '../bot-registry.js';
+import { effectiveBotDisplayName, formatLarkError, getBotBrand, getBot, getBotOpenId, getOwnerOpenId, loadBotConfigs, readBotSkillPolicy, getBotTuiSlashAllow, type UsageDisplayMode, type MessageListenerConfig } from '../bot-registry.js';
 import { normalizeKanbanColumn, normalizeKanbanPosition, normalizeSessionTitle } from './session-board.js';
 import { validateSlashInjection } from './slash-inject.js';
 import { validateRoleLibraryPath } from './role-library.js';
 import { repinSessionWorkingDir } from './session-cwd.js';
 import { authorizeSessionScopedIpc } from './daemon-ipc-session-auth.js';
+import { beginReplyTargetTurn } from './reply-target.js';
 import { normalizeSessionTitleSource, updateSessionTitle } from './session-title.js';
 import { requestAgentSessionRename } from './session-rename.js';
 import { ChatRenameCooldown, ChatRenameSerialQueue, normalizeLarkChatName } from './chat-rename.js';
 import type { DaemonToWorker, ScheduledTask, ParsedSchedule, ScheduleExecutionPosition, Session } from '../types.js';
 import { sessionAnchorId, larkTransportEnabled, type DaemonSession } from './types.js';
 import { attachSkillPolicy, detachSkillPolicy } from './skills/im-command.js';
+import {
+  createCapabilityDeleteProposal,
+  createCapabilitySaveProposal,
+  buildCapabilityInteractionContinuation,
+  capabilityProposalDispatchUuid,
+  consumeWorkflowTrialTicket,
+  issueWorkflowTrialTicket,
+  listCapabilities,
+  listCapabilityRevisions,
+  readCapabilityRevision,
+  readWorkflowTrialTicket,
+  searchCapabilityMetadata,
+  validateWorkflowTrialAssessment,
+  type CapabilityDraft,
+  type CapabilityType,
+  type CapabilityScope,
+} from './capabilities/index.js';
+import { buildCapabilityProposalCard } from '../im/lark/capability-card.js';
 import {
   castBotPollVote,
   createAndPublishPoll,
@@ -463,6 +483,7 @@ function routeHasNarrowUntrustedAuth(method: string, pathname: string): boolean 
   if (method === 'POST' && /^\/api\/sessions\/[^/]+\/(?:lark-history|lark-quoted|polls|poll-vote)$/.test(pathname)) return true;
   if (method === 'POST' && pathname === '/api/hooks/emit') return true;
   if (method === 'POST' && pathname === '/api/attention') return true;
+  if (method === 'POST' && pathname === '/api/capabilities/manage') return true;
   // Workflow v3 mutations carry their own domain-separated full-envelope
   // protocol (request signature over method/path/exact body with nonce
   // anti-replay + boot audience, signed response), keyed on the same host
@@ -852,6 +873,515 @@ function sessionCliIpcAuth(
       }
     : { ok: false, error: decision.error };
 }
+
+function recordCapabilityCardTurnSend(sessionId: string, messageId: string): void {
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return;
+  try {
+    const markerDir = join(config.session.dataDir, 'turn-sends');
+    mkdirSync(markerDir, { recursive: true });
+    appendFileSync(join(markerDir, `${sessionId}.jsonl`), `${JSON.stringify({
+      sentAtMs: Date.now(),
+      messageId,
+      suppressFinalOutput: true,
+    })}\n`);
+  } catch {
+    // A missing marker can only cause a redundant final message after the card.
+  }
+}
+
+const CAPABILITY_INTERACTION_TURN_POLL_MS = 50;
+const CAPABILITY_INTERACTION_TURN_WAIT_MS = 5 * 60 * 1_000;
+const capabilityInteractionTurnQueues = new Map<string, Promise<void>>();
+
+async function dispatchCapabilityInteractionTurn(input: {
+  sessionId: string;
+  actorOpenId: string;
+  content: string;
+  turnId: string;
+}): Promise<void> {
+  const previous = capabilityInteractionTurnQueues.get(input.sessionId) ?? Promise.resolve();
+  const current = previous
+    .catch(() => undefined)
+    .then(() => dispatchCapabilityInteractionTurnUnlocked(input));
+  capabilityInteractionTurnQueues.set(input.sessionId, current);
+  try {
+    await current;
+  } finally {
+    if (capabilityInteractionTurnQueues.get(input.sessionId) === current) {
+      capabilityInteractionTurnQueues.delete(input.sessionId);
+    }
+  }
+}
+
+async function dispatchCapabilityInteractionTurnUnlocked(input: {
+  sessionId: string;
+  actorOpenId: string;
+  content: string;
+  turnId: string;
+}): Promise<void> {
+  const deadlineAt = Date.now() + CAPABILITY_INTERACTION_TURN_WAIT_MS;
+  let ds = findActiveBySessionId(input.sessionId);
+  while (ds?.session.status === 'active' && ds.managedTurnOrigin) {
+    if (Date.now() >= deadlineAt) {
+      throw new Error('timed out waiting for the previous agent turn to finish');
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, CAPABILITY_INTERACTION_TURN_POLL_MS));
+    ds = findActiveBySessionId(input.sessionId);
+  }
+  if (!ds || ds.session.status !== 'active') {
+    throw new Error('session is no longer active');
+  }
+  const bot = getBot(ds.larkAppId);
+  const cliId = ds.session.cliId ?? bot.config.cliId;
+  const cliInput = buildFollowUpCliInput(input.content, ds.session.sessionId, {
+    isAdoptMode: false,
+    cliId,
+    cliPathOverride: ds.session.cliPathOverride ?? bot.config.cliPathOverride,
+    locale: localeForBot(ds.larkAppId),
+    sender: { openId: input.actorOpenId, type: 'user' },
+    larkAppId: ds.larkAppId,
+    chatId: ds.chatId,
+    whiteboardId: ds.session.whiteboardId,
+    codexAppText: input.content,
+  });
+  beginReplyTargetTurn(ds, undefined, input.turnId, new Date().toISOString(), {
+    senderOpenId: input.actorOpenId,
+  });
+  parkStreamCard(ds);
+  ds.streamCardId = undefined;
+  ds.streamCardNonce = undefined;
+  ds.streamCardPending = true;
+  ds.currentImageKey = undefined;
+  ds.session.lastCallerOpenId = input.actorOpenId;
+  ds.lastMessageAt = Date.now();
+  ds.session.lastMessageAt = new Date(ds.lastMessageAt).toISOString();
+  ds.currentTurnTitle = 'Artifact interaction';
+  persistStreamCardState(ds);
+  sessionStore.updateSession(ds.session);
+  if (ds.worker && !ds.worker.killed) {
+    if (sendWorkerInput(ds, cliInput, input.turnId)) return;
+  }
+  forkWorker(ds, cliInput, {
+    resume: ds.hasHistory,
+    turnId: input.turnId,
+  });
+}
+
+ipcRoute('POST', '/api/capabilities/manage', async (req, res) => {
+  const body = await readJsonBody<{
+    sessionId?: unknown;
+    originCapability?: unknown;
+    originTurnId?: unknown;
+    originDispatchAttempt?: unknown;
+    action?: unknown;
+    scope?: unknown;
+    type?: unknown;
+    name?: unknown;
+    existingName?: unknown;
+    description?: unknown;
+    instructions?: unknown;
+    requestId?: unknown;
+    trialToken?: unknown;
+    trialOutcome?: unknown;
+    trialSummary?: unknown;
+    query?: unknown;
+    limit?: unknown;
+  } & Record<string, unknown>>(req, 80 * 1_024).catch(() => undefined);
+  if (!body || typeof body.sessionId !== 'string') {
+    return jsonRes(res, 400, { ok: false, error: 'invalid_request' });
+  }
+  const ds = findActiveBySessionId(body.sessionId);
+  const auth = sessionCliIpcAuth(req, ds, body.sessionId, body);
+  if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
+  if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
+  // The rotating capability is the authority. Linux isolated sessions expose
+  // only that token, so bind the request to the daemon's verified live turn
+  // instead of requiring caller-visible routing metadata as a second proof.
+  const turnId = auth.turnId ?? '';
+  const callerOpenId = turnId
+    ? ds.session.replyTargets?.[turnId]?.senderOpenId
+    : undefined;
+  if (!turnId || !callerOpenId) {
+    return jsonRes(res, 403, { ok: false, error: 'current_turn_required' });
+  }
+  if (body.scope !== 'personal' && body.scope !== 'bot') {
+    return jsonRes(res, 400, { ok: false, error: 'invalid_scope' });
+  }
+  if (body.scope === 'personal' && ds.chatType !== 'p2p') {
+    return jsonRes(res, 403, { ok: false, error: 'personal_scope_requires_p2p' });
+  }
+  const unionId = ds.chatType === 'p2p' && ds.session.ownerUnionId?.startsWith('on_')
+    ? ds.session.ownerUnionId
+    : await resolveUnionIdFromOpenId(ds.larkAppId, callerOpenId);
+  const requester = unionId?.startsWith('on_')
+    ? { kind: 'union' as const, unionId }
+    : { kind: 'app_open' as const, larkAppId: ds.larkAppId, openId: callerOpenId };
+  try {
+    const action = body.action;
+    if (
+      action !== 'list'
+      && action !== 'search'
+      && action !== 'show'
+      && action !== 'history'
+      && action !== 'save'
+      && action !== 'trial'
+      && action !== 'trial-read'
+      && action !== 'overlap'
+      && action !== 'delete'
+    ) return jsonRes(res, 400, { ok: false, error: 'invalid_action' });
+    const scope: CapabilityScope = body.scope === 'personal'
+      ? { kind: 'personal', larkAppId: ds.larkAppId, principal: requester }
+      : { kind: 'bot', larkAppId: ds.larkAppId };
+    const ownerOpenId = getOwnerOpenId(ds.larkAppId);
+    if (
+      scope.kind === 'bot'
+      && (action === 'save' || action === 'delete')
+      && (!ownerOpenId || callerOpenId !== ownerOpenId)
+    ) return jsonRes(res, 403, { ok: false, error: 'bot_owner_required' });
+    const type: CapabilityType | undefined = body.type === 'knowledge'
+      || body.type === 'skill'
+      || body.type === 'workflow'
+      ? body.type
+      : undefined;
+    if (body.type !== undefined && !type) {
+      return jsonRes(res, 400, { ok: false, error: 'invalid_type' });
+    }
+    if (action === 'trial-read') {
+      const draft = readWorkflowTrialTicket({
+        token: typeof body.trialToken === 'string' ? body.trialToken : '',
+        sessionId: ds.session.sessionId,
+        turnId,
+      });
+      return jsonRes(res, 200, { ok: true, draft });
+    }
+    if (action === 'trial') {
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const description = typeof body.description === 'string' ? body.description.trim() : '';
+      const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : '';
+      const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : '';
+      if (type !== 'workflow' || !name || !description || !instructions || !requestId) {
+        return jsonRes(res, 400, { ok: false, error: 'invalid_workflow_trial' });
+      }
+      const draft: CapabilityDraft = { type, name, description, instructions };
+      const decision = registerAskBroker({
+        larkAppId: ds.larkAppId,
+        chatId: ds.chatId,
+        rootMessageId: ds.session.scope === 'chat' ? null : ds.session.rootMessageId,
+        sessionId: ds.session.sessionId,
+        answererOpenId: callerOpenId,
+        chatType: ds.chatType,
+        requestId,
+        originKind: 'artifact_workflow_trial',
+        timeoutMs: 60 * 60 * 1_000,
+        questions: [{
+          prompt: name,
+          multiSelect: false,
+          options: [
+            { key: 'run', label: 'Run once' },
+            { key: 'discard', label: 'Discard' },
+          ],
+        }],
+        presentation: {
+          type: 'workflow_trial',
+          name,
+          description,
+          instructions,
+        },
+      });
+      void decision.then(async (result) => {
+        if (result.kind !== 'answered') return;
+        const continuationTurnId = `artifact_${randomUUID()}`;
+        if (result.comment) {
+          await dispatchCapabilityInteractionTurn({
+            sessionId: ds.session.sessionId,
+            actorOpenId: callerOpenId,
+            turnId: continuationTurnId,
+            content: buildCapabilityInteractionContinuation({
+              type: 'workflow_revision',
+              name,
+              revisionRequest: result.comment,
+            }),
+          });
+          return;
+        }
+        if (result.answers[0]?.[0] !== 'run') return;
+        const trialToken = issueWorkflowTrialTicket({
+          sessionId: ds.session.sessionId,
+          turnId: continuationTurnId,
+          draft,
+        });
+        await dispatchCapabilityInteractionTurn({
+          sessionId: ds.session.sessionId,
+          actorOpenId: callerOpenId,
+          turnId: continuationTurnId,
+          content: buildCapabilityInteractionContinuation({
+            type: 'workflow_trial',
+            trialToken,
+          }),
+        });
+      }).catch((error) => {
+        logger.warn(
+          `[artifact:${ds.session.sessionId.substring(0, 8)}] Workflow trial continuation failed: `
+          + `${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      return jsonRes(res, 200, {
+        ok: true,
+        status: 'pending_decision',
+        responseMode: 'card_only',
+        instruction: 'The Workflow trial card is the complete response. End the turn with exactly BOTMUX_NOTHING_TO_SEND. A later card decision starts a new agent turn automatically.',
+      });
+    }
+    if (action === 'overlap') {
+      const proposedName = typeof body.name === 'string' ? body.name.trim() : '';
+      const existingName = typeof body.existingName === 'string' ? body.existingName.trim() : '';
+      const summary = typeof body.instructions === 'string' ? body.instructions.trim() : '';
+      const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : '';
+      if (!type || !proposedName || !existingName || !summary || !requestId) {
+        return jsonRes(res, 400, { ok: false, error: 'invalid_artifact_overlap' });
+      }
+      const decision = registerAskBroker({
+        larkAppId: ds.larkAppId,
+        chatId: ds.chatId,
+        rootMessageId: ds.session.scope === 'chat' ? null : ds.session.rootMessageId,
+        sessionId: ds.session.sessionId,
+        answererOpenId: callerOpenId,
+        chatType: ds.chatType,
+        requestId,
+        originKind: 'artifact_overlap',
+        timeoutMs: 60 * 60 * 1_000,
+        questions: [{
+          prompt: proposedName,
+          multiSelect: false,
+          options: [
+            { key: 'update', label: 'Update existing' },
+            { key: 'separate', label: 'Create separately' },
+            { key: 'cancel', label: 'Cancel' },
+          ],
+        }],
+        presentation: {
+          type: 'artifact_overlap',
+          artifactType: type,
+          proposedName,
+          existingName,
+          summary,
+        },
+      });
+      void decision.then(async (result) => {
+        if (result.kind !== 'answered') return;
+        const selected = result.comment ? 'revise' : result.answers[0]?.[0];
+        if (selected !== 'update' && selected !== 'separate' && selected !== 'revise') return;
+        await dispatchCapabilityInteractionTurn({
+          sessionId: ds.session.sessionId,
+          actorOpenId: callerOpenId,
+          turnId: `artifact_${randomUUID()}`,
+          content: buildCapabilityInteractionContinuation({
+            type: 'artifact_overlap',
+            decision: selected,
+            artifactType: type,
+            proposedName,
+            existingName,
+            ...(result.comment ? { revisionRequest: result.comment } : {}),
+          }),
+        });
+      }).catch((error) => {
+        logger.warn(
+          `[artifact:${ds.session.sessionId.substring(0, 8)}] Overlap continuation failed: `
+          + `${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      return jsonRes(res, 200, {
+        ok: true,
+        status: 'pending_decision',
+        responseMode: 'card_only',
+        instruction: 'The overlap decision card is the complete response. End the turn with exactly BOTMUX_NOTHING_TO_SEND. A later card decision starts a new agent turn automatically.',
+      });
+    }
+    const items = listCapabilities(config.session.dataDir, scope);
+    if (action === 'list') {
+      return jsonRes(res, 200, {
+        ok: true,
+        artifacts: items
+          .filter((item) => !type || item.type === type)
+          .map((item) => ({
+            artifactId: item.artifactId,
+            type: item.type,
+            name: item.name,
+            description: item.description,
+            latestRevision: item.latestRevision,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+          })),
+      });
+    }
+    if (action === 'search') {
+      if (!type) return jsonRes(res, 400, { ok: false, error: 'type_required' });
+      const query = typeof body.query === 'string' ? body.query.trim() : '';
+      if (!query || Buffer.byteLength(query, 'utf8') > 4_096) {
+        return jsonRes(res, 400, { ok: false, error: 'invalid_query' });
+      }
+      const limit = body.limit === undefined
+        ? 8
+        : typeof body.limit === 'number'
+          ? body.limit
+          : Number.NaN;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+        return jsonRes(res, 400, { ok: false, error: 'invalid_limit' });
+      }
+      const candidates = searchCapabilityMetadata(
+        items.filter((item) => item.type === type),
+        query,
+        limit,
+      );
+      return jsonRes(res, 200, {
+        ok: true,
+        candidates: candidates.map((item) => ({
+          name: item.name,
+          description: item.description,
+        })),
+      });
+    }
+    const workflowSave = action === 'save' && body.type === 'workflow';
+    const workflowTrialOutcome = body.trialOutcome === 'passed'
+      || body.trialOutcome === 'passed_with_limitations'
+      ? body.trialOutcome
+      : undefined;
+    if (workflowSave && !workflowTrialOutcome) {
+      return jsonRes(res, 400, { ok: false, error: 'invalid_workflow_trial_outcome' });
+    }
+    const workflowTrial = workflowSave && workflowTrialOutcome
+      ? validateWorkflowTrialAssessment({
+          outcome: workflowTrialOutcome,
+          summary: typeof body.trialSummary === 'string' ? body.trialSummary : '',
+        })
+      : undefined;
+    const workflowTrialDraft: CapabilityDraft | undefined = workflowSave
+      ? readWorkflowTrialTicket({
+          token: typeof body.trialToken === 'string' ? body.trialToken : '',
+          sessionId: ds.session.sessionId,
+          turnId,
+        })
+      : undefined;
+    const name = workflowTrialDraft?.name
+      ?? (typeof body.name === 'string' ? body.name.trim() : '');
+    if (!name) return jsonRes(res, 400, { ok: false, error: 'name_required' });
+    const matches = items.filter((item) => item.name === name);
+    if (matches.length > 1) {
+      return jsonRes(res, 409, { ok: false, error: 'duplicate_capability_names' });
+    }
+    const existing = matches[0];
+    if (action === 'show' || action === 'history' || action === 'delete') {
+      if (!existing) return jsonRes(res, 404, { ok: false, error: 'artifact_not_found' });
+    }
+    if (action === 'show' && existing) {
+      const revision = readCapabilityRevision(
+        config.session.dataDir,
+        scope,
+        existing.artifactId,
+        existing.latestRevision,
+      );
+      return jsonRes(res, 200, { ok: true, artifact: existing, revision });
+    }
+    if (action === 'history' && existing) {
+      const revisions = listCapabilityRevisions(
+        config.session.dataDir,
+        scope,
+        existing.artifactId,
+      ).map((revision) => ({
+        revisionId: revision.revisionId,
+        contentHash: revision.contentHash,
+        createdAt: revision.payload.createdAt,
+        description: revision.payload.description,
+      }));
+      return jsonRes(res, 200, { ok: true, artifact: existing, revisions });
+    }
+    if (action === 'save') {
+      if (body.type !== 'knowledge' && body.type !== 'skill' && body.type !== 'workflow') {
+        return jsonRes(res, 400, { ok: false, error: 'invalid_type' });
+      }
+      if (existing && existing.type !== body.type) {
+        return jsonRes(res, 409, { ok: false, error: 'capability_type_conflict' });
+      }
+      const draft: CapabilityDraft = workflowTrialDraft
+        ? consumeWorkflowTrialTicket({
+            token: typeof body.trialToken === 'string' ? body.trialToken : '',
+            sessionId: ds.session.sessionId,
+            turnId,
+          })
+        : {
+            type: body.type,
+            name,
+            description: typeof body.description === 'string' ? body.description : '',
+            instructions: typeof body.instructions === 'string' ? body.instructions : '',
+          };
+      const proposed = createCapabilitySaveProposal({
+        dataDir: config.session.dataDir,
+        requester,
+        requesterOpenId: callerOpenId,
+        larkAppId: ds.larkAppId,
+        sessionId: ds.session.sessionId,
+        turnId,
+        targetScope: scope,
+        draft,
+        ...(workflowTrial ? { workflowTrial } : {}),
+      });
+      const messageId = await sendUserMessage(
+        ds.larkAppId,
+        scope.kind === 'bot' && ownerOpenId ? ownerOpenId : callerOpenId,
+        buildCapabilityProposalCard(
+          proposed.proposal,
+          proposed.nonce,
+          localeForBot(ds.larkAppId),
+        ),
+        'interactive',
+        capabilityProposalDispatchUuid(proposed.proposal.proposalId, proposed.nonce),
+      );
+      recordCapabilityCardTurnSend(ds.session.sessionId, messageId);
+      return jsonRes(res, 200, {
+        ok: true,
+        proposalId: proposed.proposal.proposalId,
+        status: 'pending_confirmation',
+        responseMode: 'card_only',
+        instruction: 'The confirmation card is the complete response. Do not call botmux send. End the turn with exactly BOTMUX_NOTHING_TO_SEND.',
+      });
+    }
+    if (!existing) throw new Error('Capability not found');
+    const proposed = createCapabilityDeleteProposal({
+      dataDir: config.session.dataDir,
+      requester,
+      requesterOpenId: callerOpenId,
+      larkAppId: ds.larkAppId,
+      sessionId: ds.session.sessionId,
+      turnId,
+      targetScope: scope,
+      artifactId: existing.artifactId,
+    });
+    const messageId = await sendUserMessage(
+      ds.larkAppId,
+      scope.kind === 'bot' && ownerOpenId ? ownerOpenId : callerOpenId,
+      buildCapabilityProposalCard(
+        proposed.proposal,
+        proposed.nonce,
+        localeForBot(ds.larkAppId),
+      ),
+      'interactive',
+      capabilityProposalDispatchUuid(proposed.proposal.proposalId, proposed.nonce),
+    );
+    recordCapabilityCardTurnSend(ds.session.sessionId, messageId);
+    return jsonRes(res, 200, {
+      ok: true,
+      proposalId: proposed.proposal.proposalId,
+      status: 'pending_confirmation',
+      responseMode: 'card_only',
+      instruction: 'The confirmation card is the complete response. Do not call botmux send. End the turn with exactly BOTMUX_NOTHING_TO_SEND.',
+    });
+  } catch (error) {
+    return jsonRes(res, 400, {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 
 /** 向本会话 CLI 注入一条 allowlist 内的原生斜杠命令（idle 后生效）。
  *  鉴权双路径（见 sessionCliIpcAuth）：trusted-host 签名或本会话 rotating

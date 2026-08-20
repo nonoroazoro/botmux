@@ -153,8 +153,15 @@ describe('built-in skill catalog', () => {
     expect(names).toContain('botmux-schedule');
     expect(names).toContain('botmux-ask');          // no hook → ask fallback advertised
     expect(names).not.toContain('botmux-whiteboard'); // feature off
+    expect(names).not.toContain('botmux-workflow');
+    expect(names).not.toContain('botmux-workflow-create');
     // every entry carries a non-empty description parsed from frontmatter
     expect(entries.every((e) => e.description.length > 0)).toBe(true);
+  });
+
+  it('keeps legacy Workflow instructions available only for explicit routes', () => {
+    expect(builtinSkillContent('botmux-workflow')).toContain('name: botmux-workflow');
+    expect(builtinSkillContent('botmux-workflow-create')).toContain('name: botmux-workflow-create');
   });
 
   it('drops the ask skill when the CLI takes over via hook, and adds whiteboard when enabled', () => {
@@ -188,7 +195,7 @@ describe('built-in skill catalog', () => {
     expect(block).toContain('JSON.stringify');
     expect(block).toContain('JSON 转义产生的 \\n 当字面量');
     // The compact prompt description must not replace the full/native metadata.
-    expect(entries.find((e) => e.name === 'botmux-send')?.description).toContain('向飞书话题发送消息');
+    expect(entries.find((e) => e.name === 'botmux-send')?.description).toContain('向飞书话题发送 agent 已决定要让用户看到的消息');
   });
 
   it('keeps catalog prose as escaped text instead of nested XML-like tags', () => {

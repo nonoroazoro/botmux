@@ -215,6 +215,27 @@ describe('tryResolveAsk gating', () => {
     expect(_pendingCount()).toBe(1);
   });
 
+  it('requires the exact answerer when a user-owned decision binds one', async () => {
+    const d = mockDispatcher();
+    setCardDispatcher(d);
+    const pending = registerAsk(makeInput({ answererOpenId: 'ou_a' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    const dispatched = d.sendCalls[0];
+    if (!dispatched) throw new Error('Expected the decision card to be dispatched');
+    const { askId, nonce } = dispatched;
+
+    expect(tryResolveAsk({ askId, nonce, selected: 'yes', by: 'ou_b' }))
+      .toBe('unauthorized');
+    expect(submitCustomReply({ askId, by: 'ou_b', text: 'revise it' }))
+      .toBe('unauthorized');
+    expect(_pendingCount()).toBe(1);
+
+    expect(tryResolveAsk({ askId, nonce, selected: 'yes', by: 'ou_a' }))
+      .toBe('accepted');
+    await expect(pending).resolves.toMatchObject({ kind: 'answered', by: 'ou_a' });
+  });
+
   it('returns "stale" when selected key is not in options (defensive)', async () => {
     const d = mockDispatcher();
     setCardDispatcher(d);
@@ -577,6 +598,24 @@ describe('toggleAsk + submitAsk', () => {
 });
 
 describe('自定义回复 findPendingAskByAnchor + submitCustomReply', () => {
+  it('prefers the pending decision bound to the replying user', async () => {
+    const d = mockDispatcher();
+    setCardDispatcher(d);
+    registerAsk(makeInput({ sessionId: 'session-a', answererOpenId: 'ou_a' }));
+    registerAsk(makeInput({ sessionId: 'session-b', answererOpenId: 'ou_b' }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const found = findPendingAskByAnchor({
+      larkAppId: 'cli_app',
+      chatId: 'oc_chat',
+      anchor: 'om_root',
+      answererOpenId: 'ou_b',
+    });
+
+    expect(found?.sessionId).toBe('session-b');
+  });
+
   it('findPendingAskByAnchor: 按 (larkAppId, chatId, rootMessageId=anchor) 命中未 settle 的 ask', async () => {
     const d = mockDispatcher();
     setCardDispatcher(d);

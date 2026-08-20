@@ -8,6 +8,8 @@ export function resolveSessionSkillManifest(opts: {
   workingDir: string;
   botPolicy: BotSkillPolicy | undefined;
   pluginSkills?: SkillPackage[];
+  botCapabilitySkills?: SkillPackage[];
+  personalCapabilitySkills?: SkillPackage[];
   globalProjectSkills?: 'off' | 'trusted' | 'all';
   globalDelivery?: 'auto' | 'prompt' | 'native';
   registrySkills: SkillPackage[];
@@ -18,6 +20,8 @@ export function resolveSessionSkillManifest(opts: {
     registrySkills: opts.registrySkills,
     projectSkills: opts.projectSkills,
     pluginSkills: opts.pluginSkills,
+    botCapabilitySkills: opts.botCapabilitySkills,
+    personalCapabilitySkills: opts.personalCapabilitySkills,
     globalProjectSkills: opts.globalProjectSkills,
     globalDelivery: opts.globalDelivery,
     botPolicy: opts.botPolicy,

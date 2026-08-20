@@ -9,6 +9,12 @@
  */
 
 import { ASK_HUMAN_ERROR_CODE, GOAL_ASK_FILE, GOAL_ENV } from '../workflows/v3/contract.js';
+import {
+  ARTIFACT_MANAGER_SKILL,
+  KNOWLEDGE_CREATOR_SKILL,
+  SKILL_CREATOR_SKILL,
+  WORKFLOW_CREATOR_SKILL,
+} from './artifacts/index.js';
 
 export interface SkillDef {
   /** Filesystem-safe name — becomes the directory name under {skillsDir}/ */
@@ -1194,7 +1200,7 @@ $${GOAL_ENV.INPUTS_PATH}
 
 const ORCHESTRATE_SKILL = `---
 name: botmux-orchestrate
-description: 多 bot 长期项目编排。仅当任务同时需要「多个 bot 分工」+「持续的 goal 群/多话题协调与进度板」+「主 bot 汇总验收」时触发，例如多组 coder/reviewer 并行推进。若只是一个有界 DAG、跑完即散、产出单一交付物，应使用 botmux-workflow；单步任务直接处理。显式提到 botmux orchestrate / goal supervise / dispatch 派活时也使用。
+description: 多 bot 长期项目编排。仅当任务同时需要「多个 bot 分工」+「持续的 goal 群/多话题协调与进度板」+「主 bot 汇总验收」时触发，例如多组 coder/reviewer 并行推进。普通单 agent 任务和个人助手中的 Dynamic Workflow 不使用本 skill。显式提到 botmux orchestrate / goal supervise / dispatch 派活时也使用。
 ---
 
 # botmux-orchestrate — 多 bot 多话题编排
@@ -1203,7 +1209,8 @@ description: 多 bot 长期项目编排。仅当任务同时需要「多个 bot 
 
 ## 适用 & 不适用
 - 适用：一个长期项目同时满足三个结构化判据：① **多个 bot 分工**处理基本独立的子项目；② 需要持续存在的 **goal 群/多话题协调**和共享进度板；③ 主 bot 要持续收件并做最终**验收**。
-- 不适用：一个**有界 DAG、跑完即散、只有一个交付物**的多步目标——使用 **botmux-workflow**。
+- 不适用：当前 agent 可以直接完成的有界多步目标。
+- 不适用：创建、管理或执行个人助手中的 **Dynamic Workflow**，使用 artifact 管理能力。
 - 不适用：单步请求 / 普通改代码（直接做），或只需把下一步交给一个 bot（用 botmux-handoff）。
 
 ## 物理事实（先记牢）
@@ -1268,14 +1275,14 @@ botmux dispatch --title "<子项目标题>" --bot "<coder_open_id>:名字:coder"
 
 const WORKFLOW_V3_SKILL = `---
 name: botmux-workflow
-description: 统一处理 v3 Workflow：把有界的复合目标 grill 后编排成 DAG 并跑完，也负责 Saved Workflow 的保存、运行、列表、详情和 run 取消。自然语言触发包括“调研后出报告”“把 A/B/C 串起来”“把刚才的流程存下来”“运行已保存的周报流程”“取消刚才的流程”“有哪些流程”；自然语言多步目标先做一次轻确认，只有显式 \`/workflow ...\` 可跳过，明确的 Saved Workflow/run 操作可直接执行。单步请求、普通问答、普通改代码不要触发。边界：workflow 只处理有界 DAG、跑完即散、一个交付物；需要多 bot 分工 + 持续多话题协调 + 汇总验收的长期项目不属于 workflow，由当前的长期多 bot 协作能力承接，不绑定具体方案名称。
+description: Internal handler for the legacy botmux Workflow runtime. Use only when the prompt contains the daemon-generated [/workflow new] marker or explicitly requests maintenance of that runtime. Never use for Knowledge, Skill, or Dynamic Workflow artifact management.
 ---
 
 # botmux-workflow — v3 即兴 + Saved Workflow
 
 统一处理两类能力：① 把一句模糊的复合目标通过「拷问澄清 → 自动编排 DAG → 人确认 → 自动执行」做完；② 管理 v3 run 与 Saved Workflow，包括保存、复用、查看和取消。整个过程在当前飞书话题里进行（用 botmux send 跟用户对话）。
 
-用户可以用大白话表达，也可以显式发 \`/workflow <目标>\`、\`/workflow save|run|cancel|list|show ...\`。不要再把新流程分流到 \`/template\` 或 botmux-workflow-create；\`botmux template\` 只保留 v2 资产的离线迁移与归档。
+本 skill 只处理 daemon 通过 \`[/workflow new]\` 标记显式路由进来的旧 runtime，或用户明确点名维护该 runtime 的请求。普通自然语言中的 Workflow 创建、管理和执行属于 Dynamic Workflow artifact，不得使用本 skill。显式旧入口包括 \`/workflow <目标>\`、\`/workflow save|run|cancel|list|show ...\`。
 
 ## 何时用 / 不用
 - ✅ 一个**有界、需要拆成多步、最终汇成一个交付物**的目标（“调研三家竞品出对比报告”“拉日志分析后生成图表”）。Workflow 跑完即散。
@@ -1525,6 +1532,10 @@ export const ASK_SKILL_NAME = 'botmux-ask';
 export const WHITEBOARD_SKILL_NAME = 'botmux-whiteboard';
 
 export const BUILTIN_SKILLS: SkillDef[] = [
+  { name: 'botmux-artifacts', content: ARTIFACT_MANAGER_SKILL },
+  { name: 'botmux-knowledge-creator', content: KNOWLEDGE_CREATOR_SKILL },
+  { name: 'botmux-skill-creator', content: SKILL_CREATOR_SKILL },
+  { name: 'botmux-workflow-creator', content: WORKFLOW_CREATOR_SKILL },
   { name: 'botmux-chat-rename', content: CHAT_RENAME_SKILL },
   { name: 'botmux-schedule', content: SCHEDULE_SKILL },
   { name: 'botmux-history', content: HISTORY_SKILL },
@@ -1533,16 +1544,23 @@ export const BUILTIN_SKILLS: SkillDef[] = [
   { name: 'botmux-poll', content: POLL_SKILL },
   { name: 'botmux-bots', content: BOTS_SKILL },
   { name: 'botmux-handoff', content: HANDOFF_SKILL },
-  { name: 'botmux-workflow-create', content: WORKFLOW_CREATE_SKILL },
-  { name: 'botmux-workflow', content: WORKFLOW_V3_SKILL },
   { name: 'botmux-goal-ask', content: GOAL_ASK_SKILL },
   { name: 'botmux-orchestrate', content: ORCHESTRATE_SKILL },
+];
+
+/** Legacy Workflow instructions available only to explicit daemon-generated
+ *  prompts. They stay out of automatic skill discovery so generic Workflow
+ *  requests route exclusively to Dynamic Workflow artifacts. */
+export const ON_DEMAND_BUILTIN_SKILLS: SkillDef[] = [
+  { name: 'botmux-workflow-create', content: WORKFLOW_CREATE_SKILL },
+  { name: 'botmux-workflow', content: WORKFLOW_V3_SKILL },
 ];
 
 /** Skills that earlier botmux versions installed but no longer ship. The
  *  installer cleans these up so renamed skills don't linger as duplicates
  *  in the CLI's skills directory. */
 export const RETIRED_SKILL_NAMES: string[] = [
+  'botmux-remember',
   'botmux-thread-messages',
   // Folded into botmux-send as the `--attention` flag. Installer prunes the old
   // standalone skill dir.
@@ -1551,4 +1569,8 @@ export const RETIRED_SKILL_NAMES: string[] = [
   // (Groups & Bots → bot card). The CLI subcommand was removed too, so the
   // skill has nothing to drive — prune it from every CLI's skills dir on upgrade.
   'botmux-worker-budget',
+  // These legacy Workflow skills remain available through `botmux skill show`
+  // for explicit daemon routes, but must not linger in native skill catalogs.
+  'botmux-workflow-create',
+  'botmux-workflow',
 ];

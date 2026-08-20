@@ -947,6 +947,7 @@ function refreshCliPluginGeneration(
     bot,
     global: readGlobalConfig(),
     dataDir: config.session.dataDir,
+    personalPrincipal: cfg.personalPrincipal,
     cliId: cfg.cliId as CliId,
     adapter,
     workingDir: cfg.workingDir,

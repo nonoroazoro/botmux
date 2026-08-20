@@ -1,4 +1,9 @@
 import type { CliId } from '../../adapters/cli/types.js';
+import {
+  resolveBotCapabilitySkills,
+  resolvePersonalCapabilitySkills,
+  type PersonalPrincipal,
+} from '../capabilities/index.js';
 import { readGlobalConfig } from '../../global-config.js';
 import { readSkillRegistry } from '../../services/skill-registry-store.js';
 import type { BotSkillPolicy, SessionSkillManifest, SkillPackage } from './types.js';
@@ -19,8 +24,26 @@ export function prepareSessionSkillPrompt(opts: {
   prompt: string;
   botPolicy: BotSkillPolicy | undefined;
   pluginSkills?: SkillPackage[];
+  dataDir?: string;
+  larkAppId?: string;
+  personalPrincipal?: PersonalPrincipal;
 }): PreparedSessionSkillPrompt {
-  if (!opts.botPolicy && !opts.pluginSkills?.length) {
+  const personalCapabilitySkills = opts.dataDir
+    && opts.larkAppId
+    ? resolvePersonalCapabilitySkills(opts.dataDir, opts.larkAppId, opts.personalPrincipal)
+    : [];
+  const personalCapabilityNames = new Set(
+    personalCapabilitySkills.map((skill) => skill.name),
+  );
+  const botCapabilitySkills = opts.dataDir && opts.larkAppId
+    ? resolveBotCapabilitySkills(opts.dataDir, opts.larkAppId, personalCapabilityNames)
+    : [];
+  if (
+    !opts.botPolicy
+    && !opts.pluginSkills?.length
+    && botCapabilitySkills.length === 0
+    && personalCapabilitySkills.length === 0
+  ) {
     removeSessionSkillManifest(opts.sessionId);
     return { prompt: opts.prompt, manifest: null };
   }
@@ -31,6 +54,8 @@ export function prepareSessionSkillPrompt(opts: {
     workingDir: opts.workingDir,
     botPolicy: opts.botPolicy,
     pluginSkills: opts.pluginSkills,
+    botCapabilitySkills,
+    personalCapabilitySkills,
     globalProjectSkills: globalSkills?.trustProjectSkills,
     globalDelivery: globalSkills?.delivery,
     registrySkills: Object.values(readSkillRegistry().skills),

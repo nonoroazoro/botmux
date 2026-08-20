@@ -10,6 +10,8 @@ import { getBot } from '../../bot-registry.js';
 import { logger } from '../../utils/logger.js';
 import { t, localeForBot, type Locale } from '../../i18n/index.js';
 import { replyMessage, sendMessage, updateMessage } from './client.js';
+import { buildArtifactOverlapCard } from './artifact-overlap-card.js';
+import { buildWorkflowTrialCard } from './workflow-trial-card.js';
 
 /** 旧单选即答动作（保留兼容旧卡片回调；Task 5 新增 ask_submit 路径）。 */
 export const ASK_SELECT_ACTION = 'ask_select';
@@ -308,6 +310,24 @@ function settledCardResponse(askId: string, result: AskResult): Record<string, u
  */
 export function buildAskCard(ask: PendingAsk, result?: AskResult): string {
   const locale = localeForBot(ask.larkAppId);
+  if (ask.presentation?.type === 'workflow_trial') {
+    return buildWorkflowTrialCard({
+      ask,
+      presentation: ask.presentation,
+      selectAction: ASK_SELECT_ACTION,
+      result,
+      locale,
+    });
+  }
+  if (ask.presentation?.type === 'artifact_overlap') {
+    return buildArtifactOverlapCard({
+      ask,
+      presentation: ask.presentation,
+      selectAction: ASK_SELECT_ACTION,
+      result,
+      locale,
+    });
+  }
   const deadline = new Date(ask.deadlineAt).toLocaleString('zh-CN');
   const status = result ? settleStatus(result, ask, locale) : undefined;
 

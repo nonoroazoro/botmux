@@ -73,6 +73,7 @@ export interface PersistedAsk {
   chatId: string;
   rootMessageId: string | null;
   sessionId: string;
+  answererOpenId?: string;
   chatType?: 'group' | 'p2p';
   questions: ReadonlyArray<AskQuestion>;
   createdAt: number;

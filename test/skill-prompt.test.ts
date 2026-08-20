@@ -37,6 +37,11 @@ describe('skill prompt catalog', () => {
     expect(block).toContain('name="deploy"');
     expect(block).toContain('botmux skill show deploy');
     expect(block).toContain('must read it');
+    expect(block).toContain('Within one turn, read each Skill at most once');
+    expect(block).toContain('do not repeat it');
+    expect(block).toContain('do not also call `botmux artifact show`');
+    expect(block).toContain('Artifact management takes precedence');
+    expect(block).toContain('Do not read another priority skill solely because its name');
   });
 
   it('normalizes generated catalog metadata and drops invalid skills', () => {

@@ -32,6 +32,7 @@ import type { Locale } from '../i18n/index.js';
 import { escapeXmlText } from '../utils/xml.js';
 import {
   BUILTIN_SKILLS,
+  ON_DEMAND_BUILTIN_SKILLS,
   ASK_SKILL, ASK_SKILL_NAME,
   WHITEBOARD_SKILL, WHITEBOARD_SKILL_NAME,
 } from './definitions.js';
@@ -165,7 +166,7 @@ export function builtinSkillEntries(opts: {
  *  on-demand reads in `prompt` mode (independent of the per-CLI toggles above,
  *  so a name that made it into the catalog always resolves). */
 export function builtinSkillContent(name: string): string | undefined {
-  const all = [...BUILTIN_SKILLS, { name: ASK_SKILL_NAME, content: ASK_SKILL }, { name: WHITEBOARD_SKILL_NAME, content: WHITEBOARD_SKILL }];
+  const all = [...BUILTIN_SKILLS, ...ON_DEMAND_BUILTIN_SKILLS, { name: ASK_SKILL_NAME, content: ASK_SKILL }, { name: WHITEBOARD_SKILL_NAME, content: WHITEBOARD_SKILL }];
   return all.find((d) => d.name === name)?.content;
 }
 
@@ -204,8 +205,8 @@ export function buildBuiltinSkillCatalogBlock(entries: BuiltinSkillEntry[], loca
  *  inner help line follows the same text-only contract as the catalog body. */
 export function builtinSkillHelpPointer(locale?: Locale): string {
   const inner = locale === 'en'
-    ? 'Beyond the commands in <botmux_routing>, more botmux capabilities (ask / schedule / workflow / …) are shell subcommands — run `botmux --help`, and `botmux <cmd> --help` for a specific one, to discover them.'
-    : '除了 <botmux_routing> 里的命令，botmux 还有更多能力（ask / schedule / workflow 等），都是 shell 子命令——用 `botmux --help` 查全部，`botmux <子命令> --help` 查单个用法。';
+    ? 'Beyond the commands in <botmux_routing>, more botmux capabilities are shell subcommands. Run `botmux --help`, and `botmux <cmd> --help` for a specific one, to discover them.'
+    : '除了 <botmux_routing> 里的命令，botmux 还有其他 shell 子命令。用 `botmux --help` 查全部，`botmux <子命令> --help` 查单个用法。';
   return `<botmux_builtin_skills>\n${escapeXmlText(inner)}\n</botmux_builtin_skills>`;
 }
 

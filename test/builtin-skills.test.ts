@@ -4,7 +4,7 @@
  * Run: pnpm vitest run test/builtin-skills.test.ts
  */
 import { describe, it, expect } from 'vitest';
-import { ASK_SKILL, BUILTIN_SKILLS, RETIRED_SKILL_NAMES, WHITEBOARD_SKILL, WHITEBOARD_SKILL_NAME } from '../src/skills/definitions.js';
+import { ASK_SKILL, BUILTIN_SKILLS, ON_DEMAND_BUILTIN_SKILLS, RETIRED_SKILL_NAMES, WHITEBOARD_SKILL, WHITEBOARD_SKILL_NAME } from '../src/skills/definitions.js';
 
 describe('built-in botmux-send skill', () => {
   it('defines transport without prescribing routine agent narration', () => {
@@ -72,6 +72,127 @@ describe('built-in botmux-history skill', () => {
   });
 });
 
+describe('built-in botmux-artifacts skill', () => {
+  it('routes generic CRUD authoring to the matching creator', () => {
+    const manager = BUILTIN_SKILLS.find((candidate) => candidate.name === 'botmux-artifacts');
+    expect(manager).toBeDefined();
+    expect(manager?.content).toContain('artifact list');
+    expect(manager?.content).toContain('artifact show');
+    expect(manager?.content).toContain('artifact history');
+    expect(manager?.content).toContain('artifact delete');
+    expect(manager?.content).toContain('all revision history');
+    expect(manager?.content).toContain('botmux skill show botmux-knowledge-creator');
+    expect(manager?.content).toContain('botmux skill show botmux-skill-creator');
+    expect(manager?.content).toContain('botmux skill show botmux-workflow-creator');
+    expect(manager?.content).toContain('matching botmux creator above as its authoring path');
+    expect(manager?.content).not.toContain('Codex');
+    expect(manager?.content).not.toContain('Claude');
+    expect(manager?.content).toContain('Semantic overlap review');
+    expect(manager?.content).toContain('artifact search --scope <scope> --type <type>');
+    expect(manager?.content).toContain('--limit 8');
+    expect(manager?.content).toContain('Do not list the entire library for overlap review');
+    expect(manager?.content).toContain('at most three plausible candidates');
+    expect(manager?.content).toContain('future behavior, not keyword similarity');
+    expect(manager?.content).toContain('Knowledge overlaps when');
+    expect(manager?.content).toContain('Skill overlaps when');
+    expect(manager?.content).toContain('Dynamic Workflow overlaps when');
+    expect(manager?.content).toContain('shared products, repositories, tools, or vocabulary as insufficient');
+    expect(manager?.content).toContain('botmux artifact overlap');
+    expect(manager?.content).toContain('--existing <strongest-existing-name>');
+    expect(manager?.content).toContain('code-controlled overlap card');
+    expect(manager?.content).not.toContain('botmux ask');
+    expect(manager?.content).toContain('do not save');
+    expect(manager?.content).toContain('Use your semantic judgment');
+    expect(manager?.content).toContain('botmux code owns structured validation');
+    expect(manager?.content).toContain('current agent performs those semantic steps');
+    expect(manager?.content).toContain('Artifact CRUD is a card-led flow, not a chat-led flow');
+    expect(manager?.content).toContain('Do not call `botmux send` or emit chat text');
+    expect(manager?.content).toContain('Ask in chat only when required open-ended information is missing');
+    expect(manager?.content).toContain('personal scope as a visibility boundary');
+    expect(manager?.content).toContain('create a portable revision before proposing it');
+    expect(RETIRED_SKILL_NAMES).toContain('botmux-remember');
+  });
+
+  it('ships independent generic creators for all three artifact types', () => {
+    const knowledge = BUILTIN_SKILLS.find((candidate) => candidate.name === 'botmux-knowledge-creator');
+    const skill = BUILTIN_SKILLS.find((candidate) => candidate.name === 'botmux-skill-creator');
+    const workflow = BUILTIN_SKILLS.find((candidate) => candidate.name === 'botmux-workflow-creator');
+
+    expect(knowledge).toBeDefined();
+    expect(knowledge?.content).toContain('artifact save');
+    expect(knowledge?.content).toContain('--type knowledge');
+    expect(knowledge?.content).toContain('using your semantic judgment');
+    expect(knowledge?.content).toContain('source references');
+    expect(knowledge?.content).toContain('freshness or review dates');
+    expect(knowledge?.content).toContain('Write it in English unless');
+    expect(knowledge?.content).toContain('Input language alone is not such a request');
+    expect(knowledge?.content).toContain('Work silently until the next code-owned card');
+    expect(knowledge?.content).toContain('Personal scope controls visibility, not content portability');
+    expect(knowledge?.content).toContain('source-specific personal or conversation identity');
+    expect(knowledge?.content).toContain('instead of named participants');
+    expect(knowledge?.content).toContain('must not be proposed to a team');
+
+    expect(skill).toBeDefined();
+    expect(skill?.content).toContain('artifact save');
+    expect(skill?.content).toContain('--type skill');
+    expect(skill?.content).toContain('using your semantic judgment');
+    expect(skill?.content).toContain('single-file Skill');
+    expect(skill?.content).toContain('Write it in English unless');
+    expect(skill?.content).toContain('Input language alone is not such a request');
+    expect(skill?.content).toContain('Work silently until the next code-owned card');
+    expect(skill?.content).toContain('does not support them yet');
+    expect(skill?.content).toContain('successful pattern from the current conversation');
+    expect(skill?.content).toContain('adjacent near-misses that should not');
+    expect(skill?.content).toContain('degree of freedom');
+    expect(skill?.content).toContain('2 to 3 realistic prompts');
+    expect(skill?.content).toContain('Do not mutate external state solely for evaluation');
+    expect(skill?.content).not.toContain('Codex');
+    expect(skill?.content).not.toContain('CLI-native Skill Creator');
+    expect(skill?.content).toContain('Personal scope controls visibility, not content portability');
+    expect(skill?.content).toContain('source-specific personal or conversation identity');
+    expect(skill?.content).toContain('instead of named participants');
+    expect(skill?.content).toContain('must not be proposed to a team');
+
+    expect(workflow).toBeDefined();
+    expect(workflow?.content).toContain('artifact save');
+    expect(workflow?.content).toContain('--type workflow');
+    expect(workflow?.content).toContain('using your semantic judgment');
+    expect(workflow?.content).toContain('current LLM executes the Workflow');
+    expect(workflow?.content).toContain('Write it in English unless');
+    expect(workflow?.content).toContain('Input language alone is not such a request');
+    expect(workflow?.content).toContain('Work silently until the next code-owned card');
+    expect(workflow?.content).toContain('botmux artifact trial');
+    expect(workflow?.content).toContain('code-controlled Workflow trial card');
+    expect(workflow?.content).not.toContain('botmux ask');
+    expect(workflow?.content).toContain('current agent and its normal tools');
+    expect(workflow?.content).toContain('Do not delegate execution to another model or engine');
+    expect(workflow?.content).toContain('## Inputs');
+    expect(workflow?.content).toContain('## Success criteria');
+    expect(workflow?.content).toContain('Use Knowledge for durable facts');
+    expect(workflow?.content).toContain('input types, defaults, validation');
+    expect(workflow?.content).toContain('bounded retries');
+    expect(workflow?.content).toContain('## Failure handling');
+    expect(workflow?.content).toContain('smallest safe inputs');
+    expect(workflow?.content).toContain('Do not send progress');
+    expect(workflow?.content).toContain('tested inputs, observations, and limitations');
+    expect(workflow?.content).toContain('--trial-outcome <passed|passed_with_limitations>');
+    expect(workflow?.content).toContain('A failed, inconclusive, or changed draft requires another trial card');
+    expect(workflow?.content).toContain('not bindings to a model, subagent API');
+    expect(workflow?.content).toContain('Personal scope controls visibility, not content portability');
+    expect(workflow?.content).toContain('source-specific personal or conversation identity');
+    expect(workflow?.content).toContain('actors as roles');
+    expect(workflow?.content).toContain('must not be proposed to a team');
+  });
+
+  it('keeps legacy botmux Workflow concepts out of automatic skill injection', () => {
+    const automaticContent = BUILTIN_SKILLS.map((candidate) => candidate.content).join('\n');
+    expect(automaticContent).not.toContain('Saved Workflow');
+    expect(automaticContent).not.toContain('v3 Workflow');
+    expect(automaticContent).not.toContain('botmux workflow ');
+    expect(automaticContent).not.toContain('使用 **botmux-workflow**');
+  });
+});
+
 describe('built-in botmux-quoted skill', () => {
   it('exists and references the daemon-injected quote-prefix marker', () => {
     const quoted = BUILTIN_SKILLS.find(s => s.name === 'botmux-quoted');
@@ -83,7 +204,7 @@ describe('built-in botmux-quoted skill', () => {
 
 describe('built-in botmux-workflow-create skill', () => {
   it('is retained only for read-only v2 migration and never teaches execution', () => {
-    const skill = BUILTIN_SKILLS.find(s => s.name === 'botmux-workflow-create');
+    const skill = ON_DEMAND_BUILTIN_SKILLS.find(s => s.name === 'botmux-workflow-create');
     expect(skill).toBeDefined();
     const frontmatter = skill!.content.split('---')[1] ?? '';
     expect(frontmatter).toContain('v2 已下线');
@@ -132,8 +253,11 @@ describe('built-in botmux-workflow-create skill', () => {
 
 describe('built-in botmux-workflow skill (v3 ad-hoc + Saved Workflow)', () => {
   it('统一即兴和复用入口，并教全套 host 命令序 + spec 契约', () => {
-    const skill = BUILTIN_SKILLS.find(s => s.name === 'botmux-workflow');
+    const skill = ON_DEMAND_BUILTIN_SKILLS.find(s => s.name === 'botmux-workflow');
     expect(skill).toBeDefined();
+    const content = skill?.content ?? '';
+    expect(content).toContain('[/workflow new]');
+    expect(content).toContain('Never use for Knowledge, Skill, or Dynamic Workflow artifact management');
     // Saved Workflow 与自然语言等价入口
     expect(skill!.content).toContain('botmux workflow save last');
     expect(skill!.content).toContain('botmux workflow run 周报');
@@ -158,24 +282,23 @@ describe('built-in botmux-workflow skill (v3 ad-hoc + Saved Workflow)', () => {
     expect(skill!.content).toContain('Gate-2');
     expect(skill!.content).toContain('只有消息以 `/workflow` 显式发起时才跳过');
     expect(skill!.content).toContain('普通改代码');
-    // 新工作不再分流到 v2；旧 namespace 只作为迁移提示存在。
-    expect(skill!.content).toContain('v2 资产的离线迁移与归档');
-    expect(skill!.content).toContain('botmux template');
+    expect(content).toContain('普通自然语言中的 Workflow 创建、管理和执行属于 Dynamic Workflow artifact');
     // 转义没出 bug：description 里不该出现裸反斜杠-反引号
     expect(skill!.content).not.toContain('\\`');
   });
 
   it('定义稳定的 workflow 边界，不绑定长期多 bot 方案名称', () => {
-    const workflow = BUILTIN_SKILLS.find(s => s.name === 'botmux-workflow')!.content;
-    const orchestrate = BUILTIN_SKILLS.find(s => s.name === 'botmux-orchestrate')!.content;
-    for (const phrase of ['有界 DAG', '跑完即散', '一个交付物']) {
+    const workflow = ON_DEMAND_BUILTIN_SKILLS.find(s => s.name === 'botmux-workflow')?.content ?? '';
+    const orchestrate = BUILTIN_SKILLS.find(s => s.name === 'botmux-orchestrate')?.content ?? '';
+    for (const phrase of ['有界、需要拆成多步', '跑完即散', '一个交付物']) {
       expect(workflow).toContain(phrase);
     }
-    expect(workflow).toContain('不绑定具体方案名称');
+    expect(workflow).toContain('不要把具体方案名称当成 workflow 的稳定产品边界');
     expect(workflow).not.toContain('使用 botmux-orchestrate');
-    for (const phrase of ['多个 bot 分工', 'goal 群/多话题协调', '验收', 'botmux-workflow']) {
+    for (const phrase of ['多个 bot 分工', 'goal 群/多话题协调', '验收', 'Dynamic Workflow']) {
       expect(orchestrate).toContain(phrase);
     }
+    expect(orchestrate).not.toContain('使用 **botmux-workflow**');
   });
 });
 

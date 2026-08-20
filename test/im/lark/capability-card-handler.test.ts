@@ -1,0 +1,382 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  createCapabilityDeleteProposal,
+  createCapabilitySaveProposal,
+  listCapabilities,
+} from '../../../src/core/capabilities/index.js';
+import { handleCapabilityCardAction } from '../../../src/im/lark/capability-card-handler.js';
+import {
+  CAPABILITY_ACCEPT_ACTION,
+  CAPABILITY_ACCEPT_CONTRIBUTE_ACTION,
+  buildCapabilityProposalCard,
+  buildCapabilityProposalResultCard,
+} from '../../../src/im/lark/capability-card.js';
+
+describe('capability card handler', () => {
+  let dataDir: string;
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'botmux-capability-card-'));
+  });
+
+  afterEach(() => {
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  function proposeWorkflow() {
+    return createCapabilitySaveProposal({
+      dataDir,
+      requester: { kind: 'union', unionId: 'on_user' },
+      requesterOpenId: 'ou_user',
+      larkAppId: 'app_1',
+      sessionId: 'session_1',
+      turnId: 'turn_1',
+      targetScope: {
+        kind: 'personal',
+        larkAppId: 'app_1',
+        principal: { kind: 'union', unionId: 'on_user' },
+      },
+      draft: {
+        type: 'workflow',
+        name: 'weekly-product-report',
+        description: 'Create a weekly Product report for a requested region',
+        instructions: [
+          '## Inputs',
+          '- `region` (required): Report region.',
+          '',
+          '## Steps',
+          '1. Collect current Product metrics.',
+          '2. Write the report.',
+          '',
+          '## Success criteria',
+          '- The report contains the requested region and metrics.',
+        ].join('\n'),
+      },
+      workflowTrial: {
+        outcome: 'passed_with_limitations',
+        summary: 'Tested the APAC input. The report contained the requested region and metrics; live publication was not attempted.',
+      },
+    });
+  }
+
+  it('saves a Dynamic Workflow personally and submits a separate team proposal', async () => {
+    const proposed = proposeWorkflow();
+    const sendOwnerCard = vi.fn(async () => undefined);
+    const deps = {
+      dataDir,
+      ownerOpenId: () => 'ou_owner',
+      resolveOperatorUnionId: async () => 'on_user',
+      sendOwnerCard,
+    };
+
+    const personalResult = await handleCapabilityCardAction({
+      action: CAPABILITY_ACCEPT_CONTRIBUTE_ACTION,
+      proposalId: proposed.proposal.proposalId,
+      nonce: proposed.nonce,
+    }, {
+      operator: { open_id: 'ou_user', union_id: 'on_user' },
+    }, 'app_1', deps);
+
+    expect(personalResult).toMatchObject({
+      header: { title: { content: '已保存到个人助手' } },
+      elements: [{
+        text: { tag: 'lark_md', content: '**Dynamic Workflow:** weekly-product-report' },
+      }],
+    });
+    expect(listCapabilities(dataDir, {
+      kind: 'personal',
+      larkAppId: 'app_1',
+      principal: { kind: 'union', unionId: 'on_user' },
+    })).toHaveLength(1);
+    expect(sendOwnerCard).toHaveBeenCalledTimes(1);
+
+    const ownerCardText = sendOwnerCard.mock.calls[0]?.[2];
+    const ownerCard = typeof ownerCardText === 'string'
+      ? JSON.parse(ownerCardText) as {
+          elements?: Array<{
+            actions?: Array<{
+              text?: { content?: string };
+              value?: Record<string, string>;
+            }>;
+          }>;
+        }
+      : undefined;
+    const ownerButtons = ownerCard?.elements
+      ?.flatMap((element) => element.actions ?? [])
+      .map((button) => button.text?.content);
+    expect(ownerButtons).toEqual(['同意共享到团队', '拒绝共享']);
+    const ownerValue = ownerCard?.elements
+      ?.flatMap((element) => element.actions ?? [])
+      .find((button) => button.value?.action === CAPABILITY_ACCEPT_ACTION)
+      ?.value;
+    expect(ownerValue).toBeDefined();
+
+    const ownerResult = await handleCapabilityCardAction(ownerValue, {
+      operator: { open_id: 'ou_owner' },
+    }, 'app_1', {
+      ...deps,
+      resolveOperatorUnionId: async () => undefined,
+    });
+
+    expect(ownerResult).toMatchObject({
+      header: { title: { content: '已保存到团队' } },
+      elements: [{
+        text: { tag: 'lark_md', content: '**Dynamic Workflow:** weekly-product-report' },
+      }],
+    });
+    const botArtifacts = listCapabilities(dataDir, { kind: 'bot', larkAppId: 'app_1' });
+    expect(botArtifacts).toHaveLength(1);
+    expect(botArtifacts[0]?.type).toBe('workflow');
+  });
+
+  it('does not save when team contribution is requested without a bot owner', async () => {
+    const proposed = proposeWorkflow();
+    const result = await handleCapabilityCardAction({
+      action: CAPABILITY_ACCEPT_CONTRIBUTE_ACTION,
+      proposalId: proposed.proposal.proposalId,
+      nonce: proposed.nonce,
+    }, {
+      operator: { open_id: 'ou_user', union_id: 'on_user' },
+    }, 'app_1', {
+      dataDir,
+      ownerOpenId: () => undefined,
+      resolveOperatorUnionId: async () => 'on_user',
+      sendOwnerCard: async () => undefined,
+    });
+
+    expect(result).toEqual({
+      toast: {
+        type: 'warning',
+        content: '该机器人尚未配置 owner，无法申请共享给团队。',
+      },
+    });
+    expect(listCapabilities(dataDir, {
+      kind: 'personal',
+      larkAppId: 'app_1',
+      principal: { kind: 'union', unionId: 'on_user' },
+    })).toEqual([]);
+  });
+
+  it('requires a destructive confirmation card before hard deletion', async () => {
+    const proposed = proposeWorkflow();
+    const deps = {
+      dataDir,
+      ownerOpenId: () => 'ou_owner',
+      resolveOperatorUnionId: async () => 'on_user',
+      sendOwnerCard: async () => undefined,
+    };
+    await handleCapabilityCardAction({
+      action: CAPABILITY_ACCEPT_ACTION,
+      proposalId: proposed.proposal.proposalId,
+      nonce: proposed.nonce,
+    }, {
+      operator: { open_id: 'ou_user', union_id: 'on_user' },
+    }, 'app_1', deps);
+    const scope = {
+      kind: 'personal' as const,
+      larkAppId: 'app_1',
+      principal: { kind: 'union' as const, unionId: 'on_user' },
+    };
+    const artifact = listCapabilities(dataDir, scope)[0];
+    expect(artifact).toBeDefined();
+    if (!artifact) throw new Error('Expected a saved artifact');
+    const deletion = createCapabilityDeleteProposal({
+      dataDir,
+      requester: { kind: 'union', unionId: 'on_user' },
+      requesterOpenId: 'ou_user',
+      larkAppId: 'app_1',
+      sessionId: 'session_1',
+      turnId: 'turn_2',
+      targetScope: scope,
+      artifactId: artifact.artifactId,
+    });
+    const card = JSON.parse(buildCapabilityProposalCard(
+      deletion.proposal,
+      deletion.nonce,
+    )) as Record<string, unknown>;
+    expect(JSON.stringify(card)).toContain('全部历史版本');
+    expect(JSON.stringify(card)).toContain('"type":"danger"');
+
+    const result = await handleCapabilityCardAction({
+      action: CAPABILITY_ACCEPT_ACTION,
+      proposalId: deletion.proposal.proposalId,
+      nonce: deletion.nonce,
+    }, {
+      operator: { open_id: 'ou_user', union_id: 'on_user' },
+    }, 'app_1', deps);
+
+    expect(result).toMatchObject({
+      header: { title: { content: '已删除个人内容' } },
+    });
+    expect(listCapabilities(dataDir, scope)).toEqual([]);
+  });
+
+  it('renders explicit personal, team, and cancel choices in both locales', () => {
+    const proposed = proposeWorkflow();
+    const zhCard = JSON.parse(buildCapabilityProposalCard(
+      proposed.proposal,
+      proposed.nonce,
+      'zh',
+    )) as {
+      header: { title: { content: string } };
+      elements: Array<{
+        text?: { tag?: string; content?: string };
+        fields?: Array<{
+          is_short?: boolean;
+          text?: { tag?: string; content?: string };
+        }>;
+        actions?: Array<{ text?: { content?: string } }>;
+      }>;
+    };
+    const zhMetadata = zhCard.elements.find(element => element.fields)?.fields;
+    const zhFields = zhCard.elements
+      .flatMap(element => element.fields ?? [])
+      .map(field => field.text?.content);
+    const zhContent = zhCard.elements
+      .flatMap(element => element.text?.content ?? []);
+    const zhButtons = zhCard.elements
+      .flatMap(element => element.actions ?? [])
+      .map(button => button.text?.content);
+    expect(zhCard.header.title.content).toBe('请选择如何保存这条 Dynamic Workflow');
+    expect(zhMetadata).toEqual([
+      {
+        is_short: true,
+        text: { tag: 'lark_md', content: '**类型**\nDynamic Workflow' },
+      },
+      {
+        is_short: true,
+        text: { tag: 'lark_md', content: '**名称**\nweekly-product-report' },
+      },
+    ]);
+    expect(zhContent).toContain('**说明**\nCreate a weekly Product report for a requested region');
+    expect(zhContent.some(content => content.startsWith('**内容**\n\\#\\# Inputs'))).toBe(true);
+    expect(zhFields).toContain('**Agent 试运行判断**\n通过，但存在限制');
+    expect(zhContent).toContain('**试运行摘要**\nTested the APAC input. The report contained the requested region and metrics; live publication was not attempted.');
+    expect(zhButtons).toEqual([
+      '仅保存到个人',
+      '保存到个人并申请共享给团队',
+      '取消',
+    ]);
+
+    const enCard = JSON.parse(buildCapabilityProposalCard(
+      proposed.proposal,
+      proposed.nonce,
+      'en',
+    )) as typeof zhCard;
+    const enMetadata = enCard.elements.find(element => element.fields)?.fields;
+    const enFields = enCard.elements
+      .flatMap(element => element.fields ?? [])
+      .map(field => field.text?.content);
+    const enContent = enCard.elements
+      .flatMap(element => element.text?.content ?? []);
+    const enButtons = enCard.elements
+      .flatMap(element => element.actions ?? [])
+      .map(button => button.text?.content);
+    expect(enCard.header.title.content).toBe('Choose how to save this Dynamic Workflow');
+    expect(enMetadata).toEqual([
+      {
+        is_short: true,
+        text: { tag: 'lark_md', content: '**Type**\nDynamic Workflow' },
+      },
+      {
+        is_short: true,
+        text: { tag: 'lark_md', content: '**Name**\nweekly-product-report' },
+      },
+    ]);
+    expect(enContent).toContain('**Description**\nCreate a weekly Product report for a requested region');
+    expect(enContent.some(content => content.startsWith('**Instructions**\n\\#\\# Inputs'))).toBe(true);
+    expect(enFields).toContain('**Agent trial assessment**\nPassed with limitations');
+    expect(enContent).toContain('**Trial summary**\nTested the APAC input. The report contained the requested region and metrics; live publication was not attempted.');
+    expect(enButtons).toEqual([
+      'Save only for me',
+      'Save for me and request team sharing',
+      'Cancel',
+    ]);
+  });
+
+  it('escapes artifact content before rendering structured Markdown fields', () => {
+    const proposed = proposeWorkflow();
+    if (proposed.proposal.operation === 'delete') {
+      throw new Error('Expected a content proposal');
+    }
+    proposed.proposal.draft.description = '<at id=all></at> **urgent** [details]';
+
+    const card = JSON.parse(buildCapabilityProposalCard(
+      proposed.proposal,
+      proposed.nonce,
+      'zh',
+    )) as {
+      elements: Array<{ text?: { content?: string } }>;
+    };
+    const description = card.elements
+      .map(element => element.text?.content)
+      .find(content => content?.startsWith('**说明**'));
+
+    expect(description).toBe(
+      '**说明**\n&lt;at id=all&gt;&lt;/at&gt; \\*\\*urgent\\*\\* \\[details\\]',
+    );
+  });
+
+  it.each([
+    ['knowledge', 'Knowledge', 'Reusable Product facts.'],
+    ['skill', 'Skill', 'Reusable Product operating guidance.'],
+    [
+      'workflow',
+      'Dynamic Workflow',
+      '## Inputs\n- None.\n\n## Steps\n1. Check Product.\n\n## Success criteria\n- Product is checked.',
+    ],
+  ] as const)('uses the shared artifact card standard for %s', (type, label, instructions) => {
+    const proposed = createCapabilitySaveProposal({
+      dataDir,
+      requester: { kind: 'union', unionId: 'on_user' },
+      requesterOpenId: 'ou_user',
+      larkAppId: 'app_1',
+      sessionId: 'session_1',
+      turnId: `turn_${type}`,
+      targetScope: {
+        kind: 'personal',
+        larkAppId: 'app_1',
+        principal: { kind: 'union', unionId: 'on_user' },
+      },
+      draft: {
+        type,
+        name: `product-${type}`,
+        description: `Reusable Product ${type}.`,
+        instructions,
+      },
+      ...(type === 'workflow' ? {
+        workflowTrial: {
+          outcome: 'passed' as const,
+          summary: 'Tested the minimal input and observed the expected Product output.',
+        },
+      } : {}),
+    });
+    const proposalCard = JSON.parse(buildCapabilityProposalCard(
+      proposed.proposal,
+      proposed.nonce,
+      'zh',
+    )) as {
+      elements: Array<{
+        fields?: Array<{ text?: { content?: string } }>;
+      }>;
+    };
+    const metadata = proposalCard.elements.find(element => element.fields)?.fields;
+    expect(metadata?.[0]?.text?.content).toBe(`**类型**\n${label}`);
+    expect(metadata?.[1]?.text?.content).toBe(`**名称**\nproduct-${type}`);
+
+    const resultCard = JSON.parse(buildCapabilityProposalResultCard({
+      state: 'accepted',
+      operation: 'save',
+      scope: 'personal',
+      type,
+      name: `product-${type}`,
+    }, 'zh')) as {
+      elements: Array<{ text?: { content?: string } }>;
+    };
+    expect(resultCard.elements[0]?.text?.content).toBe(`**${label}:** product-${type}`);
+  });
+});

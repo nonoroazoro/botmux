@@ -42,6 +42,51 @@ describe('skill policy resolver', () => {
     expect(result.prioritySkills[0].priorityReason).toBe('plugin:agent-chrome');
   });
 
+  it('keeps personal capabilities ahead of conflicting bot capabilities', () => {
+    const result = resolveSkillPolicy({
+      registrySkills: [],
+      projectSkills: [],
+      botCapabilitySkills: [pkg('product-context', ['knowledge'], {
+        type: 'bot-artifact',
+        larkAppId: 'app_1',
+        artifactId: 'cap_bot',
+        artifactType: 'knowledge',
+      })],
+      personalCapabilitySkills: [pkg('product-context', ['knowledge'], {
+        type: 'personal-artifact',
+        principalKey: 'user_key',
+        artifactId: 'cap_personal',
+        artifactType: 'knowledge',
+      })],
+      botPolicy: undefined,
+      workingDir: '/repo',
+    });
+
+    expect(result.prioritySkills).toHaveLength(1);
+    expect(result.prioritySkills[0].source.type).toBe('personal-artifact');
+    expect(result.diagnostics.some((diagnostic) => diagnostic.code === 'duplicate_skill_shadowed'))
+      .toBe(true);
+  });
+
+  it('falls back to the bot capability when no personal capability exists', () => {
+    const result = resolveSkillPolicy({
+      registrySkills: [],
+      projectSkills: [],
+      botCapabilitySkills: [pkg('product-context', ['knowledge'], {
+        type: 'bot-artifact',
+        larkAppId: 'app_1',
+        artifactId: 'cap_bot',
+        artifactType: 'knowledge',
+      })],
+      personalCapabilitySkills: [],
+      botPolicy: undefined,
+      workingDir: '/repo',
+    });
+
+    expect(result.prioritySkills).toHaveLength(1);
+    expect(result.prioritySkills[0].source.type).toBe('bot-artifact');
+  });
+
   it('resolves direct skill includes only', () => {
     const result = resolveSkillPolicy({
       registrySkills: [

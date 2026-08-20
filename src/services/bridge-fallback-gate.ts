@@ -87,6 +87,8 @@ export interface BridgeSendMarker {
   sentAtMs: number;
   messageId?: string;
   contentLength?: number;
+  /** A non-text response such as a decision card fully owns this turn. */
+  suppressFinalOutput?: boolean;
   /** Bounded, whitespace-compacted copy for dashboard session previews.
    *  The fallback gate still uses contentLength only. */
   previewText?: string;
@@ -160,6 +162,7 @@ function finalIsMateriallyLongerThanSends(finalLength: number, markers: readonly
 
 function markerSetCoversFinal(markers: readonly BridgeSendMarker[], finalText: string | undefined): boolean {
   if (markers.length === 0) return false;
+  if (markers.some(marker => marker.suppressFinalOutput === true)) return true;
 
   // Back-compat: old marker files only have sentAtMs/messageId. Keep the old
   // conservative behavior for those entries instead of risking duplicates.

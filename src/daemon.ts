@@ -141,6 +141,7 @@ import {
   sessionSupportsWebTerminal,
   readableTerminalUrlFor,
   findActiveBySessionId,
+  requestSessionRestart,
   getDaemonBootId,
   getDaemonStreamingCardUsageSnapshot,
   isSessionTransferring,
@@ -216,7 +217,7 @@ import {
   type PersistentBackendType,
 } from './core/persistent-backend.js';
 import type { PersistentBackendTarget } from './adapters/backend/types.js';
-import { handleCardAction, runAutoWorktreeCommit } from './im/lark/card-handler.js';
+import { handleCardAction, resolveCardOperatorUnionId, runAutoWorktreeCommit } from './im/lark/card-handler.js';
 import { setIssueActivate } from './im/lark/issue-command-deps.js';
 import { startIssueOutboxPump } from './services/issue-outbox-pump.js';
 import type { CardActionData, CardHandlerDeps } from './im/lark/card-handler.js';
@@ -4730,6 +4731,43 @@ const cardDeps: CardHandlerDeps = {
     onError: (proposalId, err) => logger.warn(
       `[v3-distillation:${proposalId}] card action failed: ` +
       stableV3DistillationErrorCode(err),
+    ),
+  },
+  capabilityDeps: {
+    dataDir: config.session.dataDir,
+    ownerOpenId: larkAppId => getOwnerOpenId(larkAppId),
+    resolveOperatorUnionId: async (data, larkAppId) => (
+      await resolveCardOperatorUnionId(data, larkAppId)
+    ).unionId,
+    sendOwnerCard: (larkAppId, ownerOpenId, card, dispatchUuid) =>
+      sendUserMessage(larkAppId, ownerOpenId, card, 'interactive', dispatchUuid)
+        .then(() => undefined),
+    onAccepted: proposal => {
+      const targets = proposal.targetScope.kind === 'bot'
+        ? [...activeSessions.values()].filter((ds) => ds.larkAppId === proposal.larkAppId)
+        : [...activeSessions.values()].filter((ds) => {
+            if (ds.larkAppId !== proposal.larkAppId || ds.chatType !== 'p2p') return false;
+            return proposal.requester.kind === 'union'
+              ? ds.session.ownerUnionId === proposal.requester.unionId
+              : resolveSessionPrincipal(ds.session) === proposal.requester.openId;
+          });
+      const refresh = (ds: DaemonSession, attempt: number): void => {
+        if (ds.managedTurnOrigin && attempt < 120) {
+          const timer = setTimeout(() => refresh(ds, attempt + 1), 500);
+          timer.unref?.();
+          return;
+        }
+        if (ds.managedTurnOrigin) {
+          logger.warn(`[capability:${proposal.proposalId}] session refresh deferred because the turn stayed active`);
+          return;
+        }
+        requestSessionRestart(ds, { source: 'card', notify: () => undefined });
+      };
+      for (const ds of targets) refresh(ds, 0);
+    },
+    onError: (proposalId, error) => logger.warn(
+      `[capability:${proposalId}] action follow-up failed: ` +
+      `${error instanceof Error ? error.message : String(error)}`,
     ),
   },
   // 授权成功后重放触发本次申请的原始消息，用户无需再 @ 一遍。
@@ -17313,7 +17351,12 @@ async function handleThreadReply(
   if (threadSenderOpenId && threadChatId && !threadGrill) {
     const askReplyText = cmdContent.trim();
     if (askReplyText) {
-      const pendingAsk = findPendingAskByAnchor({ larkAppId, chatId: threadChatId, anchor });
+      const pendingAsk = findPendingAskByAnchor({
+        larkAppId,
+        chatId: threadChatId,
+        anchor,
+        answererOpenId: threadSenderOpenId,
+      });
       if (pendingAsk) {
         const outcome = submitCustomReply({
           askId: pendingAsk.askId,
@@ -19352,6 +19395,65 @@ export async function startDaemon(botIndex?: number): Promise<void> {
         `[v3-distillation] cold recovery failed: ${stableV3DistillationErrorCode(err)}`,
       );
     });
+
+    void (async () => {
+      const {
+        capabilityProposalDispatchUuid,
+        listPendingCapabilityProposals,
+        rotateCapabilityProposalNonce,
+      } =
+        await import('./core/capabilities/index.js');
+      const { buildCapabilityProposalCard } = await import('./im/lark/capability-card.js');
+      for (const pending of listPendingCapabilityProposals(config.session.dataDir, cfg.larkAppId)) {
+        const recipient = pending.operation === 'contribute'
+          ? getOwnerOpenId(cfg.larkAppId)
+          : pending.requesterOpenId;
+        if (!recipient) continue;
+        let recovered: ReturnType<typeof rotateCapabilityProposalNonce>;
+        try {
+          recovered = rotateCapabilityProposalNonce(
+            config.session.dataDir,
+            pending.proposalId,
+          );
+        } catch (error) {
+          logger.warn(
+            `[capability:${pending.proposalId}] recovery preparation failed: `
+            + `${error instanceof Error ? error.message : String(error)}`,
+          );
+          continue;
+        }
+        const card = buildCapabilityProposalCard(
+          recovered.proposal,
+          recovered.nonce,
+          localeForBot(cfg.larkAppId),
+        );
+        const dispatchUuid = capabilityProposalDispatchUuid(
+          pending.proposalId,
+          recovered.nonce,
+        );
+        const deliver = async (attempt: number): Promise<void> => {
+          try {
+            await sendUserMessage(
+              cfg.larkAppId,
+              recipient,
+              card,
+              'interactive',
+              dispatchUuid,
+            );
+          } catch (error) {
+            logger.warn(
+              `[capability:${pending.proposalId}] recovery attempt ${attempt} failed: ` +
+              `${error instanceof Error ? error.message : String(error)}`,
+            );
+            if (attempt < 3) {
+              const timer = setTimeout(() => void deliver(attempt + 1), attempt * 5_000);
+              timer.unref?.();
+            }
+          }
+        };
+        await deliver(1);
+      }
+    })();
 
     const vcCfg = effectiveVcMeetingAgentConfig(cfg.larkAppId);
     if (vcCfg) restoreVcMeetingRuntimeSessionsForBot(cfg.larkAppId, vcCfg);

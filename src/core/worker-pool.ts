@@ -67,6 +67,7 @@ import { isSuspendableBackendType, getSessionPersistentBackendType, persistentBa
 import { effectiveDefaultWorkingDir, getBot, getAllBots, loadBotConfigs, resolveBrandLabel, getLoadedConfigPath, resolveUsageDisplay } from '../bot-registry.js';
 import { RestartCoordinator, type RestartObserver } from './restart-coordinator.js';
 import { runtimeBuildIdentity } from '../utils/runtime-build-id.js';
+import { resolveSessionPersonalPrincipal } from './capabilities/index.js';
 
 /** A random id minted once per daemon process (this lifetime). Stamped onto
  *  isolated persistent panes so a suspend→resume reattach (same id) is
@@ -4467,6 +4468,7 @@ export function forkWorker(
     forkSession: ds.session.pendingForkSession === true,
     cliSessionId: ds.session.cliSessionId,
     ownerOpenId: ds.ownerOpenId,
+    personalPrincipal: resolveSessionPersonalPrincipal(ds.session),
     webPort: ds.session.webPort,
     larkAppId: botCfg.larkAppId,
     // Freeze on the session transport capability: a no-transport session

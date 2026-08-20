@@ -1,5 +1,5 @@
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { SessionSkillManifest } from './types.js';
 
 const MAX_RESOURCE_BYTES = 256 * 1024;
@@ -39,7 +39,10 @@ export function readSkillResource(
 export function readSkillEntrypoint(manifest: SessionSkillManifest, skillName: string): SkillResourceReadResult {
   const skill = manifest.prioritySkills.find((s) => s.name === skillName);
   if (!skill) throw new Error('skill_not_in_session_manifest');
-  return readSkillResource(manifest, skillName, skill.entrypoint);
+  const entrypoint = isAbsolute(skill.entrypoint)
+    ? relative(skill.rootDir, skill.entrypoint)
+    : skill.entrypoint;
+  return readSkillResource(manifest, skillName, entrypoint);
 }
 
 export function listSkillResources(manifest: SessionSkillManifest, skillName: string): string[] {

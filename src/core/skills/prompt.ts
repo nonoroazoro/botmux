@@ -25,6 +25,8 @@ export function renderSkillCatalogBlock(manifest: SessionSkillManifest | null | 
   return [
     `<botmux_skills mode="${manifest.policyMode}">`,
     '  <instruction>When a priority skill matches the task, you must read it with `botmux skill show <name>` before answering or acting. Read referenced files with `botmux skill read <name> <relative-path>`.</instruction>',
+    '  <instruction>Within one turn, read each Skill at most once. A successful `botmux skill show <name>` already returns its current content, so do not repeat it. During Skill execution, do not also call `botmux artifact show` for the same Skill. Use artifact commands only for explicit artifact management such as Create, Update, List, Show, History, Delete, or Contribute.</instruction>',
+    '  <instruction>Artifact management takes precedence: for Create, Update, List, Show, History, Delete, or Contribute requests involving Knowledge, Skill, or Dynamic Workflow artifacts, first read `botmux skill show botmux-artifacts`. Do not read another priority skill solely because its name or description appears in the artifact management request. Read another skill only when its semantic content is needed to author or answer the request.</instruction>',
     ...skills,
     '</botmux_skills>',
   ].join('\n');

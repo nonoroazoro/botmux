@@ -133,6 +133,118 @@ describe('buildAskCard', () => {
     expect(text).toContain('直接在话题');
   });
 
+  it('workflow trial uses a dedicated code-owned card', () => {
+    const ask = makePending({
+      presentation: {
+        type: 'workflow_trial',
+        name: 'product-incident-report',
+        description: 'Create a Product incident report.',
+        instructions: '## Inputs\n- issue\n\n## Steps\n1. Inspect.\n\n## Success criteria\n- Reported.',
+      },
+      questions: [{
+        prompt: 'product-incident-report',
+        multiSelect: false,
+        options: [
+          { key: 'run', label: 'Run once' },
+          { key: 'discard', label: 'Discard' },
+        ],
+      }],
+    });
+    const card = JSON.parse(buildAskCard(ask));
+    const text = JSON.stringify(card);
+
+    expect(card.header.title.content).toContain('Workflow 草稿');
+    expect(text).toContain('试运行一次');
+    expect(text).not.toContain('修改草稿');
+    expect(text).toContain('保存确认卡片');
+    expect(text).toContain('直接在话题里回复修改要求');
+    expect(text).not.toContain('botmux ask');
+    expect(text).toContain('"key":"run"');
+    expect(text).not.toContain('"key":"edit"');
+    expect(text).toContain('"key":"discard"');
+  });
+
+  it('workflow trial run result becomes a non-interactive status card', () => {
+    const ask = makePending({
+      presentation: {
+        type: 'workflow_trial',
+        name: 'product-incident-report',
+        description: 'Create a Product incident report.',
+        instructions: '## Inputs\n- issue\n\n## Steps\n1. Inspect.\n\n## Success criteria\n- Reported.',
+      },
+    });
+    const card = JSON.parse(buildAskCard(ask, {
+      kind: 'answered',
+      answers: [['run']],
+      by: 'ou_owner',
+      comment: null,
+      timedOut: false,
+    }));
+    const text = JSON.stringify(card);
+
+    expect(card.header.template).toBe('green');
+    expect(card.header.title.content).toContain('试运行');
+    expect(text).toContain('成功后才会进入保存确认');
+    expect(text).not.toContain(ASK_SELECT_ACTION);
+  });
+
+  it('workflow trial revision requires an explicit topic reply', () => {
+    const ask = makePending({
+      presentation: {
+        type: 'workflow_trial',
+        name: 'product-incident-report',
+        description: 'Create a Product incident report.',
+        instructions: '## Inputs\n- issue\n\n## Steps\n1. Inspect.\n\n## Success criteria\n- Reported.',
+      },
+    });
+    const card = JSON.parse(buildAskCard(ask, {
+      kind: 'answered',
+      answers: [[]],
+      by: 'ou_owner',
+      comment: 'Add a severity field and rollback guidance.',
+      timedOut: false,
+    }));
+    const text = JSON.stringify(card);
+
+    expect(card.header.template).toBe('orange');
+    expect(card.header.title.content).toContain('修改 Workflow 草稿');
+    expect(text).toContain('修改要求');
+    expect(text).toContain('Add a severity field and rollback guidance.');
+    expect(text).not.toContain(ASK_SELECT_ACTION);
+  });
+
+  it('artifact overlap uses a dedicated code-owned card', () => {
+    const ask = makePending({
+      presentation: {
+        type: 'artifact_overlap',
+        artifactType: 'skill',
+        proposedName: 'product-bug-report',
+        existingName: 'product-incident-report',
+        summary: 'Both produce a structured Product issue report, but the proposal adds evidence ordering.',
+      },
+      questions: [{
+        prompt: 'product-bug-report',
+        multiSelect: false,
+        options: [
+          { key: 'update', label: 'Update existing' },
+          { key: 'separate', label: 'Create separately' },
+          { key: 'cancel', label: 'Cancel' },
+        ],
+      }],
+    });
+    const card = JSON.parse(buildAskCard(ask));
+    const text = JSON.stringify(card);
+
+    expect(card.header.title.content).toContain('发现相似内容');
+    expect(text).toContain('更新已有内容');
+    expect(text).toContain('仍单独创建');
+    expect(text).toContain('重合与差异');
+    expect(text).not.toContain('botmux ask');
+    expect(text).toContain('"key":"update"');
+    expect(text).toContain('"key":"separate"');
+    expect(text).toContain('"key":"cancel"');
+  });
+
   it('settled 态（answered + comment）：渲染自定义回复文字与标签', () => {
     const ask = makePending({
       questions: [{ prompt: 'q', multiSelect: false, options: [{ key: 'y', label: '是' }, { key: 'n', label: '否' }] }],

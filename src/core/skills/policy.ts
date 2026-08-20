@@ -10,6 +10,8 @@ export interface SkillPolicyInput {
   registrySkills: SkillPackage[];
   projectSkills: SkillPackage[];
   pluginSkills?: SkillPackage[];
+  botCapabilitySkills?: SkillPackage[];
+  personalCapabilitySkills?: SkillPackage[];
   globalProjectSkills?: 'off' | 'trusted' | 'all';
   globalDelivery?: 'auto' | 'prompt' | 'native';
   botPolicy: BotSkillPolicy | undefined;
@@ -40,7 +42,14 @@ function appendMatches(out: ResolvedSkill[], skills: SkillPackage[], selector: S
 export function resolveSkillPolicy(input: SkillPolicyInput): SkillPolicyResult {
   const policy = input.botPolicy;
   const pluginSkills = input.pluginSkills ?? [];
-  if (!policy && pluginSkills.length === 0) {
+  const botCapabilitySkills = input.botCapabilitySkills ?? [];
+  const personalCapabilitySkills = input.personalCapabilitySkills ?? [];
+  if (
+    !policy
+    && pluginSkills.length === 0
+    && botCapabilitySkills.length === 0
+    && personalCapabilitySkills.length === 0
+  ) {
     return { enabled: false, mode: 'priority', delivery: 'auto', prioritySkills: [], diagnostics: [] };
   }
 
@@ -61,6 +70,12 @@ export function resolveSkillPolicy(input: SkillPolicyInput): SkillPolicyResult {
   const raw: ResolvedSkill[] = [];
   for (const selector of policy?.include ?? []) {
     if (selector.startsWith('skill:')) appendMatches(raw, candidates, selector, 'bot:include');
+  }
+  for (const skill of personalCapabilitySkills) {
+    raw.push({ ...skill, priorityReason: 'personal:artifact' });
+  }
+  for (const skill of botCapabilitySkills) {
+    raw.push({ ...skill, priorityReason: 'bot:artifact' });
   }
   for (const skill of pluginSkills) {
     const reason = skill.source.type === 'plugin' ? `plugin:${skill.source.pluginId}` : 'plugin';

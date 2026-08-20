@@ -155,6 +155,23 @@ describe('shouldSuppressBridgeEmit', () => {
     )).toBe(true);
   });
 
+  it('non-adopt: a decision card marker suppresses all redundant final text', () => {
+    const markers: BridgeSendMarker[] = [{
+      sentAtMs: 150,
+      messageId: 'om_decision_card',
+      suppressFinalOutput: true,
+    }];
+    expect(shouldSuppressBridgeEmit(
+      {
+        ...turn(100),
+        finalText: 'A verbose explanation generated after the decision card.',
+      },
+      200,
+      markers,
+      false,
+    )).toBe(true);
+  });
+
   it('non-adopt: short progress marker does not suppress a materially longer transcript final', () => {
     const markers: BridgeSendMarker[] = [markerForContent(150, 'checking repository state')];
     expect(shouldSuppressBridgeEmit(

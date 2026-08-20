@@ -38,6 +38,9 @@ describe('botmux root help workflow surface', () => {
       expect(stdout).not.toContain('template <run|resume|cancel|ls|tail|validate|show>');
       expect(stdout).not.toContain('v2 执行兼容面');
       expect(stdout).not.toContain('workflow <run|resume|cancel|ls|tail|validate|show>');
+      expect(stdout).toContain('每条回复须三选一 --mention/--mention-back/--no-mention');
+      expect(stdout).not.toContain('低优先级进度');
+      expect(stdout).not.toContain('按内容价值选');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

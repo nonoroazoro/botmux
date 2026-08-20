@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { listSkillResources, readSkillResource } from '../src/core/skills/resource-reader.js';
+import {
+  listSkillResources,
+  readSkillEntrypoint,
+  readSkillResource,
+} from '../src/core/skills/resource-reader.js';
 import type { SessionSkillManifest } from '../src/core/skills/types.js';
 
 function write(file: string, content: string): void {
@@ -44,6 +48,12 @@ describe('skill resource reader', () => {
 
   it('reads files inside the skill root', () => {
     expect(readSkillResource(manifest, 'deploy', 'references/release.md').content).toContain('# Release');
+  });
+
+  it('normalizes a legacy absolute entrypoint before reading it', () => {
+    manifest.prioritySkills[0].entrypoint = join(root, 'deploy', 'SKILL.md');
+
+    expect(readSkillEntrypoint(manifest, 'deploy').content).toContain('# Deploy');
   });
 
   it('rejects path traversal', () => {

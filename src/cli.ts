@@ -29,7 +29,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { createRequire } from 'node:module';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { validateWorkingDir } from './core/working-dir.js';
 import { resolveSessionContext } from './core/session-marker.js';
 import { resolveBotmuxDataDir } from './core/data-dir.js';
@@ -5527,6 +5527,8 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
                                        （无 hook 的 CLI 用它把决策引到人；也可省略 buttons 走裸别名）
   skill list                           列出本会话可用的技能（用户自定义 + botmux 内置）及其描述
   skill show <name>                    读取某技能的完整 SKILL.md 说明（prompt 注入模式下按需拉取内置技能全文）
+  artifact list|search|show|history|save|delete [--scope personal|bot]
+                                       Manage reusable Knowledge, Skill, and Dynamic Workflow artifacts
 
 编排 / workflow（v3）:
   goal run <goal> [--run-id <id>] [--bot <id|name>] [--working-dir <dir>]
@@ -9318,8 +9320,10 @@ async function postAsk(body: Record<string, unknown>): Promise<import('./core/as
     Object.assign(new Error(message), { exitCode: 3, retryable });
 
   const larkAppId = body.larkAppId as string;
-  const daemon = findDaemon(larkAppId);
-  if (!daemon) {
+  let discoveredPort: number | undefined;
+  try { discoveredPort = findDaemon(larkAppId)?.ipcPort; } catch { /* use worker-published port */ }
+  const daemonPort = resolveDaemonIpcPort(discoveredPort, process.env.BOTMUX_DAEMON_IPC_PORT);
+  if (!daemonPort) {
     // No daemon record → it's (re)starting or momentarily gone → retryable.
     throw mkErr(`botmux ask: 找不到 daemon (larkAppId=${larkAppId})。daemon 已停？exit 3.`, true);
   }
@@ -9350,12 +9354,12 @@ async function postAsk(body: Record<string, unknown>): Promise<import('./core/as
       try { hostSecret = loadDaemonIpcSecret(); } catch { /* read-isolated CLI uses live marker auth */ }
     }
     res = hostSecret
-      ? await fetchDaemonIpc(daemon.ipcPort, '/api/asks', init, hostSecret)
-      : await fetch(`http://127.0.0.1:${daemon.ipcPort}/api/asks`, init);
+      ? await fetchDaemonIpc(daemonPort, '/api/asks', init, hostSecret)
+      : await fetch(`http://127.0.0.1:${daemonPort}/api/asks`, init);
   } catch (fetchErr) {
     // Socket refused / reset / timeout → daemon is down or restarting → retryable.
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    throw mkErr(`botmux ask: 无法连接 daemon (port=${daemon.ipcPort}): ${msg}`, true);
+    throw mkErr(`botmux ask: 无法连接 daemon (port=${daemonPort}): ${msg}`, true);
   }
 
   if (!res.ok) {
@@ -9518,6 +9522,159 @@ async function cmdAsk(sub: string, rest: string[]): Promise<void> {
       console.error(`botmux ask: 已失效 (${result.reason})`);
       process.exit(3);
   }
+}
+
+async function cmdArtifact(rest: string[], commandLabel = 'artifact'): Promise<void> {
+  const action = rest[0];
+  const args = rest.slice(1);
+  const scope = argValue(args, '--scope') ?? 'personal';
+  const type = argValue(args, '--type');
+  const name = argValue(args, '--name');
+  const description = argValue(args, '--description');
+  const trialToken = argValue(args, '--trial-token');
+  const trialOutcome = argValue(args, '--trial-outcome');
+  const trialSummary = argValue(args, '--trial-summary');
+  const existingName = argValue(args, '--existing');
+  const query = argValue(args, '--query');
+  const limitRaw = argValue(args, '--limit');
+  const limit = limitRaw === undefined ? 8 : Number(limitRaw);
+  const instructions = (action === 'save' && type !== 'workflow')
+    || action === 'trial'
+    || action === 'overlap'
+    ? readStdinUtf8().trim()
+    : undefined;
+  const sessionId = process.env.BOTMUX_SESSION_ID?.trim();
+  const larkAppId = process.env.BOTMUX_LARK_APP_ID?.trim();
+  if (
+    (action !== 'list'
+      && action !== 'search'
+      && action !== 'show'
+      && action !== 'history'
+      && action !== 'save'
+      && action !== 'trial'
+      && action !== 'trial-read'
+      && action !== 'overlap'
+      && action !== 'delete')
+    || (scope !== 'personal' && scope !== 'bot')
+    || (action === 'save'
+      && ((type !== 'knowledge' && type !== 'skill' && type !== 'workflow')
+        || (type === 'workflow'
+          ? !trialToken
+            || (trialOutcome !== 'passed' && trialOutcome !== 'passed_with_limitations')
+            || !trialSummary
+          : !name || !description || !instructions)))
+    || (action === 'trial'
+      && (type !== 'workflow' || !name || !description || !instructions))
+    || (action === 'trial-read' && !trialToken)
+    || (action === 'overlap'
+      && ((type !== 'knowledge' && type !== 'skill' && type !== 'workflow')
+        || !name
+        || !existingName
+        || !instructions))
+    || (action === 'search'
+      && ((type !== 'knowledge' && type !== 'skill' && type !== 'workflow')
+        || !query
+        || !Number.isInteger(limit)
+        || limit < 1
+        || limit > 20))
+    || ((action === 'show' || action === 'history' || action === 'delete') && !name)
+    || (action === 'list'
+      && type !== undefined
+      && type !== 'knowledge'
+      && type !== 'skill'
+      && type !== 'workflow')
+    || !sessionId
+    || !larkAppId
+  ) {
+    console.error(
+      'Usage: botmux artifact <list|search|show|history|save|trial|trial-read|overlap|delete> [--scope personal|bot] ' +
+      '[--type knowledge|skill|workflow] [--name <name>] [--description <text>] ' +
+      '[--existing <name>] [--trial-token <token>] [--trial-outcome <outcome>] ' +
+      '[--trial-summary <text>] [--query <text>] [--limit 1..20]',
+    );
+    process.exitCode = 2;
+    return;
+  }
+  const liveOrigin = resolveSessionContext(resolveDataDir(), sessionId);
+  const claim = readManagedOriginCapability(
+    resolveDataDir(),
+    sessionId,
+    process.env.BOTMUX_SEND_RELAY,
+  );
+  const interactionRequestId = action === 'trial' || action === 'overlap'
+    ? `artifact_${createHash('sha256').update(JSON.stringify({
+        sessionId,
+        turnId: liveOrigin?.turnId ?? claim?.turnId ?? process.env.BOTMUX_TURN_ID ?? '',
+        action,
+        type,
+        name,
+        description,
+        existingName,
+        instructions,
+      })).digest('hex').slice(0, 32)}`
+    : undefined;
+  const body = {
+    sessionId,
+    action,
+    scope,
+    ...(type ? { type } : {}),
+    ...(name ? { name } : {}),
+    ...(description ? { description } : {}),
+    ...(existingName ? { existingName } : {}),
+    ...(trialToken ? { trialToken } : {}),
+    ...(trialOutcome ? { trialOutcome } : {}),
+    ...(trialSummary ? { trialSummary } : {}),
+    ...(query ? { query, limit } : {}),
+    ...(instructions ? { instructions } : {}),
+    ...(interactionRequestId ? { requestId: interactionRequestId } : {}),
+    ...(liveOrigin?.turnId ? { originTurnId: liveOrigin.turnId } : {}),
+    ...(liveOrigin?.dispatchAttempt !== undefined
+      ? { originDispatchAttempt: liveOrigin.dispatchAttempt }
+      : {}),
+    ...(claim?.capability ? { originCapability: claim.capability } : {}),
+  };
+  let discoveredPort: number | undefined;
+  try { discoveredPort = findDaemon(larkAppId)?.ipcPort; } catch { /* use worker-published port */ }
+  const daemonPort = resolveDaemonIpcPort(discoveredPort, process.env.BOTMUX_DAEMON_IPC_PORT);
+  if (!daemonPort) {
+    console.error(`botmux ${commandLabel}: daemon is not available`);
+    process.exitCode = 3;
+    return;
+  }
+  const request = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  } satisfies RequestInit;
+  let response: Response;
+  try {
+    let hostSecret: string | undefined;
+    if (!process.env.BOTMUX_SEND_RELAY) {
+      try { hostSecret = loadDaemonIpcSecret(); } catch { /* use rotating capability */ }
+    }
+    response = hostSecret
+      ? await fetchDaemonIpc(
+          daemonPort,
+          '/api/capabilities/manage',
+          request,
+          hostSecret,
+        )
+      : await fetch(
+          `http://127.0.0.1:${daemonPort}/api/capabilities/manage`,
+          request,
+        );
+  } catch (error) {
+    console.error(`botmux ${commandLabel}: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 3;
+    return;
+  }
+  const raw = await response.text();
+  if (!response.ok) {
+    console.error(`botmux ${commandLabel}: daemon HTTP ${response.status}: ${raw.slice(0, 500)}`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(`${raw.trim()}\n`);
 }
 
 // ─── botmux hook <cliId> ──────────────────────────────────────────────────────
@@ -11005,6 +11162,14 @@ switch (command) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     process.exitCode = result.code;
+    break;
+  }
+  case 'remember': {
+    await cmdArtifact(['save', ...process.argv.slice(3)], 'remember');
+    break;
+  }
+  case 'artifact': {
+    await cmdArtifact(process.argv.slice(3));
     break;
   }
   case 'skills': {

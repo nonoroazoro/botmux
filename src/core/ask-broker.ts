@@ -140,11 +140,12 @@ export function setCanTalkChecker(
   canTalkChecker = fn;
 }
 
-/** A click is authorized iff the clicker may `canTalk` to the bot in this chat.
- *  `botmux ask` is a talk-level interaction (answering the agent's question),
- *  so it follows the canTalk gate — not the stricter canOperate / allowedUsers.
+/** An answer must pass canTalk and, when present, the exact-answerer binding.
+ *  Generic `botmux ask` remains a talk-level interaction rather than using the
+ *  stricter canOperate gate. User-owned decisions add the identity binding.
  *  `actor` is only supplied by the text-reply path; card clicks omit it. */
 function isAuthorizedToAnswer(ask: InternalPending, by: string, actor?: AskAnswerActor): boolean {
+  if (ask.answererOpenId !== undefined && ask.answererOpenId !== by) return false;
   return canTalkChecker?.(ask.larkAppId, ask.chatId, by, ask.chatType, actor) ?? false;
 }
 
@@ -177,6 +178,9 @@ export function setCardDispatcher(d: AskCardDispatcher): void {
 export function registerAsk(input: CreateAskInput): Promise<AskResult> {
   if (!dispatcher) {
     throw new Error('ask-broker: cardDispatcher not wired — daemon bootstrap bug');
+  }
+  if (input.answererOpenId !== undefined && !input.answererOpenId.startsWith('ou_')) {
+    throw new Error('ask-broker: invalid exact answerer');
   }
 
   const originKind = input.originKind ?? 'hook';
@@ -266,8 +270,10 @@ export function registerAsk(input: CreateAskInput): Promise<AskResult> {
       chatId: input.chatId,
       rootMessageId: input.rootMessageId,
       sessionId: input.sessionId,
+      answererOpenId: input.answererOpenId,
       chatType: input.chatType,
       questions: input.questions,
+      presentation: input.presentation,
       createdAt,
       deadlineAt,
       settled: false,
@@ -295,8 +301,10 @@ function sameIdentity(ask: InternalPending, input: CreateAskInput): boolean {
     ask.sessionId === input.sessionId &&
     ask.chatId === input.chatId &&
     ask.rootMessageId === input.rootMessageId &&
+    ask.answererOpenId === input.answererOpenId &&
     ask.originKind === (input.originKind ?? 'hook') &&
-    questionsShape(ask.questions) === questionsShape(input.questions)
+    questionsShape(ask.questions) === questionsShape(input.questions) &&
+    JSON.stringify(ask.presentation) === JSON.stringify(input.presentation)
   );
 }
 
@@ -446,6 +454,7 @@ function persistFromInternal(ask: InternalPending): void {
     chatId: ask.chatId,
     rootMessageId: ask.rootMessageId,
     sessionId: ask.sessionId,
+    answererOpenId: ask.answererOpenId,
     chatType: ask.chatType,
     questions: ask.questions,
     createdAt: ask.createdAt,
@@ -615,23 +624,31 @@ export function submitCustomReply(args: {
  *   - thread-scope：ask.rootMessageId === anchor（话题根 message_id）
  *   - chat-scope：ask.rootMessageId === null（anchor 实为 chatId，已由 chatId 命中）
  *
- * 命中多个时返回最先注册的（实践中同一 anchor 同时最多一个 pending ask，因为发起
- * ask 的 CLI 此刻正阻塞等待结果）。返回 snapshot，改它不影响 broker 状态。
+ * When multiple asks share an anchor, prefer the one bound to the replying
+ * user, then a generic ask, then another exact ask so unauthorized replies can
+ * fall through normally. Returns a snapshot that cannot mutate broker state.
  */
 export function findPendingAskByAnchor(args: {
   larkAppId: string;
   chatId: string;
   anchor: string;
+  answererOpenId?: string;
 }): PendingAsk | undefined {
+  let genericMatch: InternalPending | undefined;
+  let otherExactMatch: InternalPending | undefined;
   for (const ask of pending.values()) {
     if (ask.settled) continue;
     if (ask.larkAppId !== args.larkAppId) continue;
     if (ask.chatId !== args.chatId) continue;
     const matches =
       ask.rootMessageId === null ? true : ask.rootMessageId === args.anchor;
-    if (matches) return snapshot(ask);
+    if (!matches) continue;
+    if (ask.answererOpenId === args.answererOpenId) return snapshot(ask);
+    if (ask.answererOpenId === undefined && !genericMatch) genericMatch = ask;
+    if (ask.answererOpenId !== undefined && !otherExactMatch) otherExactMatch = ask;
   }
-  return undefined;
+  if (genericMatch) return snapshot(genericMatch);
+  return otherExactMatch ? snapshot(otherExactMatch) : undefined;
 }
 
 /** Resolve attempt from a card-button click. Returns one of the §10 outcomes;
@@ -738,6 +755,7 @@ export function restorePersistedAsks(now: number = Date.now(), larkAppId?: strin
       chatId: p.chatId,
       rootMessageId: p.rootMessageId,
       sessionId: p.sessionId,
+      answererOpenId: p.answererOpenId,
       chatType: p.chatType,
       questions: p.questions,
       createdAt: p.createdAt,

@@ -27,6 +27,23 @@ export interface AskQuestion {
   multiSelect: boolean;
 }
 
+export interface WorkflowTrialPresentation {
+  type: 'workflow_trial';
+  name: string;
+  description: string;
+  instructions: string;
+}
+
+export interface ArtifactOverlapPresentation {
+  type: 'artifact_overlap';
+  artifactType: 'knowledge' | 'skill' | 'workflow';
+  proposedName: string;
+  existingName: string;
+  summary: string;
+}
+
+export type AskPresentation = WorkflowTrialPresentation | ArtifactOverlapPresentation;
+
 /** Terminal result of an ask, returned to the CLI caller. Discriminated by
  *  `kind` so the CLI can map straight to stdout shape + exit code.
  *
@@ -93,6 +110,9 @@ export interface CreateAskInput {
   rootMessageId: string | null;
   /** Session that issued the ask — used for audit + future replay scoping. */
   sessionId: string;
+  /** When set, only this exact Feishu user may answer. This is stricter than
+   *  the normal canTalk gate and is intended for user-owned decision flows. */
+  answererOpenId?: string;
   /** Per-invocation identity: the hook generates this once and reuses it across
    *  reconnect retries, so a re-POST after a daemon restart re-attaches to the
    *  same ask instead of creating a duplicate. Unlike a questions hash it
@@ -113,6 +133,9 @@ export interface CreateAskInput {
   backendSurvivesRestart?: boolean;
   /** 问题列表，调用方保证每问 `options.length ≥ 2` 且 key 唯一。 */
   questions: ReadonlyArray<AskQuestion>;
+  /** Optional code-owned card presentation. The broker still owns waiting and
+   *  answer settlement, while the IM layer renders a purpose-specific card. */
+  presentation?: AskPresentation;
   /** Absolute deadline; computed by caller from `--timeout`. Broker won't
    *  re-compute. */
   timeoutMs: number;
@@ -135,10 +158,12 @@ export interface PendingAsk {
   chatId: string;
   rootMessageId: string | null;
   sessionId: string;
+  answererOpenId?: string;
   /** 发起 ask 的会话类型（见 CreateAskInput.chatType）。 */
   chatType?: 'group' | 'p2p';
   /** 问题列表，替代旧的 `options` + `prompt`。 */
   questions: ReadonlyArray<AskQuestion>;
+  presentation?: AskPresentation;
   /** 当前已勾选答案快照。仅 daemon/card 内部使用；CLI IPC 边界不暴露。 */
   selections?: ReadonlyArray<ReadonlyArray<string>>;
   createdAt: number;

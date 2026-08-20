@@ -4,6 +4,14 @@ Feishu and Lark gateway for isolated AI coding CLI sessions. The adapter source 
 
 After implementation changes, run `pnpm build` and relevant tests. CI runs `pnpm build`, `pnpm test`, and `pnpm workflow-core:test`.
 
+## Deterministic Code and LLM Boundaries
+
+Use deterministic code whenever the behavior can be specified and verified precisely. This includes schemas, validation, permissions, authorization, scope, CRUD, state transitions, cards, i18n, persistence, revisions, conflicts, and recovery.
+
+Use the active LLM for semantic work. This includes intent and artifact type classification, Knowledge/Skill/Workflow creation and revision, context extraction, quality review, trial interpretation, and Dynamic Workflow execution with the tools available in the current session.
+
+Keep the handoff explicit: the LLM proposes content and performs semantic work; code validates the structured boundary, presents confirmation, and commits approved mutations. Do not replace semantic authoring or execution with hardcoded rules, a specialized runner, or a secondary model merely to make the flow appear more engineered. Do not add a code gate that claims to verify a semantic outcome when code cannot actually verify it.
+
 ## Local Checkout
 
 `~/.botmux/bin/botmux` points to the checkout that most recently claimed it.

@@ -6,6 +6,8 @@ export type SkillSource =
   | { type: 'user'; root: string }
   | { type: 'project'; root: string }
   | { type: 'admin'; root: string }
+  | { type: 'personal-artifact'; principalKey: string; artifactId: string; artifactType: 'knowledge' | 'skill' | 'workflow' }
+  | { type: 'bot-artifact'; larkAppId: string; artifactId: string; artifactType: 'knowledge' | 'skill' | 'workflow' }
   | { type: 'local-copy'; originalPath: string }
   | { type: 'local-link'; path: string }
   | { type: 'git'; url: string; path: string; ref?: string; commit?: string }

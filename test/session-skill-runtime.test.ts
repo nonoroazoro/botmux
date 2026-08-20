@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { prepareSessionSkillPrompt } from '../src/core/skills/session-runtime.js';
 import { readSessionSkillManifest } from '../src/core/skills/manifest-store.js';
+import { runSkillSessionCommand } from '../src/core/skills/cli-session-command.js';
 import { installLocalSkill } from '../src/services/skill-registry-store.js';
 import { loadSkillPackage } from '../src/core/skills/package.js';
 import { readSkillRegistry } from '../src/services/skill-registry-store.js';
+import {
+  capabilityArtifactRoot,
+  createCapability,
+} from '../src/core/capabilities/index.js';
 
 function write(file: string, content: string): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -91,6 +96,121 @@ describe('session skill runtime preparation', () => {
       root: pluginRoot,
     });
     expect(readSkillRegistry().skills.browser).toBeUndefined();
+  });
+
+  it('injects only the current principal personal capabilities', () => {
+    createCapability(dataDir, {
+      kind: 'personal',
+      larkAppId: 'app_1',
+      principal: { kind: 'union', unionId: 'on_current' },
+    }, {
+      type: 'knowledge',
+      name: 'product-context',
+      description: 'Product team context',
+      instructions: 'The replay platform provides Session Replay capabilities.',
+    });
+    createCapability(dataDir, {
+      kind: 'personal',
+      larkAppId: 'app_1',
+      principal: { kind: 'union', unionId: 'on_other' },
+    }, {
+      type: 'knowledge',
+      name: 'private-other-context',
+      description: 'Another user context',
+      instructions: 'This must remain isolated.',
+    });
+
+    const result = prepareSessionSkillPrompt({
+      sessionId: 'personal-session',
+      cliId: 'codex',
+      workingDir: '/repo',
+      prompt: 'What is the replay platform?',
+      botPolicy: undefined,
+      dataDir,
+      larkAppId: 'app_1',
+      personalPrincipal: { kind: 'union', unionId: 'on_current' },
+    });
+
+    expect(result.prompt).toContain('botmux skill show product-context');
+    expect(result.prompt).not.toContain('private-other-context');
+    expect(readSessionSkillManifest('personal-session')?.prioritySkills.map((skill) => skill.name))
+      .toEqual(['product-context']);
+    expect(runSkillSessionCommand(
+      ['show', 'product-context'],
+      { BOTMUX_SESSION_ID: 'personal-session' },
+    ).stdout).toContain('The replay platform provides Session Replay capabilities.');
+  });
+
+  it('injects bot artifacts without a personal principal', () => {
+    createCapability(dataDir, {
+      kind: 'bot',
+      larkAppId: 'app_1',
+    }, {
+      type: 'knowledge',
+      name: 'team-context',
+      description: 'Shared team context',
+      instructions: 'This context is available to every session for the bot.',
+    });
+
+    const result = prepareSessionSkillPrompt({
+      sessionId: 'group-session',
+      cliId: 'codex',
+      workingDir: '/repo',
+      prompt: 'Use team context.',
+      botPolicy: undefined,
+      dataDir,
+      larkAppId: 'app_1',
+    });
+
+    expect(result.prompt).toContain('botmux skill show team-context');
+    expect(readSessionSkillManifest('group-session')?.prioritySkills[0]?.source.type)
+      .toBe('bot-artifact');
+  });
+
+  it('uses a personal artifact instead of materializing the same-named bot artifact', () => {
+    const team = createCapability(dataDir, {
+      kind: 'bot',
+      larkAppId: 'app_1',
+    }, {
+      type: 'knowledge',
+      name: 'product-context',
+      description: 'Shared Product context',
+      instructions: 'Use the shared Product convention.',
+    });
+    createCapability(dataDir, {
+      kind: 'personal',
+      larkAppId: 'app_1',
+      principal: { kind: 'union', unionId: 'on_current' },
+    }, {
+      type: 'knowledge',
+      name: 'product-context',
+      description: 'Personal Product context',
+      instructions: 'Use my personal Product convention.',
+    });
+
+    const result = prepareSessionSkillPrompt({
+      sessionId: 'personal-override-session',
+      cliId: 'codex',
+      workingDir: '/repo',
+      prompt: 'Use Product context.',
+      botPolicy: undefined,
+      dataDir,
+      larkAppId: 'app_1',
+      personalPrincipal: { kind: 'union', unionId: 'on_current' },
+    });
+
+    const manifest = readSessionSkillManifest('personal-override-session');
+    expect(result.prompt.match(/botmux skill show product-context/g)).toHaveLength(1);
+    expect(manifest?.prioritySkills).toHaveLength(1);
+    expect(manifest?.prioritySkills[0]?.source.type).toBe('personal-artifact');
+    expect(runSkillSessionCommand(
+      ['show', 'product-context'],
+      { BOTMUX_SESSION_ID: 'personal-override-session' },
+    ).stdout).toContain('Use my personal Product convention.');
+    expect(existsSync(join(
+      capabilityArtifactRoot(dataDir, team.metadata.scope, team.metadata.artifactId),
+      'delivery',
+    ))).toBe(false);
   });
 
   it('refreshes a prompt-less CLI generation and removes stale session skills', () => {

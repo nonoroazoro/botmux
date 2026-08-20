@@ -78,6 +78,11 @@ import {
   type V3DistillationCardHandlerDeps,
 } from './v3-distillation-card-handler.js';
 import { handleAskCardAction, isAskCardAction } from './ask-card.js';
+import {
+  handleCapabilityCardAction,
+  type CapabilityCardHandlerDeps,
+} from './capability-card-handler.js';
+import { isCapabilityCardAction } from './capability-card.js';
 import { handlePollCardAction, isPollCardAction } from '../../features/poll/index.js';
 import { createCliAdapterSync } from '../../adapters/cli/registry.js';
 import { buildClosedSessionCard } from '../../core/closed-session-card.js';
@@ -128,6 +133,8 @@ export interface CardHandlerDeps {
   v3RunSaveDeps?: V3RunSaveCardHandlerDeps;
   /** v3 参数蒸馏提案的接受/拒绝动作。 */
   v3DistillationDeps?: V3DistillationCardHandlerDeps;
+  /** Personal capability draft and contribution approval actions. */
+  capabilityDeps?: CapabilityCardHandlerDeps;
   /** VC meeting invite/consumer card actions. Implemented in daemon to
    *  keep meeting sessions, tombstones, and listener-group state single-owned. */
   vcMeetingCardAction?: (data: CardActionData, larkAppId: string) => Promise<any>;
@@ -1734,6 +1741,10 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
       cardMessageId,
       deps.v3DistillationDeps,
     );
+  }
+  if (isCapabilityCardAction(value?.action)) {
+    if (!deps.capabilityDeps) return;
+    return await handleCapabilityCardAction(value, data, larkAppId, deps.capabilityDeps);
   }
 
   const isSensitive = value?.action && ['restart', 'close', 'resume', 'skip_repo', 'repo_manual_submit', 'repo_worktree_submit', 'worktree_toggle_mode', 'retry_last_task', 'get_write_link', 'open_local_terminal', 'open_local_cli', 'toggle_stream', 'toggle_display', 'export_text', 'term_action', 'refresh_screenshot', 'takeover', 'disconnect', 'tui_keys', 'tui_text_input', 'wf_approve', 'wf_reject', 'wf_cancel'].includes(value.action);
