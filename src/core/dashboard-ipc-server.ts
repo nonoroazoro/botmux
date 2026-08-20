@@ -83,6 +83,7 @@ import { buildFollowUpCliInput, persistStreamCardState, resumeSession, spawnDash
 import { parseSpawnRequest } from './session-create.js';
 import { cleanupMaterializedDashboardImages, materializeDashboardImages } from './dashboard-images.js';
 import { locateLimiter } from './dashboard-locate.js';
+import { resolveIsolatedAttachmentDir } from './resolve-isolated-attachment-dir.js';
 import { buildTerminalUrl } from './terminal-url.js';
 import { dashboardEventBus } from './dashboard-events.js';
 import { validateWorkingDir } from './working-dir.js';
@@ -1938,10 +1939,8 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-quoted', async (req, res, params
     delete rendered.mergedStructuredContent;
     if (rendered.resources?.length) {
       const isolatedAttachmentDir = ds.initConfig?.multiUserHomeDir
-        ? join(
+        ? resolveIsolatedAttachmentDir(
             ds.initConfig.multiUserHomeDir,
-            '.botmux',
-            'attachments',
             session.sessionId,
             messageId,
           )
