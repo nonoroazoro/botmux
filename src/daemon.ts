@@ -188,7 +188,7 @@ import {
 } from './core/session-manager.js';
 import { triggerSessionTurn } from './core/trigger-session.js';
 import { resolveSessionPrincipal } from './core/session-principal.js';
-import { claimInitialUserTurn, isInitialUserTurnPending, releaseInitialUserTurn } from './core/initial-user-turn.js';
+import { claimInitialUserTurn, isInitialUserTurnPending, markInitialUserTurnPending, releaseInitialUserTurn } from './core/initial-user-turn.js';
 import { applyQueuedCodexAppLegacyFallback, mergeQueuedCodexAppTurn } from './core/session-create.js';
 import { findOnlineDaemon, listOnlineDaemons } from './utils/daemon-discovery.js';
 import { beginReplyTargetTurn, buildTurnParticipantsFrom, fallbackTurnId, isSubstituteTurn, resolveSessionReplyTarget, syncReplyTargetState } from './core/reply-target.js';
@@ -15397,7 +15397,10 @@ async function replyInvalidWorkingDirs(
 }
 
 function isInitialSessionPassthrough(larkAppId: string, cmd: string): boolean {
-  return resolveAdapterDefaultPassthroughCommands(larkAppId).includes(cmd);
+  // `/new` is meaningful without a running process: booting the CLI and
+  // delivering its native command creates the clean context the user asked
+  // for. Other cold-start passthroughs remain adapter-owned.
+  return cmd === '/new' || resolveAdapterDefaultPassthroughCommands(larkAppId).includes(cmd);
 }
 
 /** `/fast` is a passthrough keystroke to Codex's native tier toggle. It only
@@ -15435,6 +15438,22 @@ function senderIsBotTriState(
  *  without re-depending on ctx.forwardSeedData. */
 function collectPostAtMentions(...messages: Array<{ content?: string } | null | undefined>): LarkMention[] {
   return messages.flatMap(m => extractPostAtParticipants(m));
+}
+
+function prepareNativeNewSession(ds: DaemonSession): void {
+  delete ds.lastUserPrompt;
+  delete ds.lastCliInput;
+  delete ds.lastCodexAppInput;
+  delete ds.session.lastUserPrompt;
+  delete ds.session.lastCliInput;
+  delete ds.session.lastCodexAppInput;
+  delete ds.session.cliSessionId;
+  delete ds.session.pendingForkSession;
+  ds.hasHistory = false;
+
+  const markerWasPending = ds.session.initialUserTurnPending === true;
+  markInitialUserTurnPending(ds);
+  if (markerWasPending) sessionStore.updateSession(ds.session);
 }
 
 /** Build the turn-window counterparts contributed by ONE inbound turn via the
@@ -15479,7 +15498,12 @@ function deliverPassthroughToExistingSession(
     substitute: boolean;
   },
 ): void {
-  if ((ds.worker && !ds.worker.killed) || isSessionTransferring(ds)) {
+  const workerAvailable = !!(ds.worker && !ds.worker.killed);
+  const transferring = isSessionTransferring(ds);
+  const canWakeForNew = cmd === '/new'
+    && !ds.adoptedFrom
+    && !ds.pendingRepo;
+  if (workerAvailable || transferring || canWakeForNew) {
     // Passthrough commands bypass the normal message-forwarding block, so bind
     // the accepted Lark turn before the worker rotates its marker at the PTY
     // write boundary. This helper also covers a cold-start registration race.
@@ -15511,11 +15535,29 @@ function deliverPassthroughToExistingSession(
     // `/model` on an empty-started session therefore stays literal and the
     // FOLLOWING business message still opens as a new topic.
     beginNewTurn(ds, commandContent);
-    sendWorkerSessionInput(ds, {
-      type: 'raw_input',
-      content: commandContent,
-      turnId: turn.messageId,
-    });
+    if (workerAvailable || transferring) {
+      sendWorkerSessionInput(ds, {
+        type: 'raw_input',
+        content: commandContent,
+        turnId: turn.messageId,
+      });
+    } else {
+      // A suspended session has no process to receive `/new`. Resume only long
+      // enough to deliver the native command; the CLI then rotates its own
+      // session identity exactly as it does on the live path.
+      ds.pendingRawInput = commandContent;
+      ds.pendingRawTurnId = turn.messageId;
+      forkWorker(ds, '', { resume: ds.hasHistory });
+    }
+    if (cmd === '/new') {
+      prepareNativeNewSession(ds);
+      void sessionReply(
+        anchor,
+        tr('cmd.new.accepted', {}, localeForBot(larkAppId)),
+        'text',
+        larkAppId,
+      );
+    }
     markSessionActivity(ds);
     logger.info(`[${anchor.substring(0, 12)}] Passthrough ${cmd} → worker`);
     return;
