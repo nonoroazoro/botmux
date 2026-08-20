@@ -39,16 +39,16 @@ describe('botmux update alias', () => {
     const update = runCli('update');
 
     expect(upgrade.status).toBe(2);
-    expect(upgrade.stderr).toContain('Update is disabled for this managed custom build');
+    expect(upgrade.stderr).toContain('Update is disabled for this fork');
     expect(update.status).toBe(upgrade.status);
     expect(update.stdout).toBe(upgrade.stdout);
-    expect(update.stderr).toContain('Update is disabled for this managed custom build');
+    expect(update.stderr).toContain('Update is disabled for this fork');
   });
 
   it('documents the alias in help', () => {
     const help = runCli('--help');
 
     expect(help.status).toBe(0);
-    expect(help.stdout).toContain('upgrade     升级到最新版本（别名：update）');
+    expect(help.stdout).toContain('upgrade     Self-update is disabled for this fork (alias: update)');
   });
 });
