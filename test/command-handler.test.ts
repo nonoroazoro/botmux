@@ -2208,13 +2208,13 @@ describe('handleCommand', () => {
       await handleCommand(
         '/cd',
         ROOT_ID,
-        makeLarkMessage('/cd /data00/home/wanghao.muchen/ai-workspace/marketing_insight'),
+        makeLarkMessage('/cd /data00/home/alice.example/ai-workspace/sample-project'),
         deps,
         LARK_APP_ID,
       );
 
       expect(killWorker).toHaveBeenCalledWith(ds);
-      expect(ds.workingDir).toBe('/data00/home/wanghao.muchen/ai-workspace/marketing_insight');
+      expect(ds.workingDir).toBe('/data00/home/alice.example/ai-workspace/sample-project');
     });
   });
 
@@ -3871,7 +3871,7 @@ describe('handleCommand', () => {
       await handleCommand(
         '/oncall',
         ROOT_ID,
-        makeLarkMessage('/oncall bind /data00/home/wanghao.muchen/ai-workspace/marketing_insight'),
+        makeLarkMessage('/oncall bind /data00/home/alice.example/ai-workspace/sample-project'),
         deps,
         LARK_APP_ID,
       );
@@ -3879,7 +3879,7 @@ describe('handleCommand', () => {
       expect(bindOncall).toHaveBeenCalledWith(
         LARK_APP_ID,
         CHAT_ID,
-        '/data00/home/wanghao.muchen/ai-workspace/marketing_insight',
+        '/data00/home/alice.example/ai-workspace/sample-project',
       );
       const replyContent = (deps.sessionReply as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
       expect(replyContent).toContain('已绑定 oncall');

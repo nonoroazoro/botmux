@@ -195,7 +195,7 @@ function makePeerRepoEventDataWithSplitFooter(
           { tag: 'text', text: "<font color='grey'> </font>" },
           { tag: 'a', text: '·', href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1' },
           { tag: 'text', text: "<font color='grey'> 发送给：</font>" },
-          { tag: 'at', user_name: 'jihong traex' },
+          { tag: 'at', user_name: 'Bob Example' },
         ]],
       }),
       create_time: String(Date.now()),

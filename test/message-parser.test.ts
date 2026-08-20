@@ -621,16 +621,16 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
   it('drops the live split-font signed footer appended after a command', () => {
     const card = {
       elements: [[
-        { tag: 'text', text: '/repo /data00/home/chenjihong.daryl/botmux/.worktree/peer-bot-repo-permission\n' },
+        { tag: 'text', text: '/repo /data00/home/bob.example/botmux/.worktree/peer-bot-repo-permission\n' },
         { tag: 'a', text: 'botmux', href: 'https://github.com/deepcoldy/botmux' },
         { tag: 'text', text: "<font color='grey'> </font>" },
         { tag: 'a', text: '·', href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1' },
         { tag: 'text', text: "<font color='grey'> 发送给：</font>" },
-        { tag: 'at', user_name: 'jihong traex' },
+        { tag: 'at', user_name: 'Bob Example' },
       ]],
     };
     const result = parseApiMessage(makeMsg('interactive', card));
-    expect(result.content).toBe('/repo /data00/home/chenjihong.daryl/botmux/.worktree/peer-bot-repo-permission');
+    expect(result.content).toBe('/repo /data00/home/bob.example/botmux/.worktree/peer-bot-repo-permission');
   });
 
   it('keeps ordinary links that mention botmux and the marker URL without footer structure', () => {
@@ -730,7 +730,7 @@ describe('Interactive card parsing: footer stripped structurally (custom brand)'
     const card = {
       schema: '2.0',
       body: { elements: [
-        { tag: 'markdown', content: '/repo /data00/home/chenjihong.daryl/botmux/.worktree/peer-bot-repo-permission' },
+        { tag: 'markdown', content: '/repo /data00/home/bob.example/botmux/.worktree/peer-bot-repo-permission' },
         { tag: 'hr' },
         {
           element_id: 'botmux_reply_footer',
@@ -744,7 +744,7 @@ describe('Interactive card parsing: footer stripped structurally (custom brand)'
     };
 
     const result = parseApiMessage(makeMsg('interactive', card));
-    expect(result.content).toBe('/repo /data00/home/chenjihong.daryl/botmux/.worktree/peer-bot-repo-permission');
+    expect(result.content).toBe('/repo /data00/home/bob.example/botmux/.worktree/peer-bot-repo-permission');
   });
 
   it.each([

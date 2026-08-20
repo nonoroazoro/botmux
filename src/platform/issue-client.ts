@@ -13,7 +13,7 @@
  *  - `conflict` ：平台返回 409（state_rev_conflict / stale_epoch / claim_expired…）
  *                 → 重新投影后再发，不是简单重试
  *  - `forbidden`：401/403（token 失效、解绑、machine_mismatch）→ **停手**，重试无意义
- *  - `server`   ：5xx → 退避重试（含平台 ByteDoc 降级的 503）
+ *  - `server`   ：5xx → 退避重试（含上游文档服务降级时的 503）
  */
 import { getJson, postJson } from './platform-http.js';
 import { readPlatformBinding } from './binding.js';
