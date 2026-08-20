@@ -6,6 +6,7 @@ import type {
 } from '../../core/ask-types.js';
 import { AskDispatchError } from '../../core/ask-types.js';
 import { getAskSnapshot, submitAsk, toggleAsk, tryResolveAsk } from '../../core/ask-broker.js';
+import { getBot } from '../../bot-registry.js';
 import { logger } from '../../utils/logger.js';
 import { t, localeForBot, type Locale } from '../../i18n/index.js';
 import { replyMessage, sendMessage, updateMessage } from './client.js';
@@ -20,6 +21,28 @@ export const ASK_SUBMIT_ACTION = 'ask_submit';
 export const ASK_TOGGLE_ACTION = 'ask_toggle';
 
 const MAX_BUTTONS_PER_ACTION_ROW = 4;
+
+function genericAskCardTitle(larkAppId: string, settled: boolean, locale?: Locale): string {
+  let botName = '';
+  try {
+    const bot = getBot(larkAppId);
+    botName = bot.config.displayName?.trim() || bot.botName?.trim() || '';
+  } catch {
+    botName = '';
+  }
+  if (!botName) {
+    return t(
+      settled ? 'card.ask.title_done_fallback' : 'card.ask.title_fallback',
+      undefined,
+      locale,
+    );
+  }
+  return t(
+    settled ? 'card.ask.title_done' : 'card.ask.title',
+    { botName },
+    locale,
+  );
+}
 
 export interface AskCardActionData {
   operator?: { open_id?: string };
@@ -384,7 +407,7 @@ export function buildAskCard(ask: PendingAsk, result?: AskResult): string {
     config: { wide_screen_mode: true },
     header: {
       template: result ? templateForResult(result) : 'blue',
-      title: { tag: 'plain_text', content: result ? t('card.ask.title_done', undefined, locale) : t('card.ask.title', undefined, locale) },
+      title: { tag: 'plain_text', content: genericAskCardTitle(ask.larkAppId, Boolean(result), locale) },
     },
     elements,
   });

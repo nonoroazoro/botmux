@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PendingAsk } from '../src/core/ask-types.js';
+import { __testOnly_resetBotRegistry, registerBot } from '../src/bot-registry.js';
 
 // vi.mock 被 vitest 提升到模块顶层，在 import 之前执行。
 // 用 importOriginal 保留所有真实导出，仅把 submitAsk 替换为可监测的 spy。
@@ -36,6 +37,7 @@ beforeEach(() => {
 
 afterEach(() => {
   _resetForTest();
+  __testOnly_resetBotRegistry();
   // 只清计数/记录，不重置实现（spy 默认透传真实 submitAsk）
   mockedSubmitAsk.mockClear();
 });
@@ -97,7 +99,8 @@ describe('buildAskCard', () => {
     const card = JSON.parse(buildAskCard(makePending()));
     const text = JSON.stringify(card);
 
-    expect(card.header.title.content).toBe('botmux ask');
+    expect(card.header.title.content).toBe('请做选择');
+    expect(card.header.title.content).not.toContain('botmux');
     expect(text).toContain('线上 latency');
     // 可答复栏 = canTalk 语义，统一显示「本群可对话成员」，不再按 open_id 列名单
     const metaDiv = card.elements[0];
@@ -109,6 +112,20 @@ describe('buildAskCard', () => {
     expect(text).not.toContain('select_static');
     expect(text).not.toContain('"tag":"form"');
     expect(text).toContain('继续发布');
+  });
+
+  it('generic ask title uses the current bot display name', () => {
+    registerBot({
+      larkAppId: 'cli_named_ask',
+      larkAppSecret: '',
+      cliId: 'codex',
+      displayName: 'Release Helper',
+      apiOnly: true,
+    });
+    const card = JSON.parse(buildAskCard(makePending({ larkAppId: 'cli_named_ask' })));
+
+    expect(card.header.title.content).toBe('Release Helper · 请做选择');
+    expect(card.header.title.content).not.toContain('botmux');
   });
 
   it('未 settle 卡片：含自定义回复提示（直接在话题里回复）', () => {
@@ -253,7 +270,7 @@ describe('handleAskCardAction', () => {
     });
     expect(accepted).toBeDefined();
     expect(accepted?.toast).toBeUndefined();
-    expect((accepted as Record<string, any>)?.header?.title?.content).toContain('已结束');
+    expect((accepted as Record<string, any>)?.header?.title?.content).toContain('选择已完成');
     await expect(promise).resolves.toMatchObject({ kind: 'answered', answers: [['deploy']], by: 'ou_owner' });
   });
 
@@ -574,7 +591,7 @@ describe('handleAskCardAction: ask_submit 路径', () => {
     expect(result).toBeDefined();
     expect(result?.toast).toBeUndefined();
     const card = result as Record<string, any>;
-    expect(card.header?.title?.content).toContain('已结束');
+    expect(card.header?.title?.content).toContain('选择已完成');
     expect(card.header?.template).toBe('green');
     // 终态卡片包含选中的答案摘要
     expect(JSON.stringify(card)).toContain('是');
@@ -626,7 +643,7 @@ describe('handleAskCardAction: ask_submit 路径', () => {
     expect(result).toBeDefined();
     expect(result?.toast).toBeUndefined();
     const card = result as Record<string, any>;
-    expect(card.header?.title?.content).toContain('已结束');
+    expect(card.header?.title?.content).toContain('选择已完成');
     expect(JSON.stringify(card)).toContain('A');
   });
 });
