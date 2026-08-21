@@ -50,19 +50,12 @@ export class InflightInputTracker {
   }
 
   /**
-   * Move the current unacknowledged batch back to the caller for an intentional
-   * conversation recovery. The batch is returned only when it contains the
-   * requested turn, so an unrelated terminal event cannot move newer input.
-   *
-   * @param turnId The turn that triggered recovery.
-   * @param dispatchAttempt The durable dispatch attempt, when present.
+   * Find the input for an exact terminal without changing replay ownership.
    */
-  takeBatchForRecovery(turnId: string, dispatchAttempt?: number): InflightItem[] {
-    const containsTurn = this.unacked.some(item =>
+  findTurn(turnId: string, dispatchAttempt?: number): InflightItem | undefined {
+    return this.unacked.find(item =>
       item.turnId === turnId && item.dispatchAttempt === dispatchAttempt,
     );
-    if (!containsTurn) return [];
-    return this.unacked.splice(0);
   }
 
   /** CLI is back at its idle prompt — everything written has been consumed

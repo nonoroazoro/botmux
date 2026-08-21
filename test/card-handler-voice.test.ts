@@ -74,7 +74,7 @@ describe('card-handler voice_summary', () => {
     const msg = send.mock.calls[0][0];
     expect(msg.type).toBe('message');
     expect(msg.content).toContain('botmux send --voice');
-    expect(msg.content).toContain('口语');
+    expect(msg.content).toContain('natural spoken language');
   });
 
   it('dedupes by card id: a second click on the same card only toasts, no re-inject', async () => {

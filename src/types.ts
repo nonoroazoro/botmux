@@ -708,6 +708,11 @@ export interface CliTurnPayload {
   codexAppInput?: CodexAppTurnInput;
 }
 
+/**
+ * Worker-observed outcome of submitting a confirmed safe-recovery prompt.
+ */
+export type SafeRecoveryExecutionStatus = 'started' | 'failed' | 'unknown';
+
 /** Messages sent from Daemon to Worker */
 export type DaemonToWorker =
   | { type: 'init'; sessionId: string; chatId: string; chatType?: 'group' | 'p2p'; rootMessageId: string; workingDir: string; cliId: string; cliRuntime?: import('./adapters/cli/runtime.js').CliRuntimeSnapshot; cliPathOverride?: string; wrapperCli?: string; launchShell?: string; model?: string; reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'; disableCliBypass?: boolean; codexRpcInput?: boolean; startupCommands?: string[]; env?: Record<string, string>; sandbox?: boolean; sandboxPaths?: { readWrite?: string[]; readOnly?: string[]; deny?: string[] }; sandboxHidePaths?: string[]; sandboxReadonlyPaths?: string[]; sandboxNetwork?: boolean; readIsolation?: boolean; readDenyExtraPaths?: string[]; multiUserHomeDir?: string; sharedCodexHome?: string; daemonBootId?: string; backendType: BackendType; persistentBackendTarget?: PersistentBackendTarget; deferredScheduleRun?: Session['deferredScheduleRun']; nativeSessionTitle?: string; nativeSessionTitlePrompt?: string; prompt: string; promptCodexAppInput?: CodexAppTurnInput; resume?: boolean; forkSession?: boolean; cliSessionId?: string; originalSessionId?: string; ownerOpenId?: string; personalPrincipal?: PersonalPrincipal; webPort?: number; larkAppId: string; larkAppSecret: string; apiOnly?: boolean; loadedBotsConfigPath?: string; brand?: 'feishu' | 'lark'; botName?: string; botOpenId?: string; locale?: 'zh' | 'en'; turnId?: string; dispatchAttempt?: number; vcMeetingImTurnOrigin?: VcMeetingImTurnOrigin; pluginBindings?: string[]; skillPolicy?: BotSkillPolicy; skillPluginDir?: string; skillReadonlyRoots?: string[]; adoptMode?: boolean; adoptSource?: 'tmux' | 'herdr' | 'zellij'; adoptTmuxTarget?: string; adoptZellijSession?: string; adoptZellijPaneId?: string; adoptHerdrSessionName?: string; adoptHerdrTarget?: string; adoptHerdrPaneId?: string; adoptPaneCols?: number; adoptPaneRows?: number; bridgeJsonlPath?: string; adoptCliPid?: number; adoptCwd?: string; adoptRestoredFromMetadata?: boolean; runnerBuildId?: string; persistedRunnerBuildId?: string; restartAttemptId?: string }
@@ -718,6 +723,15 @@ export type DaemonToWorker =
    *  raw_input branch awaits 200ms between sendText and Enter, a window where
    *  a separate `message` IPC could write into the PTY first. */
   | { type: 'raw_input'; content: string; turnId?: string; followUpContent?: string; followUpTurnId?: string; followUpCodexAppInput?: CodexAppTurnInput }
+  /**
+   * Execute a confirmed safe recovery for any owned Codex session. This is a
+   * generic Botmux lifecycle command, not a bot-specific workflow. It replaces
+   * only the CLI-native conversation, reconstructs `content` under the shared
+   * conservative defensive-analysis prompt, and preserves the Botmux session,
+   * workspace, reply route, Lark topic, and Web Terminal. Callers must obtain
+   * exact-user confirmation before sending it; normal user turns never emit it.
+   */
+  | { type: 'safe_recover'; requestId: string; content: string; turnId?: string }
   /** Rename the current CLI-native interactive session. The worker queues this
    *  administrative slash command until the TUI is idle and does not treat it
    *  as a model turn. Only adapters declaring buildSessionRenameCommand handle
@@ -862,6 +876,20 @@ export type WorkerToDaemon =
   | { type: 'tui_keys_delivered'; nonce: number; turnId?: string; dispatchAttempt?: number }
   | { type: 'screenshot_uploaded'; imageKey: string; status: ScreenStatus; usageLimit?: CliUsageLimitState; turnId?: string; dispatchAttempt?: number }
   | { type: 'user_notify'; message: string; turnId?: string; dispatchAttempt?: number }
+  /**
+   * Request a user confirmation card immediately after the worker observes an
+   * exact Codex cyber-policy terminal. The daemon re-derives the requester and
+   * reply route from the trusted turn.
+   */
+  | { type: 'safe_recovery_confirmation'; content: string; turnId: string }
+  /**
+   * Reports whether the worker actually submitted the recovery prompt.
+   */
+  | {
+      type: 'safe_recovery_result';
+      requestId: string;
+      status: SafeRecoveryExecutionStatus;
+    }
   /** A normal success acknowledgement for one app-server accepted steer.
    * `appTurnId` is diagnostic/protocol identity; `turnId` is the immutable
    * botmux/Lark reply route. This must never enter the attention path. */

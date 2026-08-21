@@ -106,6 +106,7 @@ import { withCodexAppContext } from '../../utils/codex-app-context.js';
 import { sessionConfiguredRuntimeDisplayName } from '../../core/cli-runtime-display.js';
 import { worktreeSlugFromContextAI } from '../../services/worktree-slug-ai.js';
 import { t, localeForBot, isLocale, type Locale } from '../../i18n/index.js';
+import { instruction } from '../../prompts.js';
 import {
   isLocalCliOpenCapable,
   isLocalCliOpenConfigured,
@@ -246,10 +247,10 @@ function tag(ds: DaemonSession): string {
 
 const LEGACY_SELF_HEAL_ACTIONS = new Set(['toggle_display', 'toggle_stream', 'refresh_screenshot']);
 
-// 🔊 语音总结 once-only guard: card message ids that already triggered a voice
+// Once-only guard for cards that already triggered a voice summary.
 // summary. Keyed by the clicked card's message id so any number of users
-// clicking the same reply only ever generates ONE voice bubble (防刷屏).
-// In-memory (per daemon lifetime) — a restart resets it, which at worst allows
+// clicking the same reply generates only one voice message.
+// In-memory per daemon lifetime. A restart can allow one additional trigger
 // one re-trigger on an old card; acceptable. Capped to avoid unbounded growth.
 const voicedCardIds = new Set<string>();
 
@@ -257,9 +258,10 @@ const voicedCardIds = new Set<string>();
 // model (which still has its just-sent reply in context) condenses it into
 // spoken prose and emits it via `botmux send --voice`. Kept terse and explicit
 // so the model produces ONE voice bubble and no stray text card. Resolved per
-// the bot's locale so an English-mode bot gets the English instruction.
+// the user's language in the generated voice message.
 function voiceSummaryInstruction(locale?: Locale): string {
-  return t('card.voice.summary_instruction', undefined, locale);
+  void locale;
+  return instruction('voice.summary');
 }
 
 function isLiveWorkerIdleOrLimited(ds: DaemonSession): boolean {

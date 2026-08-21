@@ -292,18 +292,19 @@ describe('cleanPromptText: strips [图片 N: alt] placeholder lines', () => {
 
 describe('builtin skill docs: card JSON export + attachment guidance', () => {
   it('botmux-history documents --with-card-json, resources and the quoted handoff', () => {
-    const history = BUILTIN_SKILLS.find(s => s.name === 'botmux-history')!;
-    expect(history.content).toContain('--with-card-json');
-    expect(history.content).toContain('resources');
-    expect(history.content).toContain('botmux quoted <messageId>');
+    const history = BUILTIN_SKILLS.find(s => s.name === 'botmux-history');
+    expect(history).toBeDefined();
+    expect(history?.content).toContain('--with-card-json');
+    expect(history?.content).toContain('resources');
+    expect(history?.content).toContain('botmux quoted <messageId>');
   });
 
   it('botmux-quoted documents --raw, auto-download and any-message-id usage', () => {
-    const quoted = BUILTIN_SKILLS.find(s => s.name === 'botmux-quoted')!;
-    expect(quoted.content).toContain('--raw');
-    expect(quoted.content).toContain('cardJson');
-    expect(quoted.content).toContain('附件会自动下载到本地');
-    expect(quoted.content).toContain('任意');
-    expect(quoted.content).not.toContain('当前不支持自动下载');
+    const quoted = BUILTIN_SKILLS.find(s => s.name === 'botmux-quoted');
+    expect(quoted).toBeDefined();
+    expect(quoted?.content).toContain('--raw');
+    expect(quoted?.content).toContain('cardJson');
+    expect(quoted?.content).toContain('downloads visible images or files');
+    expect(quoted?.content).toContain('any accessible message ID');
   });
 });

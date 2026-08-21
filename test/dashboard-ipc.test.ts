@@ -291,6 +291,43 @@ describe('Desktop ask IPC', () => {
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toEqual({ ok: false, error: 'already_settled' });
   });
+
+  it('rejects Desktop answers for exact-user decisions', async () => {
+    setCardDispatcher({ send: async () => ({ messageId: 'om_exact_user_ask' }) });
+    registerAsk({
+      larkAppId: 'app-one',
+      chatId: 'oc-chat',
+      rootMessageId: 'om-root',
+      sessionId: 'session-one',
+      answererOpenId: 'ou_requester',
+      questions: [{
+        prompt: 'Continue?',
+        options: [
+          { key: 'yes', label: 'Continue' },
+          { key: 'no', label: 'Stop' },
+        ],
+        multiSelect: false,
+      }],
+      timeoutMs: 30_000,
+    });
+    const [askId] = _allAskIds();
+    expect(askId).toBeTruthy();
+
+    setIpcAuthSecret(TEST_IPC_SECRET);
+    handle = await startIpcServer({ port: 0, host: '127.0.0.1', authRequired: true });
+    const path = '/api/asks/answer';
+    const response = await fetch(`http://127.0.0.1:${handle.port}${path}`, {
+      method: 'POST',
+      headers: {
+        ...trustedHostHeaders('POST', path, handle.port),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ askId, selections: [['yes']], by: 'ou_requester' }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ ok: false, error: 'unauthorized' });
+  });
 });
 
 describe('PUT /api/bot-card-prefs — Codex App clean history', () => {
@@ -1202,6 +1239,111 @@ describe('POST /api/sessions/:sessionId/restart', () => {
     expect(res.status).toBe(502);
     expect(await res.json()).toMatchObject({ ok: false });
     findSpy.mockRestore();
+  });
+});
+
+describe('POST /api/sessions/:sessionId/safe-recover', () => {
+  it('requests exact-user confirmation instead of resetting Codex immediately', async () => {
+    setIpcAuthSecret(TEST_IPC_SECRET);
+    const confirmSpy = vi.spyOn(workerPool, 'requestSafeRecoveryConfirmation')
+      .mockResolvedValue({ ok: true, pending: false });
+    const findSpy = vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
+      session: {
+        sessionId: 's-safe-recover',
+        cliId: 'codex',
+        lastCliInput: 'Analyze the reported issue from the current topic.',
+      },
+      worker: { send: vi.fn(), killed: false },
+      adoptedFrom: undefined,
+    } as any);
+    try {
+      handle = await startIpcServer({ port: 0, host: '127.0.0.1', authRequired: true });
+      const path = '/api/sessions/s-safe-recover/safe-recover';
+      const res = await fetch(`http://127.0.0.1:${handle.port}${path}`, {
+        method: 'POST',
+        headers: trustedHostHeaders('POST', path, handle.port),
+      });
+
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({
+        ok: true,
+        sessionId: 's-safe-recover',
+        confirmationPending: true,
+        alreadyPending: false,
+      });
+      expect(confirmSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ session: expect.objectContaining({ sessionId: 's-safe-recover' }) }),
+        'Analyze the reported issue from the current topic.',
+      );
+    } finally {
+      confirmSpy.mockRestore();
+      findSpy.mockRestore();
+    }
+  });
+
+  it('rejects calls that do not have trusted-host authority', async () => {
+    setIpcAuthSecret(TEST_IPC_SECRET);
+    handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
+    const res = await fetch(
+      `http://127.0.0.1:${handle.port}/api/sessions/s-safe-recover/safe-recover`,
+      { method: 'POST' },
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ ok: false, error: 'trusted_host_required' });
+  });
+
+  it('reports a transport failure when the confirmation card is not delivered', async () => {
+    setIpcAuthSecret(TEST_IPC_SECRET);
+    const confirmSpy = vi.spyOn(workerPool, 'requestSafeRecoveryConfirmation')
+      .mockResolvedValue({ ok: false, error: 'card_dispatch_failed' });
+    const findSpy = vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
+      session: {
+        sessionId: 's-safe-recover-dispatch-failure',
+        cliId: 'codex',
+        lastCliInput: 'Inspect the current issue.',
+      },
+      worker: { send: vi.fn(), killed: false },
+    } as any);
+    try {
+      handle = await startIpcServer({ port: 0, host: '127.0.0.1', authRequired: true });
+      const path = '/api/sessions/s-safe-recover-dispatch-failure/safe-recover';
+      const res = await fetch(`http://127.0.0.1:${handle.port}${path}`, {
+        method: 'POST',
+        headers: trustedHostHeaders('POST', path, handle.port),
+      });
+
+      expect(res.status).toBe(502);
+      expect(await res.json()).toMatchObject({ ok: false, error: 'card_dispatch_failed' });
+    } finally {
+      confirmSpy.mockRestore();
+      findSpy.mockRestore();
+    }
+  });
+
+  it('rejects sessions without a recoverable Codex task', async () => {
+    setIpcAuthSecret(TEST_IPC_SECRET);
+    const findSpy = vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
+      session: { sessionId: 's-safe-recover-empty', cliId: 'codex' },
+      worker: { send: vi.fn(), killed: false },
+      adoptedFrom: undefined,
+    } as any);
+    try {
+      handle = await startIpcServer({ port: 0, host: '127.0.0.1', authRequired: true });
+      const path = '/api/sessions/s-safe-recover-empty/safe-recover';
+      const res = await fetch(`http://127.0.0.1:${handle.port}${path}`, {
+        method: 'POST',
+        headers: trustedHostHeaders('POST', path, handle.port),
+      });
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        error: 'recovery_context_unavailable',
+      });
+    } finally {
+      findSpy.mockRestore();
+    }
   });
 });
 

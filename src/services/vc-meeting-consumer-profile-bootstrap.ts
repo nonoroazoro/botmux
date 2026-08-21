@@ -104,7 +104,7 @@ const LEGACY_PROVENANCE_GENERATOR_VERSION = 1;
 const DEFAULT_CONSUMER_PROFILE_ID = 'minutes';
 const DEFAULT_CONSUMER_PROFILE_LABEL = '会议纪要';
 const LEGACY_DEFAULT_CONSUMER_PROFILE_INSTRUCTIONS = '持续整理会议纪要，重点记录已确认的决策、待办事项（含负责人和截止时间）以及未解决风险；字幕修订时更新已有条目，不重复记录同一事项。';
-export const DEFAULT_CONSUMER_PROFILE_INSTRUCTIONS = '持续整理会议纪要，重点记录已确认的决策、待办事项（含负责人和截止时间）以及未解决风险；字幕修订时更新已有条目，不重复记录同一事项。仅在出现新的关键决策、明确待办或风险，或被用户点名时，才在监听群输出简洁增量；无实质增量时保持静默，不发送确认或心跳。需要向会议内发送文字或语音时，必须通过 botmux 受管 request-output/action gate 提交，不得绕过权限、所有权与审核策略。';
+export const DEFAULT_CONSUMER_PROFILE_INSTRUCTIONS = 'Maintain current meeting minutes with confirmed decisions, action items with owners and deadlines, and unresolved risks. Apply transcript corrections to existing entries instead of creating duplicates. Post a concise delta to the listener chat only when there is a new key decision, explicit action, material risk, or direct request. Otherwise remain silent. Submit any in-meeting text or voice through the botmux managed output gate; never bypass permission, ownership, or approval policy.';
 const LEGACY_DEFAULT_CONSUMER_PROFILE_KEYS = [
   'agentAppId',
   'capabilities',

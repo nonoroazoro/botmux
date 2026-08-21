@@ -6406,7 +6406,7 @@ describe('im.message.receive_v1 — /summary command', () => {
       scope: 'chat',
       anchor: 'chat-summary-command',
       summaryCommand: { name: 'summary-command', chatKind: 'regularGroup' },
-      promptOverride: expect.stringContaining('请根据当前会话历史生成总结。'),
+      promptOverride: expect.stringContaining('Summarize the configured conversation history'),
     }));
     const ctx = handlers.handleNewTopic.mock.calls[0][1] as any;
     expect(ctx.promptOverride).toContain('一小时前的新消息');
@@ -6507,9 +6507,9 @@ describe('im.message.receive_v1 — /summary command', () => {
     expect(ctx.promptOverride).toContain('<explicit_boundary>');
     expect(ctx.promptOverride).toContain('从 start_pipeline 报错开始');
     expect(ctx.promptOverride).not.toContain('边界前不该写入');
-    expect(ctx.promptOverride).toContain('只允许创建或追加 /tmp/botmux-summary.md');
-    expect(ctx.promptOverride).toContain('实际追加到 /tmp/botmux-summary.md 的 Markdown 原样发给用户确认');
-    expect(ctx.promptOverride).toContain('不能擅自扩展范围');
+    expect(ctx.promptOverride).toContain('Modify only /tmp/botmux-summary.md');
+    expect(ctx.promptOverride).toContain('send the exact Markdown appended to /tmp/botmux-summary.md');
+    expect(ctx.promptOverride).toContain('Do not add content outside that scope');
   });
 
   it('summarizes regular group history after the previous @this bot /summary', async () => {

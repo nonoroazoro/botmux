@@ -76,6 +76,10 @@ export interface PersistedAsk {
   answererOpenId?: string;
   chatType?: 'group' | 'p2p';
   questions: ReadonlyArray<AskQuestion>;
+  /**
+   * Whether a normal text message may settle this ask. Defaults to true.
+   */
+  allowCustomReply?: boolean;
   createdAt: number;
   deadlineAt: number;
   /** Feishu message id of the posted card, once dispatch landed. Undefined means

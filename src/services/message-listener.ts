@@ -98,9 +98,9 @@ export function extractListenerMessageText(message: any): string {
     try {
       const obj = JSON.parse(content);
       const key = firstTrimmedString(obj?.image_key, obj?.img_key);
-      return key ? `[图片消息: ${key}]` : '[图片消息]';
+      return key ? `[image message: ${key}]` : '[image message]';
     } catch {
-      return '[图片消息]';
+      return '[image message]';
     }
   }
   try {
@@ -127,17 +127,17 @@ export function extractListenerMessageText(message: any): string {
  * Refresh a card match's observed text/title from the (now-resolved) message.
  *
  * The listener match is computed during filtering, off the SIMPLIFIED card the
- * WS/history API first delivers — that view drops button jump URLs and lazy
+ * WS/history API first delivers - that view drops button jump URLs and lazy
  * sub-card bodies. The live delivery path (daemon handleNewTopic) later runs
  * resolveNonsupportMessage(data), merging the card's two representations
  * (server-rendered + structured body.elements, incl. button open_url) into
- * `message.content` — the same depth the direct-@bot path uses. Re-extracting
+ * `message.content` - the same depth the direct-@bot path uses. Re-extracting
  * here lets the model receive the button links, not the lossy match-time
  * snapshot. Only interactive cards can differ (plain text/post already carried
  * full content at match time). Fail-safe: a resolver miss (cross-tenant, REST
  * unavailable) leaves `message.content` as the simplified view and yields the
  * SAME text as match time, so guarding on a non-empty result never blanks a
- * match — it only ever upgrades. Mutates `match` in place.
+ * match - it only ever upgrades. Mutates `match` in place.
  */
 export function refreshListenerCardTextFromResolved(match: MessageListenerMatch, message: any): void {
   if (match.msgType !== 'interactive') return;
@@ -163,7 +163,7 @@ function senderTypeAllowed(listener: MessageListenerConfig, type: MessageListene
 /**
  * An exclusion entry can "collide" with an unverified bot sender when we cannot
  * prove the sender is NOT that entry. `ou_` vs `cli_` STRING inequality does not
- * prove ENTITY inequality — the same bot is `cli_x` in the polled history and
+ * prove ENTITY inequality - the same bot is `cli_x` in the polled history and
  * `ou_y` in config. So we classify each exclusion by its persisted sender KIND,
  * not by id prefix:
  *   - kind 'user'         → a human; an unverified BOT sender can never be it.
@@ -194,7 +194,7 @@ function senderOpenIdAllowed(
   if (mode === 'include_only') {
     // Allow-list: an unverified sender (a bot whose identity could not be
     // canonicalized to a per-app open_id) can never appear in an open_id
-    // include list, so it simply does not match — already fail-safe.
+    // include list, so it simply does not match - already fail-safe.
     return contains(policy?.includeSenderOpenIds, openId);
   }
   // all_except_excluded: an unverified bot sender (reported by app_id, not

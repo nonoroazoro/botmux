@@ -70,7 +70,7 @@ import { readGlobalConfig } from '../global-config.js';
 import { normalizeChatReplyMode, setChatReplyMode, type ChatReplyMode } from '../services/chat-reply-mode-store.js';
 import * as chatFirstSeenStore from '../services/chat-first-seen-store.js';
 import * as scheduler from './scheduler.js';
-import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessionsRegistry, transferSession, deliverWriteLinkCardToOwners, forkWorker, suspendWorker, killWorker, latestPerBotEnvForRestart, getDaemonReplyCardUsageSnapshot, parkStreamCard, sessionSupportsWebTerminal, sendWorkerInput, sendWorkerSessionInput, isSessionTransferring } from './worker-pool.js';
+import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessionsRegistry, transferSession, deliverWriteLinkCardToOwners, forkWorker, suspendWorker, killWorker, latestPerBotEnvForRestart, getDaemonReplyCardUsageSnapshot, parkStreamCard, sessionSupportsWebTerminal, sendWorkerInput, sendWorkerSessionInput, isSessionTransferring, requestSafeRecoveryConfirmation } from './worker-pool.js';
 import { listOnlineDaemons } from '../utils/daemon-discovery.js';
 import { isSessionStopped } from './session-liveness.js';
 import { isSuspendableBackendType } from './persistent-backend.js';
@@ -732,6 +732,41 @@ ipcRoute('POST', '/api/sessions/:sessionId/restart', (_req, res, params) => {
   // bring the CLI back (the resume button only shows for closed sessions).
   forkWorker(ds, '', ds.hasHistory);
   jsonRes(res, 200, { ok: true, sessionId: params.sessionId, cliId, revived: true });
+});
+
+/**
+ * Trusted-host command for requesting a safe Codex conversation replacement.
+ * It is generic across Botmux bots and sessions, but intentionally supports
+ * only owned Codex sessions. Calling this route never resets a conversation
+ * immediately: it asks the exact latest caller to confirm in Lark, warns that
+ * native conversation context may be lost, and executes only after that click.
+ * The Botmux session, workspace, reply route, topic, and Web Terminal stay
+ * intact; only the Codex-native conversation is replaced.
+ */
+ipcRoute('POST', '/api/sessions/:sessionId/safe-recover', async (req, res, params) => {
+  if (!isTrustedHostIpcRequest(req)) {
+    return jsonRes(res, 403, { ok: false, error: 'trusted_host_required' });
+  }
+  const ds = findActiveBySessionId(params.sessionId);
+  if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
+  if (isSessionTransferring(ds)) {
+    return jsonRes(res, 409, { ok: false, error: 'session_transferring' });
+  }
+  const content = ds.lastCliInput ?? ds.session.lastCliInput;
+  if (!content) {
+    return jsonRes(res, 409, { ok: false, error: 'recovery_context_unavailable' });
+  }
+  const confirmation = await requestSafeRecoveryConfirmation(ds, content);
+  if (!confirmation.ok) {
+    const status = confirmation.error === 'card_dispatch_failed' ? 502 : 409;
+    return jsonRes(res, status, { ok: false, error: confirmation.error });
+  }
+  return jsonRes(res, 202, {
+    ok: true,
+    sessionId: params.sessionId,
+    confirmationPending: true,
+    alreadyPending: confirmation.pending,
+  });
 });
 
 /** Manually suspend one active session: kill the worker + CLI/pane, session

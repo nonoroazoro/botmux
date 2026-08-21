@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   registerAsk,
   restorePersistedAsks,
+  submitCustomReply,
   tryResolveAsk,
   setCardDispatcher,
   setCanTalkChecker,
@@ -119,6 +120,25 @@ describe('ask persistence (injected store)', () => {
     registerAsk(makeInput());
     await new Promise((r) => setTimeout(r, 5));
     expect(persistedFiles()).toHaveLength(0); // never touched the dir
+  });
+
+  it('preserves button-only decisions across a daemon restart', async () => {
+    setCardDispatcher(mockDispatcher());
+    registerAsk(makeInput({ allowCustomReply: false }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const original = onlyPersisted();
+    expect(original.allowCustomReply).toBe(false);
+
+    _resetForTest();
+    bindStore();
+    setCardDispatcher(mockDispatcher());
+    restorePersistedAsks(Date.now(), 'cli_app');
+
+    expect(submitCustomReply({
+      askId: original.askId,
+      by: 'ou_owner',
+      text: 'Continue',
+    })).toBe('stale');
   });
 });
 

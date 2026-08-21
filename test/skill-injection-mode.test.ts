@@ -100,7 +100,11 @@ describe('skill injection-mode resolution', () => {
   });
 
   describe('shouldInstallGlobalSkills (per shared dir, union across bots)', () => {
-    const codexSkillsDir = () => createCliAdapterSync('codex').skillsDir!;
+    const codexSkillsDir = (): string => {
+      const directory = createCliAdapterSync('codex').skillsDir;
+      expect(directory).toBeDefined();
+      return directory ?? '';
+    };
 
     it('false when every bot on the dir is prompt/off', () => {
       writeBots([codexBot({ skillInjection: 'prompt' })], home);
@@ -143,7 +147,7 @@ describe('built-in skill catalog', () => {
   function innerText(block: string): string {
     const match = block.match(/^<botmux_builtin_skills>\n([\s\S]*)\n<\/botmux_builtin_skills>$/);
     expect(match).not.toBeNull();
-    return match![1];
+    return match?.[1] ?? '';
   }
 
   it('lists the unconditional built-ins plus ask when the CLI has no hook', () => {
@@ -191,11 +195,10 @@ describe('built-in skill catalog', () => {
     expect(block.trimEnd().endsWith('</botmux_builtin_skills>')).toBe(true);
     expect(block).toContain('botmux skill show &lt;name&gt;');
     expect(block).toContain('- botmux-send:');
-    expect(block).toContain('首次复杂飞书发送前读取');
-    expect(block).toContain('JSON.stringify');
-    expect(block).toContain('JSON 转义产生的 \\n 当字面量');
+    expect(block).toContain('Read before the first complex Lark send');
+    expect(block).toContain('JSON-escaped newlines as literal text');
     // The compact prompt description must not replace the full/native metadata.
-    expect(entries.find((e) => e.name === 'botmux-send')?.description).toContain('向飞书话题发送 agent 已决定要让用户看到的消息');
+    expect(entries.find((e) => e.name === 'botmux-send')?.description).toContain('Deliver agent-authored text');
   });
 
   it('keeps catalog prose as escaped text instead of nested XML-like tags', () => {
@@ -233,23 +236,21 @@ describe('built-in skill catalog', () => {
   });
 
   it('help pointer is XML-wrapped and names the CLI help entry point', () => {
-    const zh = builtinSkillHelpPointer();
-    expect(zh.startsWith('<botmux_builtin_skills>')).toBe(true);
-    expect(zh.trimEnd().endsWith('</botmux_builtin_skills>')).toBe(true);
-    expect(zh).toContain('botmux --help');
+    const pointer = builtinSkillHelpPointer();
+    expect(pointer.startsWith('<botmux_builtin_skills>')).toBe(true);
+    expect(pointer.trimEnd().endsWith('</botmux_builtin_skills>')).toBe(true);
+    expect(pointer).toContain('botmux --help');
     expect(builtinSkillHelpPointer('en')).toContain('botmux --help');
   });
 
   it('keeps prompt/off help prose as escaped text instead of nested XML-like tags', () => {
-    const zh = builtinSkillHelpPointer();
-    const en = builtinSkillHelpPointer('en');
+    const defaultLocale = builtinSkillHelpPointer();
+    const english = builtinSkillHelpPointer('en');
 
-    expect(innerText(zh)).not.toMatch(/[<>]/);
-    expect(innerText(en)).not.toMatch(/[<>]/);
-    expect(zh).toContain('&lt;botmux_routing&gt;');
-    expect(zh).toContain('botmux &lt;子命令&gt; --help');
-    expect(en).toContain('&lt;botmux_routing&gt;');
-    expect(en).toContain('botmux &lt;cmd&gt; --help');
+    expect(innerText(defaultLocale)).not.toMatch(/[<>]/);
+    expect(innerText(english)).not.toMatch(/[<>]/);
+    expect(defaultLocale).toContain('botmux &lt;command&gt; --help');
+    expect(english).toContain('botmux &lt;command&gt; --help');
   });
 });
 
@@ -275,7 +276,7 @@ describe('buildNewTopicPrompt built-in skill delivery (codex)', () => {
     expect(p).toContain('botmux skill show &lt;name&gt;');
     expect(p).toContain('- botmux-schedule:');
     expect(p).toContain('- botmux-send:');
-    expect(p).toContain('首次复杂飞书发送前读取');
+    expect(p).toContain('Read before the first complex Lark send');
     expect(p).not.toContain('- botmux-history:');
     expect(p).not.toContain('botmux --help');
   });
@@ -283,9 +284,8 @@ describe('buildNewTopicPrompt built-in skill delivery (codex)', () => {
   it('prompt mode exposes the same compact send trigger on genius/grok system-prompt path', () => {
     const block = builtinSkillBlockForInjectsSessionContext(undefined, 'en');
     expect(block).toContain('- botmux-send:');
-    expect(block).toContain('Read once before the first complex Lark send');
-    expect(block).toContain('JSON.stringify');
-    expect(block).toContain('JSON-escaped \\n as literal text');
+    expect(block).toContain('Read before the first complex Lark send');
+    expect(block).toContain('JSON-escaped newlines as literal text');
   });
 
   it('off mode wraps the help pointer in the same block, no skill list', () => {

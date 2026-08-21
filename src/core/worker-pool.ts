@@ -28,6 +28,7 @@ import { persistStreamCardState, rememberLastCliInput } from './session-manager.
 import { fallbackTurnId, isSubstituteTurn } from './reply-target.js';
 import { updateMessage, deleteMessage, sendEphemeralCard, sendUserMessage, addReaction, removeReaction, MessageWithdrawnError } from '../im/lark/client.js';
 import { buildStreamingCard, buildPrivateSnapshotCard, buildSessionCard, buildTuiPromptCard, buildTuiPromptResolvedCard, buildTuiPromptFailedCard, buildRelayedFrozenCard, getCliDisplayName } from '../im/lark/card-builder.js';
+import { buildSafeRecoveryExecutionCard } from '../im/lark/safe-recovery-card.js';
 import { codexServiceTierBadge } from '../services/codex-service-tier.js';
 import { loadFrozenCards, saveFrozenCards } from '../services/frozen-card-store.js';
 import { logger } from '../utils/logger.js';
@@ -68,6 +69,8 @@ import { effectiveDefaultWorkingDir, getBot, getAllBots, loadBotConfigs, resolve
 import { RestartCoordinator, type RestartObserver } from './restart-coordinator.js';
 import { runtimeBuildIdentity } from '../utils/runtime-build-id.js';
 import { resolveSessionPersonalPrincipal } from './capabilities/index.js';
+import { invalidateAskRequest, registerAsk, waitForAskCardDispatch } from './ask-broker.js';
+import type { AskResult } from './ask-types.js';
 
 /** A random id minted once per daemon process (this lifetime). Stamped onto
  *  isolated persistent panes so a suspend→resume reattach (same id) is
@@ -223,7 +226,15 @@ import { anchorUsageForDaemonSession, recordOwnershipForDaemonSession, recordUsa
 import type { CliId } from '../adapters/cli/types.js';
 import { isStructuredBridgeAdoptCli } from '../services/structured-bridge-clis.js';
 import { resolveEffectivePluginIds } from './plugins/effective.js';
-import type { CliTurnPayload, CodexAppTurnInput, DaemonToWorker, WorkerToDaemon, Session, DisplayMode } from '../types.js';
+import type {
+  CliTurnPayload,
+  CodexAppTurnInput,
+  DaemonToWorker,
+  WorkerToDaemon,
+  Session,
+  DisplayMode,
+  SafeRecoveryExecutionStatus,
+} from '../types.js';
 import { activeSessionKey, sessionKey, sessionAnchorId, storedSessionAnchorId, isDocNativeSession, larkTransportEnabled, type DaemonSession } from './types.js';
 import { DONE_REACTION_EMOJI_TYPE } from './pending-response.js';
 import { buildTerminalUrl } from './terminal-url.js';
@@ -456,6 +467,224 @@ export function findActiveBySessionId(sessionId: string): DaemonSession | undefi
  *  callers should prefer listActiveSessions / findActiveBySessionId. */
 export function getActiveSessionsRegistry(): Map<string, DaemonSession> | undefined {
   return activeSessionsRegistry;
+}
+
+const SAFE_RECOVERY_ASK_ORIGIN = 'safe_recovery';
+const SAFE_RECOVERY_CONFIRMATION_TIMEOUT_MS = 10 * 60_000;
+const SAFE_RECOVERY_ACK_TIMEOUT_MS = 60_000;
+
+export type SafeRecoveryConfirmationResult =
+  | { ok: true; pending: boolean }
+  | {
+      ok: false;
+      error:
+        | 'session_not_active'
+        | 'adopt_recovery_unsupported'
+        | 'codex_required'
+        | 'no_live_worker'
+        | 'requester_unavailable'
+        | 'card_dispatch_failed';
+    };
+
+function finishSafeRecovery(
+  ds: DaemonSession,
+  requestId: string,
+  status: SafeRecoveryExecutionStatus,
+): void {
+  const pending = ds.pendingSafeRecovery;
+  if (!pending || pending.requestId !== requestId || pending.phase !== 'starting') return;
+  if (pending.ackTimeout) clearTimeout(pending.ackTimeout);
+  ds.pendingSafeRecovery = undefined;
+  if (!pending.cardMessageId) return;
+  const cardJson = buildSafeRecoveryExecutionCard({
+    status,
+    locale: localeForBot(ds.larkAppId),
+  });
+  void updateMessage(ds.larkAppId, pending.cardMessageId, cardJson).catch((error) => {
+    logger.warn(
+      `[${tag(ds)}] Failed to update safe-recovery result card: `
+      + `${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
+}
+
+/**
+ * Ask the exact requesting user before replacing a Codex conversation.
+ *
+ * This is the only entry point that may convert a recovery request into the
+ * `safe_recover` worker command. The automatic caller first observes the exact
+ * Codex policy terminal. No user-message intent classification is involved.
+ * The daemon derives identity and routing from the trusted turn registry. No
+ * identity, recovery context, or authorization decision is accepted from card
+ * action values.
+ *
+ * @param ds The active Botmux session.
+ * @param content The daemon-owned task context to reconstruct.
+ * @param turnId The exact user turn requesting recovery, when available.
+ */
+export async function requestSafeRecoveryConfirmation(
+  ds: DaemonSession,
+  content: string,
+  turnId?: string,
+): Promise<SafeRecoveryConfirmationResult> {
+  if (ds.session.status !== 'active') return { ok: false, error: 'session_not_active' };
+  if (ds.adoptedFrom || ds.initConfig?.adoptMode) {
+    return { ok: false, error: 'adopt_recovery_unsupported' };
+  }
+  if ((ds.session.cliId ?? ds.initConfig?.cliId) !== 'codex') {
+    return { ok: false, error: 'codex_required' };
+  }
+  if (!ds.worker || ds.worker.killed) return { ok: false, error: 'no_live_worker' };
+  if (ds.pendingSafeRecovery) {
+    const existing = ds.pendingSafeRecovery;
+    if (existing.cardMessageId) return { ok: true, pending: true };
+    try {
+      const dispatched = await waitForAskCardDispatch({
+        larkAppId: ds.larkAppId,
+        sessionId: ds.session.sessionId,
+        originKind: SAFE_RECOVERY_ASK_ORIGIN,
+        requestId: existing.requestId,
+      });
+      if (ds.pendingSafeRecovery?.requestId === existing.requestId) {
+        ds.pendingSafeRecovery.cardMessageId = dispatched.messageId;
+      }
+      return { ok: true, pending: true };
+    } catch {
+      return { ok: false, error: 'card_dispatch_failed' };
+    }
+  }
+
+  const effectiveTurnId = turnId ?? ds.session.currentReplyTarget?.turnId;
+  const replyTarget = effectiveTurnId
+    ? ds.session.replyTargets?.[effectiveTurnId]
+    : undefined;
+  const requesterOpenId = replyTarget?.senderOpenId
+    ?? (!turnId ? ds.session.lastCallerOpenId : undefined);
+  if (!requesterOpenId) return { ok: false, error: 'requester_unavailable' };
+
+  const requestId = randomUUID();
+  ds.pendingSafeRecovery = {
+    requestId,
+    turnId: effectiveTurnId ?? requestId,
+    content,
+    phase: 'awaiting_confirmation',
+  };
+  const rootMessageId = replyTarget?.rootMessageId
+    ?? (ds.scope === 'thread' ? sessionAnchorId(ds) : null);
+  let resultPromise: Promise<AskResult>;
+  try {
+    resultPromise = registerAsk({
+      larkAppId: ds.larkAppId,
+      chatId: ds.chatId,
+      rootMessageId,
+      sessionId: ds.session.sessionId,
+      answererOpenId: requesterOpenId,
+      requestId,
+      originKind: SAFE_RECOVERY_ASK_ORIGIN,
+      questions: [{
+        prompt: 'Start a new conversation and continue the policy-blocked task?',
+        options: [
+          { key: 'confirm', label: 'Confirm' },
+          { key: 'cancel', label: 'Cancel' },
+        ],
+        multiSelect: false,
+      }],
+      presentation: { type: 'safe_recovery' },
+      allowCustomReply: false,
+      timeoutMs: SAFE_RECOVERY_CONFIRMATION_TIMEOUT_MS,
+      chatType: ds.chatType,
+    });
+  } catch (error) {
+    ds.pendingSafeRecovery = undefined;
+    logger.warn(
+      `[${tag(ds)}] Safe-recovery confirmation registration failed: `
+      + `${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { ok: false, error: 'card_dispatch_failed' };
+  }
+  void resultPromise.then((result) => {
+    const pending = ds.pendingSafeRecovery;
+    if (!pending || pending.requestId !== requestId) return;
+    const selected = result.kind === 'answered' ? result.answers[0]?.[0] : undefined;
+    if (selected !== 'confirm') {
+      ds.pendingSafeRecovery = undefined;
+      return;
+    }
+    if (ds.session.status !== 'active' || !ds.worker || ds.worker.killed) {
+      pending.phase = 'starting';
+      finishSafeRecovery(ds, requestId, 'failed');
+      return;
+    }
+    pending.phase = 'starting';
+    let sent = false;
+    try {
+      sent = sendWorkerSessionInput(ds, {
+        type: 'safe_recover',
+        requestId,
+        content: pending.content,
+        turnId: pending.turnId,
+      });
+    } catch (error) {
+      logger.warn(
+        `[${tag(ds)}] Failed to send safe-recovery command: `
+        + `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!sent) {
+      finishSafeRecovery(ds, requestId, 'failed');
+      return;
+    }
+    pending.ackTimeout = setTimeout(() => {
+      finishSafeRecovery(ds, requestId, 'unknown');
+    }, SAFE_RECOVERY_ACK_TIMEOUT_MS);
+    pending.ackTimeout.unref?.();
+  }).catch((error) => {
+    if (ds.pendingSafeRecovery?.requestId === requestId) {
+      ds.pendingSafeRecovery = undefined;
+    }
+    logger.warn(
+      `[${tag(ds)}] Safe-recovery confirmation failed: `
+      + `${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
+  try {
+    const dispatched = await waitForAskCardDispatch({
+      larkAppId: ds.larkAppId,
+      sessionId: ds.session.sessionId,
+      originKind: SAFE_RECOVERY_ASK_ORIGIN,
+      requestId,
+    });
+    if (ds.pendingSafeRecovery?.requestId === requestId) {
+      ds.pendingSafeRecovery.cardMessageId = dispatched.messageId;
+    }
+    return { ok: true, pending: false };
+  } catch (error) {
+    if (ds.pendingSafeRecovery?.requestId === requestId) {
+      ds.pendingSafeRecovery = undefined;
+    }
+    logger.warn(
+      `[${tag(ds)}] Safe-recovery card dispatch failed: `
+      + `${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { ok: false, error: 'card_dispatch_failed' };
+  }
+}
+
+/**
+ * Invalidate a pending recovery decision when a normal user message makes the
+ * destructive reset stale. The card is patched to a terminal state.
+ */
+function cancelSafeRecoveryConfirmation(ds: DaemonSession): boolean {
+  const pending = ds.pendingSafeRecovery;
+  if (!pending || pending.phase !== 'awaiting_confirmation') return false;
+  ds.pendingSafeRecovery = undefined;
+  return invalidateAskRequest({
+    larkAppId: ds.larkAppId,
+    sessionId: ds.session.sessionId,
+    originKind: SAFE_RECOVERY_ASK_ORIGIN,
+    requestId: pending.requestId,
+    reason: 'superseded by a normal user message',
+  });
 }
 
 // ─── "Real relayable session" predicate ─────────────────────────────────────
@@ -2772,6 +3001,7 @@ type TransferBufferedInput = Extract<
     type:
       | 'message'
       | 'raw_input'
+      | 'safe_recover'
       | 'inject_command'
       | 'coco_drive_picker'
       | 'set_display_mode'
@@ -2930,6 +3160,7 @@ function sendOrdinaryImDeliveryTracked(
   ds: DaemonSession,
   message: Extract<DaemonToWorker, { type: 'message' | 'init' }>,
 ): boolean {
+  if (message.type === 'message') cancelSafeRecoveryConfirmation(ds);
   const turnId = message.turnId;
   const worker = ds.worker;
   const workerGeneration = ds.workerGeneration;
@@ -3088,6 +3319,7 @@ export function sendWorkerSessionInput(
   ds: DaemonSession,
   message: TransferBufferedInput,
 ): boolean {
+  if (message.type === 'message') cancelSafeRecoveryConfirmation(ds);
   if (bufferTransferInput(ds, message)) return true;
   if (!ds.worker || ds.worker.killed) return false;
   ds.worker.send(message);
@@ -6147,6 +6379,33 @@ function setupWorkerHandlers(
         break;
       }
 
+      case 'safe_recovery_confirmation': {
+        if (!ownsLifecycleMutation()) break;
+        const result = await requestSafeRecoveryConfirmation(ds, msg.content, msg.turnId);
+        if (!result.ok) {
+          logger.warn(`[${t}] Safe-recovery confirmation rejected: ${result.error}`);
+          try {
+            await scopedReply(
+              tr('worker.safe_recovery_confirmation_failed', undefined, localeForBot(ds.larkAppId)),
+              'text',
+              msg.turnId,
+            );
+          } catch (error) {
+            logger.warn(
+              `[${t}] Failed to report safe-recovery confirmation rejection: `
+              + `${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+        break;
+      }
+
+      case 'safe_recovery_result': {
+        if (!ownsLifecycleMutation()) break;
+        finishSafeRecovery(ds, msg.requestId, msg.status);
+        break;
+      }
+
       case 'steer_accepted': {
         if (ds.worker !== worker) {
           logger.warn(`[${t}] Ignored steer_accepted from stale worker generation`);
@@ -6386,6 +6645,10 @@ function setupWorkerHandlers(
     // A stale takeover worker never clears the replacement — during takeover the
     // old worker's exit fires AFTER the new worker has been assigned.
     if (ds.worker === worker) {
+      const pendingRecovery = ds.pendingSafeRecovery;
+      if (!transferRetirement && pendingRecovery?.phase === 'starting') {
+        finishSafeRecovery(ds, pendingRecovery.requestId, 'unknown');
+      }
       restartCoordinator.failSession(ds.session.sessionId);
       ds.worker = null;
       ds.workerReady = false;

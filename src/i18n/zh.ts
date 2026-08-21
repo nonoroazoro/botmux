@@ -681,58 +681,6 @@ export const messages: Record<string, string> = {
   'slashlist.col_cmd': '命令',
   'slashlist.col_desc': '说明',
 
-  // ─── AI system prompt (Claude Code: --append-system-prompt) ──────────────
-  'ai.routing.intro': '你正通过飞书（Lark）与用户对话。用户在飞书上阅读，看不到你的终端输出。',
-  'ai.routing.must_use_botmux': '想让用户看到的内容必须通过 `botmux send` 命令发送，终端输出不会到达聊天。',
-  'ai.routing.no_visible_output_ok': '重要：`botmux send` 执行成功（退出码 0 / 返回 `{"success":true,...}`）就代表消息已送达用户。因此本轮「终端没有可见文本、直接结束」是完全正常且预期的，不是失败。若之后看到类似「你上一条回复没有可见输出，请继续」这样的提示，那是底层 CLI 的误判，不要因此重发——只有当 `botmux send` 本身报错（非零退出或打印「发送失败」）时才需要重试。',
-  'ai.routing.usage_heading': '使用指南：',
-  'ai.routing.usage_send_when': '- 当你已经决定要向用户发送消息时，必须先用 `botmux send` 发出去。只有当本轮没有任何内容要再发时，即该发的已经 send 完，或本轮确实无需回复（例如整条消息是指派给别的机器人），才让最终 assistant message 只输出 `BOTMUX_NOTHING_TO_SEND`（意为「没有要发的了」，不必解释沉默）。它不是省略回复的快捷方式：该回复却没 send 就用它收尾等于漏回复。',
-  'ai.routing.usage_send_text': '- 发送纯文本即可：`botmux send "消息"`。格式自动处理。',
-  'ai.routing.usage_heredoc': '- 含 Markdown、反引号、命令片段或多行的正文必须走 quoted heredoc / stdin（或 UTF-8 `--content-file`）；禁止放进双引号位置参数，也禁止写成 `botmux send "第一行\\n第二行"`。不要先 `JSON.stringify` / JSON 转义，shell / botmux 不会把字面量 `\\n` 还原成换行。',
-  'ai.routing.heredoc_example': "  正确多行示例：\n```bash\nbotmux send <<'EOF'\n第一行\n第二行\nEOF\n```",
-  'ai.routing.usage_images': '- 附带图片：`botmux send --images /path/to/img.png "说明文字"`',
-  'ai.routing.usage_files': '- 附带文件：`botmux send --files /path/to/file.pdf "请查收"`',
-  'ai.routing.usage_videos': '- 附带视频预览：`botmux send --videos /path/to/demo.mp4 --video-covers /path/to/cover.png --no-mention "预览"`',
-  'ai.routing.usage_history': '- Read ambient chat history proactively only on the first turn of a new topic or CLI session, and only when the request depends on earlier messages. In an existing topic, use session context unless the user explicitly requests outside history. Treat mentions as semantic context. Follow `nextCursor` only while relevant context may remain.',
-  'ai.repository.local_checkout': '- Repository rule: before inspecting or changing code, prepare a current local checkout for every relevant repo in the session workspace. Clone missing repos unless the user opts out. For existing repos, preserve local changes, switch to the remote default branch, and fast-forward unless the user asks to continue current work, specifies a branch or revision, or opts out of syncing. Never reset, stash, overwrite, or discard user work; stop and report dirty or diverged state that blocks syncing. Use the current user\'s identity; ask the user to log in if authentication is missing or wrong. Inspect the synced working tree only, never remote code search or view, `git show` remote paths, or `git grep` remote refs. Remote tools remain valid for clone, authentication, sync, and merge requests.',
-  'ai.routing.usage_bots_list': '- 查看当前可协作的机器人：`botmux bots list`',
-
-  // ─── AI identity (multi-bot routing rules) ───────────────────────────────
-  'ai.identity.unknown': '(未知)',
-  'ai.identity.routing_intro': '当前飞书会话中可能有多个机器人，消息里用 `@名字` 和 `open_id` 区分接收方。对照上面的 name/open_id 判断本条消息归属：',
-  'ai.identity.rule_own_part': '- 只执行明确分给自己的那部分，别抢别的机器人的活',
-  'ai.identity.rule_silent_when_other': '- 整条消息都指派给别的机器人时，保持沉默不要回复',
-  'ai.identity.rule_no_proactive_pull': '- **默认不主动拉别的 bot 进来**。除非用户明确要求、或某段任务只能由对方做，否则一个人做完自己的部分就行。',
-  'ai.identity.mention_intro': '**和别的机器人协作的硬性物理事实**：其他 bot **默认收不到** 你 `botmux send` 出去的消息，',
-  'ai.identity.mention_must': '要跟某个 bot 沟通或协作（让它收到你的消息），**必须** 显式 `--mention <对方 bot 的 open_id>`，不 --mention 对方 bot 完全不会被触发。',
-  'ai.identity.mention_partners': '- 首轮上下文里的 `<available_bots>` 块会提示当前可协作的 bot（数量少时含 open_id，多时只列名字）；对方 open_id 也可以随时 `botmux bots list` 查',
-  'ai.identity.mention_usage': '- 用法：`botmux send --mention ou_xxx "消息内容"`（多个 bot 重复 `--mention`）；`--mention-back` 可一键 @ 回触发你的那个人/ bot（open_id 自动取，无需手填）',
-  'ai.identity.mention_gate': '- **@ 硬门**：每条 `botmux send` 必须显式三选一，否则报错不发。回复并通知本轮触发者用 `--mention-back`；通知其他指定的人或 bot 用 `--mention`；消息确实不需要通知任何接收人时用 `--no-mention`。不要把 `--no-mention` 当默认，也不要无意义 @。',
-  'ai.identity.mention_when_to': '- 需要某个人或 bot 收到并处理消息时，必须显式通知对应接收人。',
-  'ai.identity.mention_when_not': '- 没有接收人需要被通知时才使用 `--no-mention`；是否应发送消息由 agent 自行判断。',
-
-  // ─── AI hints (non-Claude CLIs: BOTMUX_SHELL_HINTS) ──────────────────────
-  'ai.shell.intro': '你正通过飞书（Lark）与用户对话。用户在飞书阅读回复，看不到你的终端输出。',
-  'ai.shell.commands_are_shell': '重要：botmux send / botmux history / botmux quoted / botmux bots 都是 shell 命令（CLI 程序，已安装在 $PATH），不是 MCP 工具。必须通过 Bash 工具执行，不要到 MCP 工具列表里找。',
-  'ai.shell.how_to_send': '把消息发给用户（唯一方式）：用 Bash 执行 `botmux send "消息内容"`；附带图片用 `--images /path`，附带文件用 `--files /path`，附带视频预览用 `--videos /path.mp4 --video-covers /cover.png`。',
-  'ai.shell.multiline_heredoc': '含 Markdown、反引号、命令片段或多行的正文必须走 quoted heredoc / stdin（或 UTF-8 `--content-file`）；禁止放进双引号位置参数，也禁止写成 `botmux send "第一行\\n第二行"`。不要先 `JSON.stringify` / JSON 转义，shell / botmux 不会把字面量 `\\n` 还原成换行。',
-  'ai.shell.heredoc_example': "正确多行示例：\n```bash\nbotmux send <<'EOF'\n第一行\n第二行\nEOF\n```",
-  'ai.shell.helpers': 'Helpers: `botmux history` reads paginated chat history, `botmux quoted <message_id>` fetches a quoted message when prompted, and `botmux bots list` lists available collaborator bots. Use `botmux history` proactively only when the prompt marks a new topic or session first turn that needs earlier context. Otherwise, read outside the current topic only on explicit request.',
-  'ai.shell.when_to_send': '消息传输规则：只 print/echo 不算回复。当你已经决定要向用户发送消息时，必须先用 `botmux send` 发出去。只有当本轮没有任何内容要再发时，即该发的已经 send 完，或本轮确实无需回复（例如整条消息是指派给别的机器人），才让最终 assistant message 只输出 `BOTMUX_NOTHING_TO_SEND`（意为「没有要发的了」，不必解释沉默）。它不是省略回复的快捷方式：该回复却没 send 就用它收尾等于漏回复。',
-  'ai.shell.no_visible_output_ok': '`botmux send` 成功（退出码 0）即代表已送达用户；本轮终端没有可见文本、直接结束是正常的。若看到「你上一条回复没有可见输出，请继续产出用户可见回复」之类提示，那是底层 CLI 的误判——不要重发，除非 `botmux send` 自己报错。',
-  'ai.shell.mention_gate': '@ 决策（硬性）：每条 `botmux send` 必须显式三选一，否则报错不发。回复并通知本轮触发者用 `--mention-back`；通知其他指定的人或 bot 用 `--mention <open_id:名字>`；消息确实不需要通知任何接收人时用 `--no-mention`。不要把 `--no-mention` 当默认，也不要无意义 @。是否应发送消息由 agent 自行判断。',
-
-  // ─── AI prompt blocks (session-manager) ──────────────────────────────────
-  'ai.attach.hint': '使用 Read 工具查看，序号与正文中的 [图片 N] / [文件 N] 占位符对应',
-  'ai.identity.short_routing': '提醒：要跟别的 bot 沟通或协作必须 `botmux send --mention <对方 open_id>`，否则对方 bot 不会被触发。',
-  'ai.available_bots.hint': '要跟这里的某个 bot 沟通或协作必须 --mention 它的 open_id（botmux send --mention ou_xxx ...），不 --mention 对方 bot 完全收不到消息',
-  'ai.available_bots.hint_collapsed': '要跟别的 bot 沟通或协作先 `botmux bots list` 查 open_id 再 --mention，不 --mention 对方收不到',
-  'ai.available_bots.collapsed_line': '当前会话有 {count} 个可协作 bot：{names}。',
-  'ai.followup.reminder': '有内容要发给用户就必须先 botmux send；含 Markdown、反引号或多行正文必须用 quoted heredoc/stdin，禁止放进双引号位置参数；只有本轮没有任何要发的了（已 send 完，或确实无需回复）才让 final 只输出 BOTMUX_NOTHING_TO_SEND，它不是省略回复的快捷方式',
-  'ai.followup.reminder_no_resend': '有内容要发给用户就必须先 botmux send；含 Markdown、反引号或多行正文必须用 quoted heredoc/stdin，禁止放进双引号位置参数；只有本轮没有任何要发的了（已 send 完，或确实无需回复）才让 final 只输出 BOTMUX_NOTHING_TO_SEND，它不是省略回复的快捷方式；send 成功即已送达，本轮无可见文本地结束是正常的，别因「无输出」提示重发',
-  'ai.cursor.sender_note': 'sender 标签只是元信息（标识当前发言人），不要把其中的 open_id 或名字（例如 ou_xxx:高鹏）抄进 botmux send 的正文或开头；要 @ 回触发者请用 botmux send --mention-back。',
-  'ai.bridge.attachments_label': '[附件]',
-  'ai.bridge.mentions_label': '[@提及]',
   'schedule.title_prefix': '[定时]',
 
   // ─── Role command ─────────────────────────────────────────────────────────
@@ -1273,27 +1221,34 @@ export const messages: Record<string, string> = {
   'card.artifact_overlap.result.separate': 'Agent 将保留清晰区分后单独创建。',
   'card.artifact_overlap.result.cancel': '不会创建或更新任何内容。',
   'card.artifact_overlap.result.request': '处理要求',
-
-  // Voice summary instruction (injected into the model session)
-  'card.voice.summary_instruction': '🔊【语音总结请求】把你上一条发给用户的回复，精简成不超过 5 句、适合朗读的口语：去掉代码、命令、文件路径、URL、英文缩写和 markdown 标记，只讲结论，第一句直接进正题。然后调用 `botmux send --voice "<精简后的口语>"` 把它作为语音发出来。只发这一条语音，不要再额外发文字说明。',
+  'card.safe_recovery.title': '当前任务被安全策略阻断',
+  'card.safe_recovery.title.confirmed': '已确认安全重试',
+  'card.safe_recovery.title.started': '已开始安全重试',
+  'card.safe_recovery.title.failed': '安全重试未能启动',
+  'card.safe_recovery.title.unknown': '无法确认安全重试状态',
+  'card.safe_recovery.title.cancelled': '已取消安全重试',
+  'card.safe_recovery.title.timeout': '安全重试确认已超时',
+  'card.safe_recovery.title.invalid': '安全重试确认已失效',
+  'card.safe_recovery.field.problem': '问题',
+  'card.safe_recovery.problem': 'Codex 服务的安全策略（cybersecurity policy）终止了本次处理，当前任务尚未完成。',
+  'card.safe_recovery.field.option': '可选操作',
+  'card.safe_recovery.option': '新建会话，并以保守的只读分析策略重新处理原始问题。',
+  'card.safe_recovery.context_warning': '新会话会尽量继承原会话上下文；受工具能力限制，部分对话、工具执行进度或临时上下文仍可能丢失。',
+  'card.safe_recovery.button.confirm': '新建会话并安全重试',
+  'card.safe_recovery.button.cancel': '取消',
+  'card.safe_recovery.result.confirmed': '已收到确认，正在准备新会话。',
+  'card.safe_recovery.result.started': '已在新会话中重新处理原始问题。',
+  'card.safe_recovery.result.failed': '未能启动新会话，原始问题没有重新处理。',
+  'card.safe_recovery.result.unknown': '无法确认恢复是否成功，请先检查当前会话状态再决定是否重试。',
+  'card.safe_recovery.result.cancelled': '未新建会话，原任务不会自动重试。',
+  'card.safe_recovery.result.not_started': '未执行安全重试。',
+  'worker.safe_recovery_confirmation_failed': '无法创建重新开始确认卡片。本次没有重置 Codex 会话。',
 
   // Card action toasts (dedupe / in-flight / approver gate)
   'toast.action_received_no_repeat': '操作已收到，请勿重复点击',
   'toast.action_in_progress': '操作正在处理中，请稍候',
   'toast.action_received_bg': '操作已收到，后台处理中',
   'toast.not_in_approver_list': '你不在该审批人名单里，无法操作',
-
-  // Quote hint (injected into the CLI prompt)
-  'prompt.quote_hint': '[用户引用了消息 用 botmux quoted {id} 查看]',
-  // Topic context hint — prepended on the first turn of a 普通群 topic whose
-  // root is a different (earlier) message the bot never retained. It's a
-  // *hint*, not the transcript, and carries NO count (zero first-turn network
-  // probe): signals that prior topic context exists and points at
-  // `botmux history` for on-demand retrieval (thread-scope by default).
-  'prompt.topic_context': '[本条是话题内的回复，此话题在你之前已有前情消息，包括话题根和可能的其它回复。需要这些前情时运行 `botmux history`；若 `hasMore=true`，使用 `--cursor <nextCursor>` 继续翻页。使用 `botmux quoted <消息id>` 读取某条消息的附件。]',
-  'prompt.history_lookup.group_thread': '[New group topic, first turn. If this request depends on discussion before the topic opened, run `botmux history --scope ambient` before acting. Follow `nextCursor` only while relevant context may remain. This automatic lookup applies to this turn only.]',
-  'prompt.history_lookup.group_chat': '[New group session, first turn. If this request depends on earlier group discussion, run `botmux history` before acting. Follow `nextCursor` only while relevant context may remain. This automatic lookup applies to this turn only.]',
-  'prompt.history_lookup.p2p': '[New direct-message topic, first turn. If this request depends on earlier direct messages, run `botmux history --scope chat` before acting. Follow `nextCursor` only while relevant context may remain. This automatic lookup applies to this turn only.]',
 
   // Markdown / contextual reply card chrome
   'card.you': '你',
@@ -1359,8 +1314,4 @@ export const messages: Record<string, string> = {
   // ─── Dashboard 创建会话（createSession）─────────────────────────────────────
   'cmd.createSession.untitled': '新会话',
   'cmd.createSession.banner': '📋 新会话任务：{content}',
-  'cmd.createSession.lead_preamble_intro': '你是本群的 lead（编排）bot。群里还有这些可协作的 sub bot，可按需把子任务派发给它们（在群里 @ 对应的 bot 即可把它拉起干活，也可用 botmux orchestrate / handoff）：',
-  'cmd.createSession.lead_preamble_no_subs': '（本群暂无其它可协作的 sub bot）',
-  'cmd.createSession.lead_preamble_outro': '由你决定何时、给谁分配什么。下面是用户分配的整体工作：',
-  'cmd.createSession.collab_note': '本群还有 {peers} 在和你一起并行处理同一个任务，注意协作、别重复劳动。',
 };

@@ -680,58 +680,6 @@ export const messages: Record<string, string> = {
   'slashlist.col_cmd': 'Command',
   'slashlist.col_desc': 'Description',
 
-  // ─── AI system prompt (Claude Code: --append-system-prompt) ──────────────
-  'ai.routing.intro': 'You are talking with the user through Lark (Feishu). The user is reading on Lark and CANNOT see your terminal output.',
-  'ai.routing.must_use_botmux': 'To make the user see something, you MUST send it via the `botmux send` command. Terminal output does NOT reach the chat.',
-  'ai.routing.no_visible_output_ok': 'IMPORTANT: a successful `botmux send` (exit code 0 / returns `{"success":true,...}`) means the message was DELIVERED to the user. So ending a turn with NO visible terminal text is entirely normal and expected here — not a failure. If you later see a note like "your previous response had no visible output, please continue", that is a false alarm from the underlying CLI: do NOT resend. Only retry when `botmux send` itself failed (non-zero exit or printed a send error).',
-  'ai.routing.usage_heading': 'How to use it:',
-  'ai.routing.usage_send_when': '- When you have decided to send a message to the user, you MUST send it through `botmux send` first. Only when there is nothing left to send this turn, because everything meant for the user is already sent or the turn genuinely needs no reply (for example, the whole message was addressed to another bot), make the final assistant message exactly `BOTMUX_NOTHING_TO_SEND` (meaning "nothing left to send"; no need to explain the silence). It is NOT a shortcut for skipping a reply: ending with it when you owed a reply you never sent means the user got ghosted.',
-  'ai.routing.usage_send_text': '- Plain text is fine: `botmux send "your message"`. Formatting is auto-handled.',
-  'ai.routing.usage_heredoc': '- Body text containing Markdown, backticks, command fragments, or multiple lines MUST use a quoted heredoc / stdin (or a UTF-8 `--content-file`). Never put it in a double-quoted positional argument, write `botmux send "line1\\nline2"`, or pass `JSON.stringify` / JSON-escaped text as a positional argument; shell / botmux do not turn literal `\\n` back into newlines.',
-  'ai.routing.heredoc_example': "  Correct multi-line example:\n```bash\nbotmux send <<'EOF'\nline 1\nline 2\nEOF\n```",
-  'ai.routing.usage_images': '- Attach images: `botmux send --images /path/to/img.png "caption"`',
-  'ai.routing.usage_files': '- Attach files: `botmux send --files /path/to/file.pdf "FYI"`',
-  'ai.routing.usage_videos': '- Attach video previews: `botmux send --videos /path/to/demo.mp4 --video-covers /path/to/cover.png --no-mention "preview"`',
-  'ai.routing.usage_history': '- Read ambient chat history proactively only on the first turn of a new topic or CLI session, and only when the request depends on earlier messages. In an existing topic, use session context unless the user explicitly requests outside history. Treat mentions as semantic context. Follow `nextCursor` only while relevant context may remain.',
-  'ai.repository.local_checkout': '- Repository rule: before inspecting or changing code, prepare a current local checkout for every relevant repo in the session workspace. Clone missing repos unless the user opts out. For existing repos, preserve local changes, switch to the remote default branch, and fast-forward unless the user asks to continue current work, specifies a branch or revision, or opts out of syncing. Never reset, stash, overwrite, or discard user work; stop and report dirty or diverged state that blocks syncing. Use the current user\'s identity; ask the user to log in if authentication is missing or wrong. Inspect the synced working tree only, never remote code search or view, `git show` remote paths, or `git grep` remote refs. Remote tools remain valid for clone, authentication, sync, and merge requests.',
-  'ai.routing.usage_bots_list': '- List currently available collaborator bots: `botmux bots list`',
-
-  // ─── AI identity (multi-bot routing rules) ───────────────────────────────
-  'ai.identity.unknown': '(unknown)',
-  'ai.identity.routing_intro': 'There may be multiple bots in the current Lark conversation. Messages use `@name` and `open_id` to route. Check name/open_id above to decide if a message is for you:',
-  'ai.identity.rule_own_part': '- Do ONLY the part addressed to you; do not pick up work assigned to other bots',
-  'ai.identity.rule_silent_when_other': '- If the whole message is for another bot, stay silent — do not reply',
-  'ai.identity.rule_no_proactive_pull': '- **Do not proactively pull other bots in by default.** Unless the user explicitly asks, or a segment can only be done by another bot, finish your part and stop.',
-  'ai.identity.mention_intro': '**Hard fact about cross-bot collaboration**: other bots **do NOT receive** the messages you send via `botmux send` by default,',
-  'ai.identity.mention_must': 'To communicate or collaborate with another bot (so it receives your message), you **MUST** explicitly pass `--mention <other-bot-open-id>`. Without `--mention`, the other bot is not triggered at all.',
-  'ai.identity.mention_partners': '- The first-turn `<available_bots>` block lists the bots you can currently collaborate with (with open_ids when there are few, names only when many); you can also run `botmux bots list` anytime to get an open_id.',
-  'ai.identity.mention_usage': '- Usage: `botmux send --mention ou_xxx "message"` (repeat `--mention` for multiple bots). `--mention-back` @s back whoever (person or bot) triggered this turn — open_id is pulled from the session, no need to type it.',
-  'ai.identity.mention_gate': '- **@ hard gate**: every `botmux send` MUST explicitly pick one or it errors. Use `--mention-back` to reply to and notify the triggerer of this turn, `--mention` to notify another named person or bot, and `--no-mention` only when the message genuinely needs to notify no recipient. Do not make `--no-mention` the default, and do not @ people without purpose.',
-  'ai.identity.mention_when_to': '- Explicitly notify a person or bot whenever that recipient must receive and act on the message.',
-  'ai.identity.mention_when_not': '- Use `--no-mention` only when no recipient needs notification. The agent decides independently whether a message should be sent.',
-
-  // ─── AI hints (non-Claude CLIs: BOTMUX_SHELL_HINTS) ──────────────────────
-  'ai.shell.intro': 'You are talking with the user through Lark (Feishu). The user reads on Lark and cannot see your terminal output.',
-  'ai.shell.commands_are_shell': 'IMPORTANT: `botmux send` / `botmux history` / `botmux quoted` / `botmux bots` are SHELL commands (CLI programs installed in $PATH), NOT MCP tools. Run them via the Bash tool — don\'t look for them in the MCP tool list.',
-  'ai.shell.how_to_send': 'To send a message to the user (the only way): run `botmux send "your message"` via Bash. Attach images with `--images /path`, files with `--files /path`, video previews with `--videos /path.mp4 --video-covers /cover.png`.',
-  'ai.shell.multiline_heredoc': 'Body text containing Markdown, backticks, command fragments, or multiple lines MUST use a quoted heredoc / stdin (or a UTF-8 `--content-file`). Never put it in a double-quoted positional argument, write `botmux send "line1\\nline2"`, or pass `JSON.stringify` / JSON-escaped text as a positional argument; shell / botmux do not turn literal `\\n` back into newlines.',
-  'ai.shell.heredoc_example': "Correct multi-line example:\n```bash\nbotmux send <<'EOF'\nline 1\nline 2\nEOF\n```",
-  'ai.shell.helpers': 'Helpers: `botmux history` reads paginated chat history, `botmux quoted <message_id>` fetches a quoted message when prompted, and `botmux bots list` lists available collaborator bots. Use `botmux history` proactively only when the prompt marks a new topic or session first turn that needs earlier context. Otherwise, read outside the current topic only on explicit request.',
-  'ai.shell.when_to_send': 'Message transport rule: a bare `print` or `echo` does NOT count as a reply. When you have decided to send a message to the user, you MUST send it through `botmux send` first. Only when there is nothing left to send this turn, because everything meant for the user is already sent or the turn genuinely needs no reply (for example, the whole message was addressed to another bot), make the final assistant message exactly `BOTMUX_NOTHING_TO_SEND` (meaning "nothing left to send"; no need to explain the silence). It is NOT a shortcut for skipping a reply: ending with it when you owed a reply you never sent means the user got ghosted.',
-  'ai.shell.no_visible_output_ok': 'A successful `botmux send` (exit code 0) means it reached the user; ending a turn with no visible terminal text is normal. If you see a note like "your previous response had no visible output, please continue and produce a user-visible response", that is a false alarm from the underlying CLI — do NOT resend unless `botmux send` itself errored.',
-  'ai.shell.mention_gate': '@ decision (mandatory): every `botmux send` MUST explicitly pick one or it errors. Use `--mention-back` to reply to and notify the triggerer of this turn, `--mention <open_id:name>` to notify another named person or bot, and `--no-mention` only when the message genuinely needs to notify no recipient. Do not make `--no-mention` the default, and do not @ people without purpose. The agent decides independently whether a message should be sent.',
-
-  // ─── AI prompt blocks (session-manager) ──────────────────────────────────
-  'ai.attach.hint': 'Read these with the Read tool. The index matches the [image N] / [file N] placeholders in the body.',
-  'ai.identity.short_routing': 'Reminder: communicating or collaborating with another bot REQUIRES `botmux send --mention <their open_id>` — without it, the other bot is not triggered.',
-  'ai.available_bots.hint': 'To communicate or collaborate with a bot listed here you MUST --mention its open_id (botmux send --mention ou_xxx ...). Without --mention the other bot receives nothing.',
-  'ai.available_bots.hint_collapsed': 'To communicate or collaborate with another bot, first run `botmux bots list` to get its open_id, then --mention it. Without --mention the other bot receives nothing.',
-  'ai.available_bots.collapsed_line': 'There are {count} collaborator bots in the current conversation: {names}.',
-  'ai.followup.reminder': 'If you have anything for the user, you MUST `botmux send` it first. Body text containing Markdown, backticks, or multiple lines must use a quoted heredoc or stdin, never a double-quoted positional argument. Only when there is nothing left to send this turn (already sent, or genuinely no reply needed) make the final exactly BOTMUX_NOTHING_TO_SEND; it is not a shortcut for skipping a reply.',
-  'ai.followup.reminder_no_resend': 'If you have anything for the user, you MUST `botmux send` it first. Body text containing Markdown, backticks, or multiple lines must use a quoted heredoc or stdin, never a double-quoted positional argument. Only when there is nothing left to send this turn (already sent, or genuinely no reply needed) make the final exactly BOTMUX_NOTHING_TO_SEND; it is not a shortcut for skipping a reply. A successful send is already delivered; ending a turn with no visible text is normal, so do not resend on a "no visible output" nudge.',
-  'ai.cursor.sender_note': 'The sender tag is metadata identifying the current speaker — never copy its open_id or name (e.g. ou_xxx:Alice) into your botmux send body or opening line; to @ the triggerer use botmux send --mention-back.',
-  'ai.bridge.attachments_label': '[Attachments]',
-  'ai.bridge.mentions_label': '[@Mentions]',
   'schedule.title_prefix': '[Scheduled]',
 
   // ─── Role command ─────────────────────────────────────────────────────────
@@ -1272,27 +1220,34 @@ export const messages: Record<string, string> = {
   'card.artifact_overlap.result.separate': 'The agent will keep a clear distinction and create it separately.',
   'card.artifact_overlap.result.cancel': 'No content will be created or updated.',
   'card.artifact_overlap.result.request': 'Handling request',
-
-  // Voice summary instruction (injected into the model session)
-  'card.voice.summary_instruction': '🔊 [Voice summary request] Condense your last reply to the user into spoken prose of at most 5 sentences suitable for reading aloud: drop code, commands, file paths, URLs, English abbreviations and markdown; state only the conclusions, and get to the point in the first sentence. Then call `botmux send --voice "<the condensed spoken text>"` to send it as voice. Send only this one voice message — no extra text.',
+  'card.safe_recovery.title': 'Current task blocked by a safety policy',
+  'card.safe_recovery.title.confirmed': 'Safe retry confirmed',
+  'card.safe_recovery.title.started': 'Safe retry started',
+  'card.safe_recovery.title.failed': 'Safe retry could not start',
+  'card.safe_recovery.title.unknown': 'Safe retry status is unknown',
+  'card.safe_recovery.title.cancelled': 'Safe retry cancelled',
+  'card.safe_recovery.title.timeout': 'Safe retry confirmation timed out',
+  'card.safe_recovery.title.invalid': 'Safe retry confirmation expired',
+  'card.safe_recovery.field.problem': 'Problem',
+  'card.safe_recovery.problem': 'The Codex service stopped this task because of its cybersecurity policy. The task is incomplete.',
+  'card.safe_recovery.field.option': 'Available option',
+  'card.safe_recovery.option': 'Start a new conversation and retry the original task with a conservative, read-only analysis strategy.',
+  'card.safe_recovery.context_warning': 'The new conversation will preserve as much context as possible. Tool limitations may still cause some messages, tool progress, or temporary context to be lost.',
+  'card.safe_recovery.button.confirm': 'Start new conversation and retry',
+  'card.safe_recovery.button.cancel': 'Cancel',
+  'card.safe_recovery.result.confirmed': 'Confirmation received. Preparing the new conversation.',
+  'card.safe_recovery.result.started': 'The original task is now being retried in a new conversation.',
+  'card.safe_recovery.result.failed': 'The new conversation could not be started. The original task was not retried.',
+  'card.safe_recovery.result.unknown': 'The recovery result could not be confirmed. Check the current conversation before retrying.',
+  'card.safe_recovery.result.cancelled': 'No new conversation was started. The original task will not retry automatically.',
+  'card.safe_recovery.result.not_started': 'Safe retry was not started.',
+  'worker.safe_recovery_confirmation_failed': 'Could not create the restart confirmation. The Codex conversation was not reset.',
 
   // Card action toasts (dedupe / in-flight / approver gate)
   'toast.action_received_no_repeat': 'Action received — please don’t click again',
   'toast.action_in_progress': 'Action in progress — please wait',
   'toast.action_received_bg': 'Action received — processing in the background',
   'toast.not_in_approver_list': 'You’re not on the approver list — no action taken',
-
-  // Quote hint (injected into the CLI prompt)
-  'prompt.quote_hint': '[User quoted a message — run `botmux quoted {id}` to view it]',
-  // Topic context hint — prepended on the first turn of a regular-group topic
-  // whose root is a different (earlier) message the bot never retained. It's a
-  // *hint*, not the transcript, and carries NO count (zero first-turn network
-  // probe): signals that prior topic context exists and points at
-  // `botmux history` for on-demand retrieval (thread-scope by default).
-  'prompt.topic_context': '[This is a reply inside a topic that already had prior messages before you, including the topic root and possibly other replies. Run `botmux history` to read them when needed. If `hasMore=true`, continue with `--cursor <nextCursor>`. Use `botmux quoted <message_id>` for a message’s attachments.]',
-  'prompt.history_lookup.group_thread': '[New group topic, first turn. If this request depends on discussion before the topic opened, run `botmux history --scope ambient` before acting. Follow `nextCursor` only while relevant context may remain. This automatic lookup applies to this turn only.]',
-  'prompt.history_lookup.group_chat': '[New group session, first turn. If this request depends on earlier group discussion, run `botmux history` before acting. Follow `nextCursor` only while relevant context may remain. This automatic lookup applies to this turn only.]',
-  'prompt.history_lookup.p2p': '[New direct-message topic, first turn. If this request depends on earlier direct messages, run `botmux history --scope chat` before acting. Follow `nextCursor` only while relevant context may remain. This automatic lookup applies to this turn only.]',
 
   // Markdown / contextual reply card chrome
   'card.you': 'You',
@@ -1358,8 +1313,4 @@ export const messages: Record<string, string> = {
   // ─── Dashboard create session ──────────────────────────────────────────────
   'cmd.createSession.untitled': 'New session',
   'cmd.createSession.banner': '📋 New session task: {content}',
-  'cmd.createSession.lead_preamble_intro': 'You are the lead (orchestrator) bot in this chat. The following sub-bots are here and available to collaborate — delegate subtasks to them as needed (just @-mention a bot in the chat to spin it up, or use botmux orchestrate / handoff):',
-  'cmd.createSession.lead_preamble_no_subs': '(No other collaborating sub-bots in this chat yet)',
-  'cmd.createSession.lead_preamble_outro': 'You decide when and to whom to assign work. Here is the overall task assigned by the user:',
-  'cmd.createSession.collab_note': '{peers} are also working on this same task in parallel with you — coordinate and avoid duplicating effort.',
 };

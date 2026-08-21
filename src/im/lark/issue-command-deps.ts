@@ -1,8 +1,5 @@
 /**
- * 把 [[issue-command]] 声明的依赖接到真实实现上。
- *
- * 单独一个文件是为了让 issue-command 保持可测：那边只认接口，真实的平台客户端、建群服务、
- * bot 注册表都在这里装配。card-handler 与 command-handler 都从这里取。
+ * Wire the interfaces declared by issue-command to production services.
  */
 import { config } from '../../config.js';
 import { effectiveBotDisplayName, getBot } from '../../bot-registry.js';
@@ -25,11 +22,7 @@ import { sendMessage } from './client.js';
 import type { IssueCommandDeps, TerminalResult } from './issue-command.js';
 
 /**
- * kickoff 正文。写给 agent 看，所以要把它开工需要的一切都说全：干什么、在哪干、
- * 做完怎么交付。
- *
- * 最后那句 `botmux report` 不是客套：它是**本机唯一**会把 issue 推到 in_review 的信号
- * （见 [[issue-status-projector]] 的计划）。不写进 kickoff，agent 干完了平台也不知道。
+ * Build the complete agent kickoff, including the required delivery signal.
  */
 export function buildKickoffPrompt(args: {
   title: string;
@@ -38,14 +31,14 @@ export function buildKickoffPrompt(args: {
   issueId: string;
 }): string {
   return [
-    `请接手这个任务：**${args.title}**`,
+    `Complete this issue: **${args.title}**`,
     '',
-    args.body?.trim() ? args.body.trim() : '_（这条任务没有填写详细描述）_',
+    args.body?.trim() ? args.body.trim() : 'No description was provided.',
     '',
-    `工作目录：\`${args.workingDir}\``,
-    `平台任务 ID：\`${args.issueId}\``,
+    `Working directory: \`${args.workingDir}\``,
+    `Platform issue ID: \`${args.issueId}\``,
     '',
-    '完成后执行 `botmux report` 交付，我会据此把任务状态推到「待验收」。',
+    'When the work is complete, run `botmux report` to deliver it and move the issue to review.',
   ].join('\n');
 }
 

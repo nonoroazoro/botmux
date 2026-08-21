@@ -5209,6 +5209,90 @@ async function cmdWorkflowGrant(runId: string | undefined, rest: string[]): Prom
   console.log(`➕ v3 run "${runId}" 已追加一轮，loop 将带上一轮反馈重跑。`);
 }
 
+/**
+ * Request safe recovery for an active Codex-backed Botmux session.
+ *
+ * The command is generic across configured bots and workspaces. It does not
+ * reset Codex directly: the daemon sends a Lark confirmation card to the exact
+ * latest caller, warns about possible native-context loss, and starts a fresh
+ * Codex conversation only after confirmation. Botmux routing and workspace
+ * state remain unchanged. Managed AI CLI processes cannot invoke this host
+ * lifecycle operation themselves.
+ */
+async function cmdSafeRecover(): Promise<void> {
+  if (findAncestorSessionContext()) {
+    console.error('❌ safe-recover 只能由宿主终端操作，不能在 Botmux 管理的 AI CLI 会话内执行。');
+    process.exit(1);
+  }
+  const target = process.argv[3];
+  if (!target) {
+    console.error('用法: botmux safe-recover <session-id|prefix>');
+    process.exit(1);
+  }
+
+  const active = [...loadSessions().values()].filter(session => session.status === 'active');
+  const matches = active.filter(session => session.sessionId.startsWith(target));
+  if (matches.length === 0) {
+    console.error(`❌ 未找到匹配 "${target}" 的活跃会话`);
+    process.exit(1);
+  }
+  if (matches.length > 1) {
+    console.error(`❌ "${target}" 匹配了 ${matches.length} 个活跃会话，请提供更长的 ID 前缀：`);
+    for (const session of matches) {
+      console.error(`   ${session.sessionId.substring(0, 12)}  ${session.title}`);
+    }
+    process.exit(1);
+  }
+  const session = matches[0];
+  if (!session.larkAppId && listOnlineDaemons().length > 1) {
+    console.error(`❌ 会话 ${session.sessionId.substring(0, 12)} 缺少 larkAppId，多 bot 部署下无法判定归属。`);
+    process.exit(1);
+  }
+  const daemon = findDaemon(session.larkAppId);
+  if (!daemon) {
+    console.error('❌ 未找到在线 daemon。请确认 daemon 正在运行：botmux status');
+    process.exit(1);
+  }
+
+  let response: Response;
+  try {
+    response = await fetchDaemonIpc(
+      daemon.ipcPort,
+      `/api/sessions/${encodeURIComponent(session.sessionId)}/safe-recover`,
+      { method: 'POST' },
+    );
+  } catch (error) {
+    console.error(`❌ 无法连接到 daemon (port=${daemon.ipcPort}): ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+  let body: { ok?: boolean; error?: string } = {};
+  try {
+    body = await response.json() as { ok?: boolean; error?: string };
+  } catch {
+    // The HTTP status remains authoritative when the daemon returned no JSON.
+  }
+  if (response.ok && body.ok) {
+    console.log(`✅ 已向会话 ${session.sessionId.substring(0, 12)} 的最近调用者发送确认卡片。`);
+    console.log('   用户确认后才会创建新的 Codex 会话；飞书话题和 Web 终端地址保持不变。');
+    return;
+  }
+
+  const error = body.error ?? `HTTP ${response.status}`;
+  const messages: Record<string, string> = {
+    session_not_active: '会话不在当前 daemon 的活跃列表中。',
+    session_transferring: '会话正在迁移，请稍后重试。',
+    adopt_recovery_unsupported: 'adopt 会话不支持安全恢复。',
+    codex_required: '该命令仅支持 Codex 会话。',
+    recovery_context_unavailable: '找不到最近一次任务上下文。',
+    no_live_worker: '会话 worker 未运行，请先恢复会话。',
+    requester_unavailable: '找不到可确认该操作的最近调用者。',
+    card_dispatch_failed: '确认卡片发送失败，安全恢复未启动。',
+    trusted_host_required: '该命令必须从有宿主权限的终端执行。',
+  };
+  console.error(`❌ 安全恢复失败：${messages[error] ?? error}`);
+  process.exit(1);
+}
+
 async function cmdResume(): Promise<void> {
   const target = process.argv[3];
   if (!target) {
@@ -5434,6 +5518,7 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
   delete stopped   清理所有进程已退出的僵尸会话
   resume <id>      恢复一个已关闭的会话（支持 ID 前缀匹配）— 会话标记回 active，
                    下条消息会以 --resume 重新拉起 CLI 进程
+  safe-recover <id>  请求安全恢复 Codex 会话；先由最近调用者在飞书确认，再新建原生会话继续任务
   suspend <id|all>     挂起活跃会话：杀 CLI/pane 但会话保持 active，下条消息冷启动续上下文
        --bot <appId>   挂起该 bot 的全部活跃会话
        --isolated      挂起所有读隔离 bot（凭证轮换后用；下次冷启动自动同步最新凭证）
@@ -11136,6 +11221,7 @@ switch (command) {
   case 'del':
   case 'rm':      await cmdDelete(); break;
   case 'resume':  await cmdResume(); break;
+  case 'safe-recover': await cmdSafeRecover(); break;
   case 'suspend': await cmdSuspend(); break;
   case 'slash':   await cmdSlash(); break;
   case 'cd': {

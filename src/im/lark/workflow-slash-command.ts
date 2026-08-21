@@ -17,7 +17,7 @@ export function parseWorkflowGrillTrigger(content: string): WorkflowGrillTrigger
   if (!match) return null;
   const tail = (match[1] ?? '').trim();
   if (!tail) return { kind: 'usage' };
-  const firstToken = tail.split(/\s+/)[0]!;
+  const firstToken = tail.split(/\s+/)[0] ?? '';
   if (['run', 'save', 'list', 'show', 'cancel', 'resume'].includes(firstToken)) return null;
   const goal = firstToken === 'new' ? tail.slice(firstToken.length).trim() : tail;
   return goal ? { kind: 'goal', goal } : { kind: 'usage' };
@@ -25,11 +25,12 @@ export function parseWorkflowGrillTrigger(content: string): WorkflowGrillTrigger
 
 export function buildWorkflowGrillPrompt(goal: string): string {
   return [
-    '[/workflow new] 用户通过 `/workflow new` 显式发起了一个即兴 workflow。',
-    '请使用 `botmux-workflow` skill 处理下面这个目标：直接进入 grill（用户已显式发起，"确认意图"那步可省略），',
-    '在当前飞书话题里一问一答澄清需求，然后自动编排成 DAG 流程并跑完。',
+    '[/workflow new] The user explicitly started an ad hoc Workflow.',
+    'Read and follow the `botmux-workflow` skill. Skip intent confirmation, clarify the goal one question at a time in the current Lark topic, compile the approved specification into a DAG, and execute it to completion.',
     '',
-    `目标：${goal}`,
+    '<user_goal>',
+    goal,
+    '</user_goal>',
   ].join('\n');
 }
 

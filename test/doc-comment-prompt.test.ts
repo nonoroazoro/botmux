@@ -38,10 +38,10 @@ describe('buildDocCommentPrompt', () => {
     expect(prompt).toContain('我们计划在 Q4 发布');
     expect(prompt).toContain('需要补充数据');
     expect(prompt).toContain('这个结论有什么依据');
-    expect(prompt).toContain('先使用当前可用的飞书文档工具');
-    expect(prompt).toContain('不要调用文档评论、回复或 reaction API');
-    expect(prompt).toContain('默认进入“仅文档”模式');
-    expect(prompt).toContain('不要读取或引用本机上的其它项目');
+    expect(prompt).toContain('read it with an available Feishu/Lark document tool');
+    expect(prompt).toContain('Do not call comment, reply, or reaction APIs');
+    expect(prompt).toContain('No project directory is bound');
+    expect(prompt).toContain('Do not inspect unrelated local projects or files');
   });
 
   it('uses the Lark host and English guidance for an English bot', () => {
@@ -55,7 +55,7 @@ describe('buildDocCommentPrompt', () => {
     });
 
     expect(prompt).toContain('https://larksuite.com/sheet/sheet_token');
-    expect(prompt).toContain('Answer the current comment using the document as the primary context.');
+    expect(prompt).toContain('Answer the current Feishu/Lark document comment.');
   });
 });
 
@@ -87,14 +87,15 @@ describe('clean Codex App document-comment input', () => {
     const application = buildDocCommentApplicationContext(promptInput);
     const message = buildDocCommentMessageContext(promptInput);
 
-    expect(application).toContain('Botmux 文档评论轮次规则');
-    expect(application).toContain('原评论串投递和表情由 Botmux 统一负责');
+    expect(application).toContain('Document-comment turn rules');
+    expect(application).toContain('Botmux owns delivery');
     expect(application).not.toContain(promptInput.question);
     expect(message).toContain('https://feishu.cn/docx/doc_clean_123');
     expect(message).toContain(promptInput.selectedText);
     expect(message).toContain(promptInput.priorReplies[0].text);
     expect(message).not.toContain(promptInput.question);
-    expect(message).not.toContain('current_comment');
+    expect(message).toContain('current_comment="omitted"');
+    expect(message).not.toContain('"current_comment":');
   });
 
   it('uses only the current comment as visible text on the live path and preserves the exact legacy content', () => {
@@ -133,7 +134,7 @@ describe('clean Codex App document-comment input', () => {
     expect(Object.entries(additional ?? {})
       .filter(([key]) => key.startsWith('botmux_message_context'))
       .every(([, entry]) => entry.kind === 'untrusted')).toBe(true);
-    expect(application).toContain('Botmux 文档评论轮次规则');
+    expect(application).toContain('Document-comment turn rules');
     expect(application).not.toContain(promptInput.question);
     expect(message).toContain(promptInput.selectedText);
     expect(message).toContain(promptInput.priorReplies[0].text);
@@ -179,11 +180,11 @@ describe('buildDocWatchWarmupPrompt', () => {
       locale: 'zh',
     });
     expect(prompt).toContain('https://feishu.cn/docx/doc_token_123');
-    expect(prompt).toContain('会前准备');
-    expect(prompt).toContain('读取文档');
-    expect(prompt).toContain('不要发表或修改任何文档评论');
-    expect(prompt).toContain('进入评论待命');
-    expect(prompt).toContain('默认进入“仅文档”模式');
+    expect(prompt).toContain('Prepare as the real-time comment assistant');
+    expect(prompt).toContain('Read the document with an available Feishu/Lark document tool');
+    expect(prompt).toContain('Do not post or modify document comments');
+    expect(prompt).toContain('confirming that the document is loaded');
+    expect(prompt).toContain('No project directory is bound');
   });
 
   it('allows relevant local code context when a project is explicitly bound', () => {
@@ -194,9 +195,9 @@ describe('buildDocWatchWarmupPrompt', () => {
       brand: 'feishu',
       locale: 'zh',
     });
-    expect(prompt).toContain('当前会话已绑定项目目录：/work/ai-coding');
-    expect(prompt).toContain('仅当问题确实涉及实现、代码或仓库事实时');
-    expect(prompt).not.toContain('默认进入“仅文档”模式');
+    expect(prompt).toContain('Bound project directory: /work/ai-coding');
+    expect(prompt).toContain('only when the request depends on implementation or repository facts');
+    expect(prompt).not.toContain('No project directory is bound');
   });
 
   it('uses a concise visible label without exposing operational instructions', () => {

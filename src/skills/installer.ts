@@ -17,7 +17,7 @@ function expandHome(p: string): string {
  *  `name` is the only required field; it namespaces the bundled skills. */
 const PLUGIN_MANIFEST = JSON.stringify({
   name: 'botmux',
-  description: 'botmux 飞书话题桥接内置 skill —— 仅在 botmux 拉起的会话内通过 --plugin-dir 注入，不写入全局 ~/.claude/skills。',
+  description: 'Built-in botmux Lark bridge skills injected per session through --plugin-dir without modifying global Claude skills.',
   version: '1.0.0',
   author: { name: 'botmux' },
 }, null, 2) + '\n';
@@ -28,7 +28,7 @@ const PLUGIN_MANIFEST = JSON.stringify({
  * the user's global `~/.claude/skills`. Writes:
  *   - {pluginDir}/.claude-plugin/plugin.json   (manifest, name='botmux')
  *   - {pluginDir}/skills/<name>/SKILL.md        (one per built-in skill)
- * Idempotent — only writes when content differs. Skill files are written by
+ * Idempotent: writes only when content differs. Skill files are written by
  * reusing `ensureSkills` against `{pluginDir}/skills` (same flat layout).
  */
 export function ensurePluginSkills(cliId: string, pluginDir: string | undefined): void {
@@ -40,7 +40,7 @@ export function ensurePluginSkills(cliId: string, pluginDir: string | undefined)
     mkdirSync(manifestDir, { recursive: true });
     if (!(existsSync(manifestFile) && readFileSync(manifestFile, 'utf-8') === PLUGIN_MANIFEST)) {
       atomicWriteFileSync(manifestFile, PLUGIN_MANIFEST);
-      logger.info(`[skills] Wrote plugin manifest for ${cliId} → ${manifestFile}`);
+      logger.info(`[skills] Wrote plugin manifest for ${cliId} -> ${manifestFile}`);
     }
   } catch (err: any) {
     logger.warn(`[skills] Failed to write plugin manifest for ${cliId}: ${err.message}`);
@@ -55,7 +55,7 @@ export function ensurePluginSkills(cliId: string, pluginDir: string | undefined)
  * user's standalone CLI sessions, so we delete them on upgrade.
  *
  * Matches by the `botmux-` directory-name prefix (the namespace botmux owns)
- * rather than the static `BUILTIN_SKILLS` list — a daemon may have previously
+ * rather than the static `BUILTIN_SKILLS` list. A daemon may have previously
  * installed skills that a *different* botmux version shipped (e.g.
  * `botmux-handoff`), and those must be cleaned too. Non-`botmux-` user skills
  * are never touched.
@@ -75,7 +75,7 @@ export function removeGlobalBotmuxSkills(globalSkillsDir: string | undefined): v
     if (!isDir) continue;
     try {
       rmSync(skillDir, { recursive: true, force: true });
-      logger.info(`[skills] Removed leaked global skill ${name} → ${skillDir}`);
+      logger.info(`[skills] Removed leaked global skill ${name} -> ${skillDir}`);
     } catch (err: any) {
       logger.warn(`[skills] Failed to remove leaked global skill ${name}: ${err.message}`);
     }
@@ -83,14 +83,7 @@ export function removeGlobalBotmuxSkills(globalSkillsDir: string | undefined): v
 }
 
 /**
- * 条件管理 `botmux-ask` skill —— hook 优先 + 非 hook CLI 兜底策略。
- *
- * - `install=false`（CLI 支持 hook 接管 askUserQuestion）：删除该 skill，避免
- *   skill 与 hook 双重弹卡 / 抢工具。
- * - `install=true`（CLI 无 hook 接管能力）：写入该 skill，让 agent 至少能用
- *   `botmux ask buttons` 把选择题引到飞书（不如 hook 可靠，但有得用）。
- *
- * 幂等：install 时内容相同则跳过；remove 时不存在则跳过。
+ * Install the ask fallback only when the CLI has no native question hook.
  */
 export function ensureAskSkill(cliId: string, skillsDir: string | undefined, install: boolean): void {
   if (!skillsDir) return;
@@ -101,11 +94,11 @@ export function ensureAskSkill(cliId: string, skillsDir: string | undefined, ins
       if (existsSync(skillFile) && readFileSync(skillFile, 'utf-8') === ASK_SKILL) return;
       mkdirSync(skillDir, { recursive: true });
       atomicWriteFileSync(skillFile, ASK_SKILL);
-      logger.info(`[skills] Installed ${ASK_SKILL_NAME} (无 hook 接管，兜底) for ${cliId} → ${skillFile}`);
+      logger.info(`[skills] Installed ${ASK_SKILL_NAME} fallback for ${cliId} -> ${skillFile}`);
     } else {
       if (!existsSync(skillDir)) return;
       rmSync(skillDir, { recursive: true, force: true });
-      logger.info(`[skills] Removed ${ASK_SKILL_NAME} (hook 已接管) for ${cliId}`);
+      logger.info(`[skills] Removed ${ASK_SKILL_NAME}; native hook is active for ${cliId}`);
     }
   } catch (err: any) {
     logger.warn(`[skills] ensureAskSkill(${install}) failed for ${cliId}: ${err.message}`);
@@ -113,18 +106,7 @@ export function ensureAskSkill(cliId: string, skillsDir: string | undefined, ins
 }
 
 /**
- * 条件管理 `botmux-whiteboard` skill —— 跟随白板能力开关（与 {@link ensureAskSkill}
- * 同构）。白板默认关闭，是可选增强，所以它的 skill 不进 `BUILTIN_SKILLS`（那会被
- * 无条件安装），而是按开关动态写入 / 删除：
- *
- * - `install=true`（白板已开启）：写入 SKILL.md，让 agent 看得到并能用
- *   `botmux whiteboard read/update`。
- * - `install=false`（白板关闭）：删除该 skill 目录，避免给 agent 暴露一个当前
- *   用不了（CLI 读写会被拒）的能力；也清理旧版本无条件装下的残留。
- *
- * 由 worker-pool 的 `ensureCliSkills` 在每次 spawn 时按 `whiteboardEnabled()`
- * 调用（不走一次性缓存），所以运行时切换开关下一个会话即生效，无需重启 daemon。
- * 幂等：install 时内容相同则跳过；remove 时不存在则跳过。
+ * Install or remove the optional whiteboard skill from the current CLI.
  */
 export function ensureWhiteboardSkill(cliId: string, skillsDir: string | undefined, install: boolean): void {
   if (!skillsDir) return;
@@ -135,7 +117,7 @@ export function ensureWhiteboardSkill(cliId: string, skillsDir: string | undefin
       if (existsSync(skillFile) && readFileSync(skillFile, 'utf-8') === WHITEBOARD_SKILL) return;
       mkdirSync(skillDir, { recursive: true });
       atomicWriteFileSync(skillFile, WHITEBOARD_SKILL);
-      logger.info(`[skills] Installed ${WHITEBOARD_SKILL_NAME} (whiteboard enabled) for ${cliId} → ${skillFile}`);
+      logger.info(`[skills] Installed ${WHITEBOARD_SKILL_NAME} (whiteboard enabled) for ${cliId} -> ${skillFile}`);
     } else {
       if (!existsSync(skillDir)) return;
       rmSync(skillDir, { recursive: true, force: true });
@@ -148,7 +130,7 @@ export function ensureWhiteboardSkill(cliId: string, skillsDir: string | undefin
 
 /**
  * Install (or refresh) the built-in skill library into the given CLI's skills
- * directory. Idempotent — only writes when content differs.
+ * directory. Idempotent: writes only when content differs.
  *
  * Each skill becomes {skillsDir}/<name>/SKILL.md. Sub-directory layout
  * matches Claude Code / Gemini / OpenCode convention. Retired skills (renamed
@@ -169,15 +151,16 @@ export function ensureSkills(cliId: string, skillsDir: string | undefined): void
         if (current === skill.content) continue;
       }
       mkdirSync(skillDir, { recursive: true });
-      // 原子写：多个 daemon 启动时并发刷同一份共享 skill 文件，CLI spawn 同时在读。
+      // Write atomically because multiple daemons may refresh a shared skill
+      // directory while a CLI is reading it.
       atomicWriteFileSync(skillFile, skill.content);
-      logger.info(`[skills] Installed ${skill.name} for ${cliId} → ${skillFile}`);
+      logger.info(`[skills] Installed ${skill.name} for ${cliId} -> ${skillFile}`);
     } catch (err: any) {
       logger.warn(`[skills] Failed to install ${skill.name} for ${cliId}: ${err.message}`);
     }
   }
 
-  // Clean up retired skill directories (e.g. botmux-thread-messages → botmux-history).
+  // Clean up retired skill directories, such as botmux-thread-messages replaced by botmux-history.
   for (const retired of RETIRED_SKILL_NAMES) {
     const retiredDir = join(dir, retired);
     if (!existsSync(retiredDir)) continue;

@@ -1,23 +1,23 @@
 /**
- * Built-in skill injection mode — how botmux's own bridge skills
- * (botmux-send / botmux-schedule / …) reach a CLI that only supports a GLOBAL
+ * Built-in skill injection mode for botmux bridge skills.
+ * These skills reach a CLI that only supports a global
  * skills directory (codex/gemini/opencode/cursor/coco/traex/pi/oh-my-pi/mtr/
- * kiro-cli/genius/grok — everything with an adapter `skillsDir`, i.e. no per-session
+ * kiro-cli/genius/grok. This covers adapters with `skillsDir` and no per-session
  * `--plugin-dir` injection like Claude Code).
  *
- * Three modes, resolved from per-bot `skillInjection` (bots.json) → machine-wide
- * `skills.builtinInjection` (config.json) → the `prompt` default:
+ * Resolve modes from per-bot `skillInjection`, then machine-wide
+ * `skills.builtinInjection`, then the `prompt` default:
  *
  *   - `global`: install the skill files into the CLI's shared global dir. Full
  *     native discovery, but the user's own standalone `codex`/`gemini` also sees
  *     them and can mis-fire. Right for hosts whose users never run the CLI by hand.
  *   - `prompt` (DEFAULT): don't touch the global dir; inject a compact skill
  *     catalog into the session prompt and let the model pull full instructions on
- *     demand via `botmux skill show <name>`. Session-scoped → no leak.
- *   - `off`: neither files nor catalog — routing hints + `botmux --help` only.
+ *     demand via `botmux skill show <name>`. Session-scoped delivery does not leak.
+ *   - `off`: neither files nor catalog; only routing hints and `botmux --help`.
  *
  * The install side (worker-pool `ensureCliSkills`) resolves per skills-DIR
- * (dirs are shared across CLIs — coco/traex → ~/.trae/skills — so the decision
+ * because directories can be shared across CLIs. The decision
  * is "does ANY bot on this dir want global") and the prompt side resolves per
  * bot (the catalog is genuinely per-session). Both funnel through here so the
  * two channels never disagree.
@@ -52,7 +52,9 @@ export function globalBuiltinSkillInjectionDefault(): SkillInjectionMode {
   return isSkillInjectionMode(v) ? v : DEFAULT_BUILTIN_SKILL_INJECTION;
 }
 
-/** Per-bot override (bots.json `skillInjection`) → machine default. */
+/**
+ * Resolve a per-bot override, then the machine default.
+ */
 export function resolveSkillInjectionMode(botOverride?: string): SkillInjectionMode {
   return isSkillInjectionMode(botOverride) ? botOverride : globalBuiltinSkillInjectionDefault();
 }
@@ -79,7 +81,7 @@ function expandHome(p: string): string {
  * configured bot whose adapter writes to `skillsDir` resolves to `global`. Keyed
  * by the resolved dir (not cliId) because several CLIs share one dir, so a
  * `global` traex bot must keep the files a `prompt` coco bot would otherwise
- * sweep from the same ~/.trae/skills. Union semantics → deterministic across the
+ * sweep from the same ~/.trae/skills. Union semantics remain deterministic across the
  * per-bot daemons that each independently call this.
  */
 export function shouldInstallGlobalSkills(skillsDir: string): boolean {
@@ -98,13 +100,13 @@ export function shouldInstallGlobalSkills(skillsDir: string): boolean {
 /**
  * How a CLI delivers botmux skills, for the dashboard control (and any other
  * consumer that must branch on skill-delivery capability):
- *  - 'dynamic': per-session `--plugin-dir` injection — the claude-family
+ *  - `dynamic`: per-session `--plugin-dir` injection for the Claude family
  *    (claude-code), which sets `pluginDir`. Not configurable: it
  *    always inject dynamically, no global leak. The mode knobs don't apply.
- *  - 'global': a shared global skills dir (`skillsDir`) — codex/gemini/opencode/
- *    cursor/coco/traex/pi/oh-my-pi/mtr/kiro-cli/genius/grok — where
+ *  - `global`: a shared global skills directory for codex/gemini/opencode/
+ *    cursor/coco/traex/pi/oh-my-pi/mtr/kiro-cli/genius/grok, where
  *    global|prompt|off applies.
- *  - 'none': neither; the CLI has no skill mechanism (antigravity/hermes/
+ *  - `none`: the CLI has no skill mechanism (antigravity/hermes/
  *    codex-app), so there's nothing to configure.
  * Capability-based so future adapters are classified without per-adapter upkeep.
  */
@@ -129,9 +131,8 @@ const FULLY_ROUTING_COVERED_SKILLS = new Set(['botmux-history', 'botmux-quoted',
  *  high-signal trigger for the send cases that routing does not fully cover. */
 function promptCatalogDescription(entry: BuiltinSkillEntry, locale?: Locale): string {
   if (entry.name !== 'botmux-send') return entry.description;
-  return locale === 'en'
-    ? 'Read once before the first complex Lark send: multi-line/structured Markdown (tables or code blocks), attachments/cards/@mentions, cross-chat/top-level publishing, or --attention. Follow the full heredoc/--content-file guidance; never pass JSON.stringify/JSON-escaped \\n as literal text.'
-    : '首次复杂飞书发送前读取：多行/结构化 Markdown（表格或代码块）、附件/卡片/@mention、跨群/顶层发布或 --attention。按完整说明使用 heredoc/--content-file，不要把 JSON.stringify/JSON 转义产生的 \\n 当字面量发送。';
+  void locale;
+  return 'Read before the first complex Lark send: structured or multiline Markdown, attachments, cards, mentions, cross-chat or top-level publishing, or --attention. Follow the heredoc and --content-file rules; never send JSON-escaped newlines as literal text.';
 }
 
 /** First `description:` value from a SKILL.md YAML frontmatter (single line). */
@@ -162,9 +163,11 @@ export function builtinSkillEntries(opts: {
   return defs.map((d) => ({ name: d.name, description: frontmatterDescription(d.content), content: d.content }));
 }
 
-/** Full SKILL.md body for a built-in skill name — backs `botmux skill show`
- *  on-demand reads in `prompt` mode (independent of the per-CLI toggles above,
- *  so a name that made it into the catalog always resolves). */
+/**
+ * Full SKILL.md body for a built-in skill name, used by `botmux skill show`
+ * on-demand reads in `prompt` mode. This is independent of the per-CLI toggles,
+ * so a name that made it into the catalog always resolves.
+ */
 export function builtinSkillContent(name: string): string | undefined {
   const all = [...BUILTIN_SKILLS, ...ON_DEMAND_BUILTIN_SKILLS, { name: ASK_SKILL_NAME, content: ASK_SKILL }, { name: WHITEBOARD_SKILL_NAME, content: WHITEBOARD_SKILL }];
   return all.find((d) => d.name === name)?.content;
@@ -173,7 +176,7 @@ export function builtinSkillContent(name: string): string | undefined {
 /**
  * The `<botmux_builtin_skills>` prompt block for `prompt` mode: a one-line-per-skill
  * catalog (name + trigger description) plus the instruction to read the full
- * body on demand. Deliberately compact (descriptions only) — full instructions
+ * body on demand. The block contains descriptions only. Full instructions
  * are pulled via `botmux skill show <name>`, mirroring native progressive
  * disclosure without the per-session token cost of inlining every SKILL.md.
  *
@@ -181,6 +184,7 @@ export function builtinSkillContent(name: string): string | undefined {
  * are prose (including dynamic skill descriptions), so escape them here.
  */
 export function buildBuiltinSkillCatalogBlock(entries: BuiltinSkillEntry[], locale?: Locale): string {
+  void locale;
   const normalizedEntries = entries.flatMap((entry) => {
     const name = entry.name.trim();
     const description = promptCatalogDescription(entry, locale).trim();
@@ -188,10 +192,7 @@ export function buildBuiltinSkillCatalogBlock(entries: BuiltinSkillEntry[], loca
     return [{ name, description }];
   });
   if (normalizedEntries.length === 0) return '';
-  const en = locale === 'en';
-  const intro = en
-    ? '<botmux_routing> covers basic communication only. These supplementary botmux skills are available in this session. Match the task against a description, then run `botmux skill show <name>` to read that skill\'s full instructions before acting — do not guess the commands.'
-    : '<botmux_routing> 只覆盖基础通信用法。当前 botmux 会话还有下面这些可按需读取的内置技能。先按描述判断该用哪个，再用 `botmux skill show <name>` 读取完整说明后再执行——不要凭空猜命令。';
+  const intro = '<botmux_routing> covers basic communication. Match the current task to one of these supplementary skills, then run `botmux skill show <name>` before acting. Do not guess command syntax.';
   const lines = normalizedEntries.map(entry => escapeXmlText(`- ${entry.name}: ${entry.description}`));
   // Distinct tag from the user-registered skill catalog (`<botmux_skills
   // mode=...>`, injected only in the worker via prepareSessionSkillPrompt) so
@@ -204,9 +205,8 @@ export function buildBuiltinSkillCatalogBlock(entries: BuiltinSkillEntry[], loca
  *  so it's consistently wrapped rather than a bare line in the prompt. Its
  *  inner help line follows the same text-only contract as the catalog body. */
 export function builtinSkillHelpPointer(locale?: Locale): string {
-  const inner = locale === 'en'
-    ? 'Beyond the commands in <botmux_routing>, more botmux capabilities are shell subcommands. Run `botmux --help`, and `botmux <cmd> --help` for a specific one, to discover them.'
-    : '除了 <botmux_routing> 里的命令，botmux 还有其他 shell 子命令。用 `botmux --help` 查全部，`botmux <子命令> --help` 查单个用法。';
+  void locale;
+  const inner = 'Additional botmux capabilities are shell subcommands. Run `botmux --help` to list them and `botmux <command> --help` for command syntax.';
   return `<botmux_builtin_skills>\n${escapeXmlText(inner)}\n</botmux_builtin_skills>`;
 }
 
@@ -218,9 +218,9 @@ export function builtinSkillHelpPointer(locale?: Locale): string {
  * `--plugin-dir` instead and does not call this.
  *
  * Resolves per-bot / machine `skillInjection` mode:
- *   - `prompt` → compact catalog (on-demand `botmux skill show`)
- *   - `off`    → help pointer only
- *   - `global` → empty (files already on disk via ensureCliSkills)
+ *   - `prompt`: compact catalog with on-demand `botmux skill show`
+ *   - `off`: help pointer only
+ *   - `global`: empty because files are already installed
  */
 export function builtinSkillBlockForInjectsSessionContext(
   larkAppId: string | undefined,

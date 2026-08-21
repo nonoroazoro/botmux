@@ -1,21 +1,21 @@
 /**
  * Build a lightweight *hint* (not the topic transcript) telling the CLI that
- * this first turn is a reply inside a 普通群 topic whose root the bot never
- * retained — and that it can pull the topic history on demand via
+ * this first turn is a reply inside a regular-group topic whose root the bot
+ * never retained, and that it can pull topic history on demand via
  * `botmux history`.
  *
  * Why this is needed: a 普通群 topic is often started on an earlier message X
  * (X carries `thread_id` but no `root_id`, arrived as a top-level group message
  * without an @, and was ignored/never retained by the daemon). The @-mention
  * reply carries `root_id=X` + `thread_id` and routes to a session anchored at X
- * — so on the first turn the bot only sees the @-reply and has no *signal* that
+ * - so on the first turn the bot only sees the @-reply and has no *signal* that
  * a topic root + prior replies even exist. That missing signal is the real gap
  * (contrast the quote path: the user's explicit quote already gives the bot a
  * `botmux quoted` hint).
  *
  * Why a pure hint with ZERO first-turn fetch: the earlier count-probe variant
  * was neither lightweight nor accurate. `listThreadMessages` first GETs the
- * root to resolve thread_id, then pulls up to 50 *full* message bodies — and
+ * root to resolve thread_id, then pulls up to 50 complete message bodies. When
  * when thread_id can't be resolved it falls back to paging the *whole chat*
  * (potentially the entire large-group history) to filter by root_id. On top of
  * that, the Asc+50 cap means the "count" is only a floor (the oldest 50), so
@@ -30,8 +30,10 @@
  * already carry the thread in the CLI's conversation history. The gate lives at
  * the call site; this function just renders the localized hint string.
  */
-import { t, type Locale } from '../../i18n/index.js';
+import type { Locale } from '../../i18n/index.js';
+import { instruction } from '../../prompts.js';
 
 export function buildTopicThreadContext(locale?: Locale): string {
-  return `${t('prompt.topic_context', undefined, locale)}\n`;
+  void locale;
+  return `${instruction('topic.context')}\n`;
 }

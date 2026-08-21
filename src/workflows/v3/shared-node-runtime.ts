@@ -1,5 +1,5 @@
 /**
- * Shared v3 Node runtime — the scheduling main loop.
+ * Shared v3 Node runtime - the scheduling main loop.
  *
  * Ties the pure pieces together against the SHARED contract:
  *   load dag → freeze bot snapshots → init runDir →
@@ -8,12 +8,12 @@
  *
  * Every side effect lives here (journal append, STATE checkpoint, dir layout,
  * goal/inputs/env materialization).  The actual worker spawn (`runNode`) and
- * manifest validation (`validateManifest`) are INJECTED — codex's
+ * manifest validation (`validateManifest`) are INJECTED - codex's
  * `ephemeral-pool.ts` / `manifest.ts` provide them, but the runtime compiles
  * against the contract types alone so the two halves build independently.
  *
  * MVP scope: static DAG, fail-fast, no retry (always `attempts/001`).  Retry
- * (`attempts/NNN`) and richer cancel semantics are deferred — see
+ * (`attempts/NNN`) and richer cancel semantics are deferred - see
  * `docs/design/2026-06-01-v3-mvp-engine-split.md`.
  */
 
@@ -116,7 +116,7 @@ import type {
 /**
  * Render the self-contained instruction file the goal-mode agent reads via
  * `$BOTMUX_GOAL_PATH`.  The execution contract (read inputs / write products /
- * write the manifest) lives HERE — in a file — rather than inside the `/goal`
+ * write the manifest) lives HERE - in a file - rather than inside the `/goal`
  * command text, because a long multi-line `/goal` argument trips Claude Code's
  * paste-detection (the TUI folds it into a "[Pasted text]" blob and the
  * slash-command parser never fires).  The pool's `buildGoalCommand` therefore
@@ -145,7 +145,7 @@ export function renderGoalFile(
         '',
         ...(hasEnum
           ? [
-              'Fields declaring an `enum` MUST use one of the listed values EXACTLY (case-sensitive) — downstream routing decisions read these values, and anything outside the vocabulary blocks this node.',
+              'Fields declaring an `enum` must use one listed value exactly, with matching case. Downstream routing reads these values, and anything outside the vocabulary blocks this node.',
               '',
             ]
           : []),
@@ -159,10 +159,10 @@ export function renderGoalFile(
         `This node runs inside loop "${loopCtx.loopId}", iteration ${loopCtx.iteration} of at most ${loopCtx.maxIterations}.`,
         ...(loopCtx.iteration > 1
           ? [
-              'Inputs labeled `previous.<node>` are products of the PREVIOUS iteration (e.g. the last test report). Read them FIRST and fix what they describe — do not redo work that already passed, and do not guess what happened last round.',
+              'Inputs labeled `previous.<node>` are products of the previous iteration, such as the last test report. Read them first and fix what they describe. Do not redo work that passed or guess what happened.',
             ]
           : []),
-        'Report results honestly — a truthful "not passed" routes the rework correctly; a wishful "passed" ships a broken result.',
+        'Report results honestly. A truthful "not passed" routes rework correctly; a wishful "passed" ships a broken result.',
         '',
       ]
     : [];
@@ -177,7 +177,7 @@ export function renderGoalFile(
       ]
     : [];
   return [
-    '# botmux v3 节点任务 / botmux v3 node task',
+    '# botmux v3 node task',
     '',
     '## Goal',
     goal,
@@ -189,8 +189,8 @@ export function renderGoalFile(
     'You are an autonomous agent completing exactly ONE botmux v3 workflow node.',
     'Work toward the goal above until it is done, then stop. Do NOT ask the user with interactive tools (they are disabled in this mode). If you genuinely need a human DECISION to proceed, use the human-ask escape hatch described below (also available as the `botmux-goal-ask` skill).',
     '',
-    `- Upstream inputs: the file at $${E.INPUTS_PATH} is a JSON object \`{ "inputs": [...] }\` listing upstream products, each with an absolute \`path\`. Read only the ones the goal needs (it may be empty). If it includes an input entry \`{ "from": "human", "name": "answer", "path": "..." }\`, read that JSON file before continuing. If an \`omitted\` array is present, those declared inputs were intentionally not produced (their workflow branch was not taken) — treat their absence as by-design, do NOT invent their content.`,
-    `- Revisit feedback: if any input has \`"from": "revisit"\`, a DOWNSTREAM node sent this node back because its product was inadequate. You MUST read these before doing anything else: \`reason\` (why you were sent back), \`source:*\` (the downstream node's output — the evidence of what was wrong), and \`previous:*\` (YOUR OWN previous output — edit/fix it, do not rewrite from scratch). Address the reason; do not just reproduce the prior output.`,
+    `- Upstream inputs: the file at $${E.INPUTS_PATH} is a JSON object \`{ "inputs": [...] }\` listing upstream products, each with an absolute \`path\`. Read only what the goal needs; the list may be empty. If an entry is \`{ "from": "human", "name": "answer", "path": "..." }\`, read that JSON file before continuing. An \`omitted\` array means those declared inputs were intentionally not produced because their branch was inactive. Do not invent them.`,
+    `- Revisit feedback: if any input has \`"from": "revisit"\`, a downstream node rejected this node's product. Before doing anything else, read \`reason\`, \`source:*\` as evidence of the problem, and \`previous:*\` as your prior output. Fix the prior output instead of rewriting it from scratch or reproducing it unchanged.`,
     `- Output: write ALL products under the directory at $${E.OUTPUT_DIR}. Do NOT write anything outside that directory.`,
     `- Manifest (required): before you finish, write a JSON manifest to $${E.MANIFEST_PATH} with exactly this shape:`,
     '',
@@ -206,18 +206,18 @@ export function renderGoalFile(
     '',
     `  - On success: status "${okStatus}", at least one file entry, and NO \`error\` field.`,
     `  - On failure: status "${failStatus}", \`error\` required, \`files\` may be empty. Set \`error.retryable\` honestly: \`true\` when a human can unblock you and a fresh attempt could then succeed; \`false\` when retrying cannot help.`,
-    `  - Every file \`path\` is relative to $${E.OUTPUT_DIR} ITSELF. A file you wrote directly into that directory has a path that is JUST its filename, e.g. \`"path": "report.md"\`. Do NOT prepend the directory or its folder name (NOT \`"work/report.md"\`) and do NOT use an absolute path — both are rejected.`,
+    `  - Every file \`path\` is relative to $${E.OUTPUT_DIR}. A file written directly there uses only its filename, for example \`"path": "report.md"\`. Do not prepend the directory or use an absolute path; both are rejected.`,
     '',
     ...resultSection,
     `You are DONE only after the manifest at $${E.MANIFEST_PATH} exists and every file it references exists.`,
     'If you cannot complete the goal, write a failure manifest and stop.',
-    'If you hit an authentication / authorization / interactive-confirmation wall (a login prompt, an expired token, a permission you cannot grant yourself): do NOT wait for a human and do NOT keep retrying. Immediately write a failure manifest with an \`error.code\` like "AUTH_REQUIRED" and \`error.retryable: true\`, then stop — a human will unblock and retry this node.',
+    'If authentication, authorization, or interactive confirmation blocks progress, do not wait or retry repeatedly. Write a failure manifest with an `error.code` such as "AUTH_REQUIRED" and `error.retryable: true`, then stop. A human will unblock and retry the node.',
     '',
     '## Asking a human (only when a DECISION truly needs a person)',
-    `If — and ONLY if — you cannot proceed without a human's judgement call (a choice only a person can make; NOT something you can research, infer, or decide yourself), use the runtime human-ask:`,
+    `Use the runtime human ask only when progress requires a judgment call that cannot be researched, inferred, or safely decided:`,
     `  1. Write a JSON file to $${E.ATTEMPT_DIR}/${GOAL_ASK_FILE}. Use \`{ "question": "<one clear question>", "options": ["<2-6 concrete choices>"] }\` for a choice, or \`{ "question": "<one clear question>", "freeText": true }\` when the human must provide details in their own words.`,
     `  2. Write a failure manifest with \`error.code: "${ASK_HUMAN_ERROR_CODE}"\`, \`error.retryable: true\`, and \`summary\` = your question, then STOP.`,
-    `A human answers; this node then RE-RUNS with their answer injected into $${E.INPUTS_PATH} as an input entry \`{ "from": "human", "name": "answer", "path": "..." }\`. Read that JSON file's \`selected\` or \`text\` field and continue from there. Prefer deciding yourself — every ask pauses the whole workflow on a person.`,
+    `After a human answers, this node reruns with an input entry \`{ "from": "human", "name": "answer", "path": "..." }\` in $${E.INPUTS_PATH}. Read that JSON file's \`selected\` or \`text\` field and continue. Prefer deciding safely yourself because every ask pauses the workflow.`,
     '',
   ].join('\n');
 }
@@ -226,11 +226,11 @@ export function renderGoalFile(
 
 /**
  * Map a node's failure to its terminal kind (the blocked/failed split):
- *   - `blocked`  = semantic/contract failure — retryable via a new attempt
- *   - `failed`   = infrastructure / human-veto / budget — needs intervention
+ *   - `blocked`  = semantic/contract failure - retryable via a new attempt
+ *   - `failed`   = infrastructure / human-veto / budget - needs intervention
  *
  * `selfReportedFail` marks the special case where the manifest is structurally
- * VALID but declares `status:'fail'` — then the node's own `error.retryable`
+ * VALID but declares `status:'fail'` - then the node's own `error.retryable`
  * decides (`false` → failed; `true`/absent → blocked, the agent presumably
  * knows a human can unblock it).
  */
@@ -240,12 +240,12 @@ export function classifyTerminal(
 ): 'blocked' | 'failed' {
   if (opts?.selfReportedFail) return opts.retryable === false ? 'failed' : 'blocked';
   switch (errorClass) {
-    case 'manifestInvalid': // agent wrote a bad manifest — a retry may fix it
-    case 'resultInvalid':   // result.json missing/violating — same
+    case 'manifestInvalid': // agent wrote a bad manifest - a retry may fix it
+    case 'resultInvalid':   // result.json missing/violating - same
       return 'blocked';
     case 'workerError':     // process crash = infrastructure
     case 'timeout':         // budget exceeded = infrastructure (for now)
-    case 'gateRejected':    // a human said no — retrying won't change that
+    case 'gateRejected':    // a human said no - retrying won't change that
     case 'cancelled':
       return 'failed';
   }
@@ -254,7 +254,7 @@ export function classifyTerminal(
 /**
  * Read + validate a goal worker's `ask.json` (the runtime human-ask payload).
  * Defensive: a missing / malformed / out-of-bounds file yields `undefined`, so a
- * broken ask degrades to a plain blocked card rather than crashing the drive —
+ * broken ask degrades to a plain blocked card rather than crashing the drive -
  * the manifest's `error.message` still carries the question text for the human.
  * Accepts either 2–6 concrete options or `freeText:true`.  Exported for tests.
  */
@@ -345,7 +345,7 @@ export function readRevisitRequest(
 
 /**
  * Validate a `result.json` against the node's (already dag-validated) result
- * schema subset.  Top-level types only — see `V3ResultSchema`.  Undeclared
+ * schema subset.  Top-level types only - see `V3ResultSchema`.  Undeclared
  * extra properties are allowed (JSON-Schema default).
  */
 export function validateResult(filePath: string, schema: V3ResultSchema): ResultValidation {
@@ -378,7 +378,7 @@ export function validateResult(filePath: string, schema: V3ResultSchema): Result
       continue;
     }
     // Enum enforcement (edge-activation design §1.3): a declared vocabulary
-    // is part of the contract — an out-of-vocabulary value is `resultInvalid`
+    // is part of the contract - an out-of-vocabulary value is `resultInvalid`
     // (blocked, retryable), same as a type violation.
     if (spec.type === 'string' && spec.enum && !spec.enum.includes(v as string)) {
       problems.push(`field "${name}" must be one of [${spec.enum.join(', ')}] (got ${JSON.stringify(v)})`);
@@ -387,7 +387,7 @@ export function validateResult(filePath: string, schema: V3ResultSchema): Result
   return problems.length > 0 ? { ok: false, problems } : { ok: true };
 }
 
-// ─── Attempt numbering (journal-derived — no hardcoded 001) ──────────────────
+// ─── Attempt numbering (journal-derived - no hardcoded 001) ──────────────────
 
 const ATTEMPT_NNN_RE = /\/attempts\/(\d{3})$/;
 
@@ -399,14 +399,14 @@ function attemptNumber(attemptId: string): number | undefined {
 /**
  * Compute the attemptId the NEXT dispatch of `nodeId` must use, from the
  * journal: an unconsumed `nodeRetryRequested` reservation wins (retry intent
- * is authoritative for the redrive); otherwise max(seen)+1 — which is 001 for
+ * is authoritative for the redrive); otherwise max(seen)+1 - which is 001 for
  * a first dispatch.  Dispatch events are the authority for "seen"; a
  * reservation is consumed by a later `nodeDispatched` with the same number.
  */
 export function nextAttemptIdFor(events: StoredEvent[], key: string): string {
   // `key` is the dispatch namespace: a runtime instance (`A#001`), a loop body
   // expansion (`loopId.i001.code`), or a legacy nodeId.  Match events by their
-  // instance when they carry one, else by nodeId — so `A#002`'s attempts are
+  // instance when they carry one, else by nodeId - so `A#002`'s attempts are
   // counted separately from `A#001`'s (constraint 3/5).
   const matches = (e: { nodeId: string; instanceId?: string }): boolean => (e.instanceId ?? e.nodeId) === key;
   let maxSeen = 0;
@@ -454,7 +454,7 @@ export function nextAttemptIdFor(events: StoredEvent[], key: string): string {
 
 /** Latest dispatched attemptId for a dispatch `key` (the `previousAttemptId` a
  *  retry entrypoint must reference).  `key` is an instance (`A#001`), a loop
- *  body expansion, or a legacy nodeId — matched by `(instanceId ?? nodeId)` so
+ *  body expansion, or a legacy nodeId - matched by `(instanceId ?? nodeId)` so
  *  a retry stays inside the same instance.  Undefined when never dispatched. */
 export function latestAttemptIdFor(events: StoredEvent[], key: string): string | undefined {
   let latest: string | undefined;
@@ -544,9 +544,11 @@ export interface V3RuntimeOptions {
   /** How long the scheduler waits for the original host SDK promise before
    *  detaching and reconciling the still-open durable intent with the same key. */
   hostResponseWaitMs?: number;
-  /** The run's authenticated chat binding — threaded verbatim into every
-   *  RunNodeRequest so worker CLI children get real BOTMUX_* identity env.
-   *  See RunNodeRequest.chatBinding. */
+  /**
+   * The run's authenticated chat binding, threaded verbatim into every
+   * RunNodeRequest so worker CLI children get real BOTMUX_* identity env.
+   * See RunNodeRequest.chatBinding.
+   */
   chatBinding?: RunChatBinding;
 }
 
@@ -563,7 +565,7 @@ export interface V3PendingGate {
 export type V3RunOutcome =
   | {
       reason: 'terminal';
-      // `blocked` is its OWN status — never collapse it into failed (it is the
+      // `blocked` is its OWN status - never collapse it into failed (it is the
       // retryable half of the blocked/failed split).
       runStatus: 'succeeded' | 'failed' | 'blocked' | 'cancelled';
       failedNodeId?: string;
@@ -654,7 +656,7 @@ export async function runWorkflow(
   // and persist for audit / resume.  Re-resolving mid-run would let a drifted
   // bots.json change cliId/model/workingDir under a retry (codex point 1).
   // Loop body nodes are frozen too (a body node inherits the loop's bot when
-  // it has none of its own — mirror instanceNodeFor's resolution).
+  // it has none of its own - mirror instanceNodeFor's resolution).
   const botSnapshots = opts.frozenBotSnapshots
     ? new Map(opts.frozenBotSnapshots)
     : new Map<string, BotSnapshot>();
@@ -679,7 +681,7 @@ export async function runWorkflow(
   }
 
   // CLI-scope guard: goal-mode rides the native `/goal` command.  Fail the
-  // whole run up front — clearly — rather than spawning a worker on a CLI that
+  // whole run up front - clearly - rather than spawning a worker on a CLI that
   // has not been verified to understand `/goal`.
   for (const [key, snap] of botSnapshots) {
     if (deps.validateExecutionSnapshot) {
@@ -966,7 +968,7 @@ export async function runWorkflow(
     if (gateMode === 'blocking') reattachBlockingGates(snap);
 
     // Control sweep: each action is one cheap journal append (no worker
-    // involved), applied together and re-ticked — same single-exit shape as
+    // involved), applied together and re-ticked - same single-exit shape as
     // the terminal sweep.  Work dispatches in the same action list simply
     // re-emerge next tick.  Edge resolution is deliberately serial/control
     // phase (H8): no inFlight, no concurrency slot, no AbortController.
@@ -1043,7 +1045,7 @@ export async function runWorkflow(
           }
           return { reason: 'awaitingGate', pendingWaits, runDir };
         }
-        // Not terminal, nothing running, nothing dispatchable — a correct
+        // Not terminal, nothing running, nothing dispatchable - a correct
         // decideNext never gets here; guard against an infinite spin.
         throw new Error('v3 runtime: no progress possible and run is not terminal');
       }
@@ -1058,7 +1060,7 @@ export async function runWorkflow(
   const finalSnap = materialize(readJournal(journalPath));
   return {
     reason: 'terminal',
-    // Map terminal states 1:1 — blocked and cancelled are first-class, never
+    // Map terminal states 1:1 - blocked and cancelled are first-class, never
     // collapse either into failed.
     runStatus:
       finalSnap.runStatus === 'succeeded' ? 'succeeded'
@@ -1649,7 +1651,7 @@ export async function runWorkflow(
 
     // Crash window: the freeze sidecar is fsync'd before its journal event.
     // Adopt those exact bytes instead of resolving upstream data again. This
-    // is essential for relative schedules (`30m`, `明天 9:00`), whose parsed
+    // is essential for relative schedules (`30m`, `tomorrow at 09:00`), whose parsed
     // value changes with wall time even though no provider call has begun.
     try {
       const orphan = readCrashLeftV3PreparedHostInput({
@@ -2393,7 +2395,7 @@ export async function runWorkflow(
     // node.id.  attempt dir = `<runDir>/<key>/attempts/NNN`.
     const dispatchKey = instanceId ?? node.id;
     // Attempt number derived from the journal: 001 on first dispatch, the
-    // reserved nextAttemptId after a blocked retry (no hardcoded 001 — a retry
+    // reserved nextAttemptId after a blocked retry (no hardcoded 001 - a retry
     // must not overwrite the previous attempt's logs/manifest/pty).
     const attemptId = nextAttemptIdFor(events, dispatchKey);
     const attemptNNN = attemptId.slice(attemptId.lastIndexOf('/') + 1);
@@ -2447,7 +2449,7 @@ export async function runWorkflow(
       ),
     );
 
-    // P2: per-dispatch capability merge — model redirect + sticky restriction.
+    // P2: per-dispatch capability merge - model redirect + sticky restriction.
     const effSnap = mergeNodeCapability(botSnap, node.override);
 
     const inputsPath = join(attemptDir, 'inputs.json');
@@ -2573,9 +2575,9 @@ export async function runWorkflow(
       cancelSignal: controller.signal,
       // Worker terminal is ready mid-run → stamp nodeSessionReady so the
       // dashboard can attach to the LIVE terminal.  Sync appendEvent (no await
-      // on the pool's fire-and-forget ready path — codex note).
+      // on the pool's fire-and-forget ready path - codex note).
       onSessionReady: (info) => {
-        // Drop the write `token` — never persist it (codex security review):
+        // Drop the write `token` - never persist it (codex security review):
         // the dashboard view is read-only and doesn't need write access.
         appendEvent(journalPath, {
           type: 'nodeSessionReady',
@@ -2631,7 +2633,7 @@ export async function runWorkflow(
           return;
         }
         // Final verdict = process outcome AND manifest validation (codex
-        // point 4 — NOT v0.2 final_output semantics).  Always validate the
+        // point 4 - NOT v0.2 final_output semantics).  Always validate the
         // manifest so a clean `status:'fail'` manifest yields a precise
         // root cause instead of an opaque process error (codex's advice).
         const verdict = await deps.validateManifest(result.manifestPath, outputDir);
@@ -2640,7 +2642,7 @@ export async function runWorkflow(
         if (result.status === 'ok' && manifestSaysOk) {
           // Cross-node revisit: the worker's result.json may request a jump back
           // to an ancestor (`status:"revisit", revisitTo, reason`).  Recognized
-          // BEFORE success/resultSchema — a revisit is not a node success.
+          // BEFORE success/resultSchema - a revisit is not a node success.
           const revisit = readRevisitRequest(verdict.manifest!, outputDir);
           if (!revisit.ok) {
             appendWorkerOutcome({
@@ -2670,7 +2672,7 @@ export async function runWorkflow(
               });
               return;
             }
-            // goal-node dispatches always carry instanceId (首派 #001); the
+            // Goal-node dispatches always carry an instanceId, including the first `#001`.
             // fallback keeps the type total for the legacy/no-instance path.
             appendRevisitEvents(node.id, instanceId ?? node.id, attemptId, revisit.request, result.manifestPath);
             // A revisit verdict is not nodeSucceeded/Failed/Blocked, so publish
@@ -2721,7 +2723,7 @@ export async function runWorkflow(
           message = (verdict.problems ?? ['manifest missing or invalid']).join('; ');
         } else {
           // Manifest is structurally valid but declares failure (or the
-          // process failed despite an ok manifest) — surface the node's own
+          // process failed despite an ok manifest) - surface the node's own
           // error when present.  A self-reported fail is the agent's "I am
           // blocked, a human can fix this" channel (e.g. AUTH_REQUIRED with
           // retryable:true), so it feeds the blocked/failed split below.
@@ -3018,7 +3020,7 @@ export async function runWorkflow(
       depends: bodyDef.depends.map((d) => ({ from: loopInstanceId(ref.loopId, ref.iteration, d.from) })),
       inputs: bodyDef.inputs.map((r) => ({
         from: loopInstanceId(ref.loopId, ref.iteration, r.from),
-        ...(r.select ? { select: r.select } : {}), // P3: 实例化时保留 selector
+        ...(r.select ? { select: r.select } : {}), // Preserve the selector during instantiation.
       })),
     };
   }
@@ -3036,7 +3038,7 @@ export async function runWorkflow(
     const loopNode = nodesById.get(a.loopId) as V3LoopNode;
     if (a.kind === 'completeLoop') {
       // Seal the loop with a nodeSucceeded on the LOOP id carrying the output
-      // projection's manifest — downstream deps gating + buildInputs then
+      // projection's manifest - downstream deps gating + buildInputs then
       // treat the loop exactly like any done node.
       const events = readJournal(journalPath);
       const outInstId = loopInstanceId(a.loopId, a.iteration, loopNode.output.from);
@@ -3045,7 +3047,7 @@ export async function runWorkflow(
         .find((e): e is StoredEvent & { type: 'nodeSucceeded' } =>
           e.type === 'nodeSucceeded' && e.nodeId === outInstId);
       if (!succ) {
-        // Engine anomaly — the decision said exit but the output instance has
+        // Engine anomaly - the decision said exit but the output instance has
         // no success record.  Fail loudly rather than fabricate a product.
         appendEvent(journalPath, {
           type: 'nodeFailed', nodeId: a.loopId, attemptId: `${a.loopId}/iterations/${String(a.iteration).padStart(3, '0')}`,
@@ -3171,7 +3173,7 @@ export async function runWorkflow(
     if (status !== 'pending' && status !== 'gateWaiting' && status !== 'running') return false;
 
     // Stamp the cancelled INSTANCE so a later instance (`A#002` after a revisit)
-    // settles freely — the cancel suppression in materialize keys by instance.
+    // settles freely - the cancel suppression in materialize keys by instance.
     const instanceId = snap.nodes.get(a.nodeId)?.effectiveInstanceId;
     const attemptId = latestAttemptIdFor(events, instanceId ?? a.nodeId);
     appendEvent(journalPath, {
@@ -3236,14 +3238,14 @@ export async function runWorkflow(
    *  upstream outputDir (`<manifestDir>/work`) to produce an absolute path the
    *  downstream agent can Read directly.
    *
-   *  Loop body instances additionally receive (a) the LOOP's outer inputs —
-   *  every body node may read what the loop consumes — and (b) from iteration
+   *  Loop body instances additionally receive (a) the LOOP's outer inputs -
+   *  every body node may read what the loop consumes - and (b) from iteration
    *  2 on, the previous iteration's `feedback` products, labeled
    *  `previous.<bodyId>` so the agent can tell rework context from fresh
    *  upstream input.
    *
    *  `omitted` (edge-activation design §6): declared inputs the engine layer
-   *  determined must NOT be injected (edge inactive / source skipped) — they
+   *  determined must NOT be injected (edge inactive / source skipped) - they
    *  are excluded from resolution AND surfaced to the agent so the absence
    *  reads as by-design.  Empty/absent → exactly today's behavior. */
   function buildInputs(
@@ -3305,7 +3307,7 @@ export async function runWorkflow(
       // loop bodies / legacy with no instance).
       const key = snap.nodes.get(nodeId)?.effectiveInstanceId ?? nodeId;
       const succ = latestSuccess(key);
-      if (!succ) return; // deps are gated upstream — defensive skip
+      if (!succ) return; // deps are gated upstream - defensive skip
       const upstreamOutputDir = join(dirname(succ.manifestPath), 'work');
       const manifest = JSON.parse(readFileSync(succ.manifestPath, 'utf-8')) as Manifest;
       for (const f of manifest.files) {
@@ -3321,7 +3323,7 @@ export async function runWorkflow(
       }
     };
 
-    // Push every file of a manifest at a known (absolute) path — used for
+    // Push every file of a manifest at a known (absolute) path - used for
     // revisit feedback where the manifest is referenced directly off the
     // nodeRevisitRequested event (requester / target-prior), not via a
     // nodeSucceeded lookup.  Names are prefixed so the agent can tell the
@@ -3350,7 +3352,7 @@ export async function runWorkflow(
       }
     };
 
-    // P3 selector misses collected during resolution — merged into `omitted`
+    // P3 selector misses collected during resolution - merged into `omitted`
     // so the agent reads the gap as a known contract issue, not silence.
     const selectorMisses: Array<{ from: string; reason: 'selectorMiss' }> = [];
     const pushRef = (ref: V3InputRef): void => {
@@ -3366,7 +3368,7 @@ export async function runWorkflow(
     };
 
     for (const ref of node.inputs) {
-      if (omittedFrom.has(ref.from)) continue; // branch not taken — surfaced via `omitted`
+      if (omittedFrom.has(ref.from)) continue; // branch not taken - surfaced via `omitted`
       pushRef(ref);
     }
 
@@ -3412,7 +3414,7 @@ export async function runWorkflow(
         }
       }
     }
-    // Dedupe by (label, path) — `feedback: ["test.result", "test.files"]`
+    // Dedupe by (label, path) - `feedback: ["test.result", "test.files"]`
     // legitimately overlaps on result.json; one entry is enough.
     const seen = new Set<string>();
     const allOmitted = [...(omitted ?? []), ...selectorMisses];

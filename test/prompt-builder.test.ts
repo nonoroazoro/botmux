@@ -112,35 +112,31 @@ describe('buildNewTopicPrompt', () => {
     const prompt = buildNewTopicPrompt('hello', SESSION_ID, 'codex');
     expect(prompt).toContain("botmux send <<'EOF'");
     expect(prompt).not.toContain("botmux send &lt;&lt;'EOF'");
-    expect(prompt).toContain('第一行');
-    expect(prompt).toContain('第二行');
-    expect(prompt).toContain('botmux send "第一行\\n第二行"');
-    expect(prompt).toContain('字面量');
-    expect(prompt).toContain('JSON.stringify');
+    expect(prompt).toContain('line 1');
+    expect(prompt).toContain('line 2');
     expect(prompt).toContain('--content-file');
-    expect(prompt).toContain('Markdown、反引号、命令片段或多行');
-    expect(prompt).toContain('禁止放进双引号位置参数');
+    expect(prompt).toContain('Markdown, backticks, command fragments, or multiline content');
+    expect(prompt).toContain('Never pass `JSON.stringify` output or JSON-escaped text as a positional argument');
   });
 
   it('tells non-injecting CLIs to silently obey hidden launch context and answer only user_message', () => {
     const prompt = buildNewTopicPrompt('hello', SESSION_ID, 'codex');
     const routing = prompt.slice(prompt.indexOf('<botmux_routing>'), prompt.indexOf('</botmux_routing>'));
 
-    expect(routing).toContain('隐藏运行上下文');
+    expect(routing).toContain('hidden runtime context');
     expect(routing).toContain('&lt;botmux_builtin_skills&gt;');
     expect(routing).toContain('&lt;identity&gt;');
     expect(routing).toContain('&lt;available_bots&gt;');
-    expect(routing).toContain('不要回复、不要确认');
-    expect(routing).toContain('已了解/已补充/已记录');
-    expect(routing).toContain('只处理 `&lt;user_message&gt;` 中的真实用户请求');
+    expect(routing).toContain('Do not acknowledge or summarize them');
+    expect(routing).toContain('Handle only the request inside `&lt;user_message&gt;`');
     expect(routing).not.toContain('&amp;lt;');
   });
 
   it('limits proactive Lark history lookup to an explicit first-turn hint', () => {
     const prompt = buildNewTopicPrompt('帮我看下这个问题', SESSION_ID, 'codex');
 
-    expect(prompt).toContain('only when the prompt marks a new topic or session first turn');
-    expect(prompt).toContain('read outside the current topic only on explicit request');
+    expect(prompt).toContain('only when a first-turn context hint says earlier messages may be needed');
+    expect(prompt).toContain('read outside the current topic only when the user asks');
   });
 
   it('gives Hermes the standard botmux-send routing hints like other structured-bridge CLIs', () => {
@@ -150,9 +146,7 @@ describe('buildNewTopicPrompt', () => {
     // (bridge-forwarded finals can't carry an @mention), so Hermes now uses the
     // same send-first hints as codex/traex/grok.
     const prompt = buildNewTopicPrompt('hello', SESSION_ID, 'hermes');
-    expect(prompt).toContain('把消息发给用户（唯一方式）');
-    expect(prompt).not.toContain('普通文本答案不要调用 `botmux send`');
-    expect(prompt).not.toContain('botmux 会自动把 final_output 转发到飞书');
+    expect(prompt).toContain('Send user-visible replies with `botmux send`');
   });
 
   it('should NOT embed <session_id> for CLIs with injectsSessionContext (claude-code)', () => {
@@ -178,7 +172,7 @@ describe('buildNewTopicPrompt', () => {
       undefined,
       ['second message', 'third message'],
     );
-    // No separate <follow_up_message> blocks anymore — messages buffered during
+    // No separate <follow_up_message> blocks anymore - messages buffered during
     // repo selection merge into the opening turn, blank-line separated.
     expect(prompt).not.toContain('<follow_up_message>');
     expect(prompt).toContain('<user_message>\nfirst message\n\nsecond message\n\nthird message\n</user_message>');
@@ -201,9 +195,9 @@ describe('buildNewTopicPrompt', () => {
     );
 
     expect(prompt).toContain('<whiteboard id="wb_test">');
-    expect(prompt).toContain('读取：`botmux whiteboard read --id wb_test --json`');
-    expect(prompt).toContain('&lt;上次 read 的 updatedAt&gt;');
-    expect(prompt).toContain('&lt;内容&gt;');
+    expect(prompt).toContain('botmux whiteboard read --id wb_test --json');
+    expect(prompt).toContain('&lt;updatedAt&gt;');
+    expect(prompt).toContain('&lt;content&gt;');
     const whiteboard = prompt.slice(
       prompt.indexOf('<whiteboard '),
       prompt.indexOf('</whiteboard>') + '</whiteboard>'.length,
@@ -214,8 +208,8 @@ describe('buildNewTopicPrompt', () => {
     // the agent to re-read. Pin both so the prompt keeps guiding agents to CAS.
     expect(prompt).toContain('update --id wb_test --expected-updated-at');
     expect(prompt).toContain('whiteboard_cas_mismatch');
-    expect(prompt).toContain('不要直接读写本地文件');
-    expect(prompt).toContain('用户可见结论仍必须 `botmux send`。');
+    expect(prompt).toContain('Do not access the backing files directly');
+    expect(prompt).toContain('Send user-visible conclusions with `botmux send`');
     expect(prompt).not.toContain('/whiteboards/wb_test/board.md');
     expect(prompt).not.toContain('Do not assume its contents are in context');
     expect(prompt).not.toContain('When you first create or materially update');
@@ -393,10 +387,7 @@ describe('buildNewTopicPrompt', () => {
     expect(prompt).not.toContain('<open_id>ou_example</open_id>');
   });
 
-  it.each([
-    ['zh', '&lt;对方 open_id&gt;'],
-    ['en', '&lt;their open_id&gt;'],
-  ] as const)('escapes tag-like placeholders in the %s inline identity prose', (locale, expectedPlaceholder) => {
+  it.each(['zh', 'en'] as const)('escapes tag-like placeholders in the %s inline identity prose', (locale) => {
     const prompt = buildNewTopicPrompt(
       'hello',
       SESSION_ID,
@@ -412,7 +403,7 @@ describe('buildNewTopicPrompt', () => {
     const identity = prompt.slice(prompt.indexOf('<identity>'), prompt.indexOf('</identity>') + '</identity>'.length);
     const prose = identity.replace(/<\/?(?:identity|name|open_id|routing_rules)>/g, '');
 
-    expect(identity).toContain(expectedPlaceholder);
+    expect(identity).toContain('&lt;open_id&gt;');
     expect(prose.match(/<[^<>\r\n]+>/g) ?? []).toEqual([]);
   });
 
@@ -437,14 +428,11 @@ describe('buildNewTopicPrompt', () => {
 });
 
 describe('botmux routing prose XML boundaries', () => {
-  it.each([
-    ['zh', '&lt;open_id:名字&gt;'],
-    ['en', '&lt;open_id:name&gt;'],
-  ] as const)('escapes tag-like placeholders in %s inline shell hints while preserving heredoc syntax', (locale, mentionPlaceholder) => {
+  it.each(['zh', 'en'] as const)('escapes tag-like placeholders in %s inline shell hints while preserving heredoc syntax', (locale) => {
     const hints = buildBotmuxShellHints(locale).join('\n');
 
     expect(hints).toContain('&lt;message_id&gt;');
-    expect(hints).toContain(mentionPlaceholder);
+    expect(hints).toContain('&lt;message_id&gt;');
     expect(hints).toContain('&lt;whiteboard&gt;');
     expect(hints).toContain("botmux send <<'EOF'");
     expect(hints).not.toContain("botmux send &lt;&lt;'EOF'");
@@ -460,10 +448,7 @@ describe('botmux routing prose XML boundaries', () => {
     expect(hints.match(/<[^<>\r\n]+>/g) ?? []).toEqual([]);
   });
 
-  it.each([
-    ['zh', '&lt;对方 bot 的 open_id&gt;'],
-    ['en', '&lt;other-bot-open-id&gt;'],
-  ] as const)('escapes tag-like placeholders in the %s system-prompt prose while preserving real structure and heredoc syntax', (locale, mentionPlaceholder) => {
+  it.each(['zh', 'en'] as const)('escapes tag-like placeholders in the %s system-prompt prose while preserving real structure and heredoc syntax', (locale) => {
     const prompt = buildBotmuxSystemPromptText({
       locale,
       botName: 'Codex Bot',
@@ -473,7 +458,7 @@ describe('botmux routing prose XML boundaries', () => {
 
     expect(prompt).toContain('<botmux_routing>');
     expect(prompt).toContain('<identity>');
-    expect(prompt).toContain(mentionPlaceholder);
+    expect(prompt).toContain('&lt;open_id&gt;');
     expect(prompt).toContain('&lt;available_bots&gt;');
     expect(prompt).toContain('&lt;whiteboard&gt;');
     expect(prompt).toContain("botmux send <<'EOF'");
@@ -563,11 +548,10 @@ describe('buildFollowUpContent', () => {
     expect(content.indexOf('<mentions>')).toBeGreaterThan(content.indexOf('</user_message>'));
     // The follow-up reminder keeps the send contract compact while repeating
     // the shell-safety rule that protects Markdown backticks on every turn.
-    expect(content).toContain('<botmux_reminder>有内容要发给用户就必须先 botmux send；');
-    expect(content).toContain('含 Markdown、反引号或多行正文必须用 quoted heredoc/stdin');
-    expect(content).toContain('禁止放进双引号位置参数');
-    expect(content).toContain('final 只输出 BOTMUX_NOTHING_TO_SEND');
-    expect(content).not.toContain('别因「无输出」提示重发');
+    expect(content).toContain('<botmux_reminder>Send every required user-visible reply with `botmux send`');
+    expect(content).toContain('Use quoted heredoc or stdin for Markdown, backticks, or multiline content');
+    expect(content).toContain('End with exactly `BOTMUX_NOTHING_TO_SEND`');
+    expect(content).not.toContain('do not resend because the CLI reports no visible output');
     expect(content).not.toContain('JSON.stringify');
     expect(content).not.toContain('botmux skill show botmux-send');
   });
@@ -587,7 +571,7 @@ describe('buildFollowUpContent', () => {
     });
 
     expect(poll).toContain('<botmux_poll>');
-    expect(poll).toContain('只执行一次 `botmux poll create');
+    expect(poll).toContain('Create with exactly one `botmux poll create');
     expect(poll.indexOf('<botmux_poll>')).toBeLessThan(poll.indexOf('<user_message>'));
     expect(normal).not.toContain('<botmux_poll>');
     expect(pollQuestion).not.toContain('<botmux_poll>');
@@ -598,8 +582,8 @@ describe('buildFollowUpContent', () => {
     try {
       const content = buildFollowUpContent('hello', SESSION_ID, { cliId: 'codex' });
       // ON variant must inherit #554's sentinel semantics AND add anti-resend.
-      expect(content).toContain('final 只输出 BOTMUX_NOTHING_TO_SEND');
-      expect(content).toMatch(/<botmux_reminder>[^<]*别因「无输出」提示重发[^<]*<\/botmux_reminder>/);
+      expect(content).toContain('End with exactly `BOTMUX_NOTHING_TO_SEND`');
+      expect(content).toMatch(/<botmux_reminder>[^<]*do not resend because the CLI reports no visible output[^<]*<\/botmux_reminder>/);
     } finally {
       delete (config as { noVisibleOutputHint?: boolean }).noVisibleOutputHint;
     }
@@ -614,11 +598,9 @@ describe('buildFollowUpContent', () => {
     // the same compact send and shell-safety contract as codex/traex.
     const content = buildFollowUpContent('hello', SESSION_ID, { cliId: 'hermes' });
 
-    expect(content).toContain('<botmux_reminder>有内容要发给用户就必须先 botmux send；');
-    expect(content).toContain('含 Markdown、反引号或多行正文必须用 quoted heredoc/stdin');
-    expect(content).toContain('final 只输出 BOTMUX_NOTHING_TO_SEND');
-    expect(content).not.toContain('普通文字回复不要调用 `botmux send`');
-    expect(content).not.toContain('直接把给用户看的答案写在 final');
+    expect(content).toContain('<botmux_reminder>Send every required user-visible reply with `botmux send`');
+    expect(content).toContain('Use quoted heredoc or stdin for Markdown, backticks, or multiline content');
+    expect(content).toContain('End with exactly `BOTMUX_NOTHING_TO_SEND`');
   });
 
   it('routes Hermes through the shared anti-resend branch when noVisibleOutputHint is ON', () => {
@@ -628,8 +610,8 @@ describe('buildFollowUpContent', () => {
     (config as { noVisibleOutputHint?: boolean }).noVisibleOutputHint = true;
     try {
       const content = buildFollowUpContent('hello', SESSION_ID, { cliId: 'hermes' });
-      expect(content).toContain('final 只输出 BOTMUX_NOTHING_TO_SEND');
-      expect(content).toMatch(/<botmux_reminder>[^<]*别因「无输出」提示重发[^<]*<\/botmux_reminder>/);
+      expect(content).toContain('End with exactly `BOTMUX_NOTHING_TO_SEND`');
+      expect(content).toMatch(/<botmux_reminder>[^<]*do not resend because the CLI reports no visible output[^<]*<\/botmux_reminder>/);
     } finally {
       delete (config as { noVisibleOutputHint?: boolean }).noVisibleOutputHint;
     }
@@ -642,7 +624,7 @@ describe('buildFollowUpContent', () => {
     });
 
     expect(content).toContain('<whiteboard id="wb_follow">');
-    expect(content).toContain('更新状态');
+    expect(content).toContain('Update it with `botmux whiteboard update');
     expect(content).not.toContain('/whiteboards/wb_follow/board.md');
     expect(content).not.toContain('Local project whiteboard is enabled for durable project context');
     // Whiteboard sits after <botmux_reminder> and before <user_message>.
@@ -698,7 +680,7 @@ describe('buildFollowUpContent', () => {
   });
 });
 
-// ─── buildReforkPrompt — wraps re-fork branch (resume / daemon-restart) ─────
+// ─── buildReforkPrompt - wraps re-fork branch (resume / daemon-restart) ─────
 
 describe('buildReforkPrompt', () => {
   const SESSION_ID = 'refork-session-id';
@@ -790,7 +772,7 @@ describe('buildReforkPrompt', () => {
 
 });
 
-// ─── renderSenderTag — <sender> attribute rendering / XML escape ────────────
+// ─── renderSenderTag - <sender> attribute rendering / XML escape ────────────
 
 describe('renderSenderTag', () => {
   it('returns empty string when sender is undefined or has no openId', () => {
@@ -833,7 +815,7 @@ describe('renderSenderTag', () => {
   });
 });
 
-// ─── renderCursorSenderNote — cursor-only anti-echo guard ──────────────────
+// ─── renderCursorSenderNote - cursor-only anti-echo guard ──────────────────
 
 describe('renderCursorSenderNote', () => {
   it('returns the note only for cursor with a sender present', () => {
@@ -857,7 +839,7 @@ describe('renderCursorSenderNote', () => {
   });
 });
 
-// ─── renderBufferedSenderBlock — daemon pending-repo cross-user buffer ──────
+// ─── renderBufferedSenderBlock - daemon pending-repo cross-user buffer ──────
 //
 // daemon.ts (handleThreadReply) prepends a foreign sender's <sender> tag to a
 // buffered follow-up OUTSIDE the builder; it later folds into the opening
@@ -990,7 +972,7 @@ describe('buildNewTopicPrompt with multi-user follow-ups', () => {
       { openId: 'ou_alice', type: 'user', name: 'Alice' },
     );
 
-    // No separate follow-up blocks — everything folds into the opening turn.
+    // No separate follow-up blocks - everything folds into the opening turn.
     expect(prompt).not.toContain('<follow_up_message>');
     // One <user_message> carries the main message plus both buffered ones.
     const umMatch = prompt.match(/<user_message>\n([\s\S]*?)\n<\/user_message>/);

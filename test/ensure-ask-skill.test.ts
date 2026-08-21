@@ -5,9 +5,7 @@ import { tmpdir } from 'node:os';
 import { ensureAskSkill } from '../src/skills/installer.js';
 import { ASK_SKILL, ASK_SKILL_NAME } from '../src/skills/definitions.js';
 
-// hook 优先 + 非 hook CLI 兜底：
-//   install=true（无 hook 的 CLI）→ 写入 botmux-ask SKILL.md
-//   install=false（有 hook 的 CLI）→ 删除 botmux-ask（避免与 hook 双重弹卡）
+// Prefer the hook and keep the skill only as a fallback for CLIs without it.
 describe('ensureAskSkill', () => {
   let dir: string;
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'ask-skill-')); });
@@ -15,25 +13,25 @@ describe('ensureAskSkill', () => {
 
   const skillFile = () => join(dir, ASK_SKILL_NAME, 'SKILL.md');
 
-  it('install=true：写入 botmux-ask/SKILL.md，内容为 ASK_SKILL', () => {
+  it('writes botmux-ask/SKILL.md when install is true', () => {
     ensureAskSkill('codex', dir, true);
     expect(existsSync(skillFile())).toBe(true);
     expect(readFileSync(skillFile(), 'utf-8')).toBe(ASK_SKILL);
   });
 
-  it('install=false：删除已存在的 botmux-ask（hook 接管的 CLI）', () => {
+  it('removes botmux-ask when the hook takes over', () => {
     mkdirSync(join(dir, ASK_SKILL_NAME), { recursive: true });
     writeFileSync(skillFile(), ASK_SKILL, 'utf-8');
     ensureAskSkill('claude-code', dir, false);
     expect(existsSync(join(dir, ASK_SKILL_NAME))).toBe(false);
   });
 
-  it('install=false 且本就不存在：no-op，不报错', () => {
+  it('does nothing when disabled and already absent', () => {
     expect(() => ensureAskSkill('claude-code', dir, false)).not.toThrow();
     expect(existsSync(join(dir, ASK_SKILL_NAME))).toBe(false);
   });
 
-  it('skillsDir 为 undefined：直接跳过', () => {
+  it('does nothing when skillsDir is undefined', () => {
     expect(() => ensureAskSkill('cursor', undefined, true)).not.toThrow();
   });
 });

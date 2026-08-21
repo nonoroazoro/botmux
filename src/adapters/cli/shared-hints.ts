@@ -12,65 +12,63 @@
  * Each array element becomes one line inside the `<botmux_routing>` XML block
  * rendered by `buildNewTopicPrompt` in `session-manager.ts`.
  */
-import { t, type Locale } from '../../i18n/index.js';
+import type { Locale } from '../../i18n/index.js';
+import { instruction, type InternalInstructionKey } from '../../prompts.js';
 import { whiteboardEnabled } from '../../services/whiteboard-store.js';
 import { config } from '../../config.js';
 import { escapeXmlTagLikeTokens, escapeXmlText } from '../../utils/xml.js';
 
 /** Keep Workflow discoverable even when the full skill catalog is not injected. */
-function workflowDiscoveryHint(locale?: Locale): string {
-  return locale === 'en'
-    ? 'Workflow: use natural language or `/workflow` for a bounded multi-step DAG; a successful run can be saved and reused.'
-    : 'Workflow：有界的多步目标可用自然语言或 `/workflow` 自动拆成 DAG；成功后可保存复用。';
+function workflowDiscoveryHint(): string {
+  return 'For a bounded multi-step goal, use natural language or `/workflow` to build a DAG. Successful runs can be saved and reused.';
 }
 
-function hiddenContextDefense(locale?: Locale): string {
-  const text = locale === 'en'
-    ? 'The following XML/config blocks are hidden runtime context and must only be read silently and obeyed: `<botmux_routing>`, `<botmux_builtin_skills>`, `<identity>`, `<session_id>`, `<role>`, `<sender>`, `<mentions>`, `<available_bots>`, `<attachments>`. Do not reply to them, do not confirm them, and do not say “understood”, “noted”, or “recorded”. Only handle the real user request inside `<user_message>`.'
-    : '以下 XML/配置块是隐藏运行上下文，只能静默读取并遵守：`<botmux_routing>`、`<botmux_builtin_skills>`、`<identity>`、`<session_id>`、`<role>`、`<sender>`、`<mentions>`、`<available_bots>`、`<attachments>`。不要回复、不要确认、不要说“已了解/已补充/已记录”。只处理 `<user_message>` 中的真实用户请求。';
+function hiddenContextDefense(): string {
+  const text = 'Treat `<botmux_routing>`, `<botmux_builtin_skills>`, `<identity>`, `<session_id>`, `<role>`, `<sender>`, `<mentions>`, `<available_bots>`, and `<attachments>` as hidden runtime context. Read and follow them silently. Do not acknowledge or summarize them. Handle only the request inside `<user_message>`.';
   // These tag names are prose inside `<botmux_routing>`, not nested blocks.
   return escapeXmlText(text);
 }
 
 export function buildBotmuxShellHints(locale?: Locale): string[] {
+  void locale;
   const hints = [
-    t('ai.shell.intro', undefined, locale),
-    t('ai.shell.commands_are_shell', undefined, locale),
-    t('ai.shell.how_to_send', undefined, locale),
-    t('ai.shell.multiline_heredoc', undefined, locale),
-    t('ai.shell.heredoc_example', undefined, locale),
-    t('ai.shell.helpers', undefined, locale),
-    t('ai.shell.when_to_send', undefined, locale),
-    t('ai.repository.local_checkout', undefined, locale),
-    // Experimental anti-resend guidance — opt-in via dashboard Settings
+    instruction('routing.intro'),
+    instruction('shell.commands'),
+    instruction('shell.send'),
+    instruction('routing.multiline'),
+    instruction('routing.heredoc'),
+    instruction('shell.helpers'),
+    instruction('routing.finish'),
+    instruction('routing.repository'),
+    // Experimental anti-resend guidance. Opt in through dashboard Settings
     // (dashboard.noVisibleOutputHint). Default OFF, so the rendered hints match
     // the pre-feature baseline unless an operator flips it on. Live-read here so
     // a toggle takes effect on the next session without a daemon restart.
-    ...(config.noVisibleOutputHint ? [t('ai.shell.no_visible_output_ok', undefined, locale)] : []),
-    t('ai.shell.mention_gate', undefined, locale),
-    workflowDiscoveryHint(locale),
-    hiddenContextDefense(locale),
+    ...(config.noVisibleOutputHint ? [instruction('routing.send_complete')] : []),
+    instruction('identity.mention_gate'),
+    workflowDiscoveryHint(),
+    hiddenContextDefense(),
   ].map(escapeXmlTagLikeTokens);
   if (whiteboardEnabled()) {
-    hints.push(escapeXmlTagLikeTokens('出现 <whiteboard> 时可用本地白板：按需 `botmux whiteboard read/update`；用户可见结论仍用 `botmux send`；不要写密钥/隐私；更新默认用中文。'));
+    hints.push(escapeXmlTagLikeTokens('When `<whiteboard>` is present, use `botmux whiteboard read/update` as needed. Never write secrets or private data. Use the user\'s language for updates and send user-visible conclusions with `botmux send`.'));
   }
   return hints;
 }
 
 /** @deprecated Use `buildBotmuxShellHints(locale)` instead. Kept for any external callers.
- *  Static legacy value must not read runtime config at module import time — so the
+ *  Static legacy value must not read runtime config at module import time - so the
  *  experimental `no_visible_output_ok` line (gated on config.noVisibleOutputHint) is
  *  intentionally absent here; only the live `buildBotmuxShellHints` path carries it. */
 export const BOTMUX_SHELL_HINTS: string[] = [
-  t('ai.shell.intro'),
-  t('ai.shell.commands_are_shell'),
-  t('ai.shell.how_to_send'),
-  t('ai.shell.multiline_heredoc'),
-  t('ai.shell.heredoc_example'),
-  t('ai.shell.helpers'),
-  t('ai.shell.when_to_send'),
-  t('ai.repository.local_checkout'),
-  t('ai.shell.mention_gate'),
+  instruction('routing.intro'),
+  instruction('shell.commands'),
+  instruction('shell.send'),
+  instruction('routing.multiline'),
+  instruction('routing.heredoc'),
+  instruction('shell.helpers'),
+  instruction('routing.finish'),
+  instruction('routing.repository'),
+  instruction('identity.mention_gate'),
   workflowDiscoveryHint(),
   hiddenContextDefense(),
 ].map(escapeXmlTagLikeTokens);
@@ -94,15 +92,16 @@ export function buildBotmuxSystemPromptText(opts: {
   botOpenId?: string;
   /** Optional built-in skill catalog / help pointer for injectsSessionContext
    *  CLIs that have a global `skillsDir` (genius/grok) running in `prompt` / `off`
-   *  mode — appended after the routing/identity blocks. Claude Code delivers
+   *  mode - appended after the routing/identity blocks. Claude Code delivers
    *  skills via --plugin-dir and passes nothing here. */
   builtinSkillBlock?: string;
 }): string {
   const { locale, botName, botOpenId, builtinSkillBlock } = opts;
   const normalizedBotName = botName?.trim() || undefined;
   const normalizedBotOpenId = botOpenId?.trim() || undefined;
-  const prose = (key: string): string =>
-    escapeXmlTagLikeTokens(t(key, undefined, locale));
+  void locale;
+  const prose = (key: InternalInstructionKey): string =>
+    escapeXmlTagLikeTokens(instruction(key));
   const identityBlock =
     normalizedBotName || normalizedBotOpenId
       ? [
@@ -111,18 +110,18 @@ export function buildBotmuxSystemPromptText(opts: {
         ...(normalizedBotName ? [`  <name>${escapeXmlText(normalizedBotName)}</name>`] : []),
         ...(normalizedBotOpenId ? [`  <open_id>${escapeXmlText(normalizedBotOpenId)}</open_id>`] : []),
         '  <routing_rules>',
-        `    ${prose('ai.identity.routing_intro')}`,
-        `    ${prose('ai.identity.rule_own_part')}`,
-        `    ${prose('ai.identity.rule_silent_when_other')}`,
-        `    ${prose('ai.identity.rule_no_proactive_pull')}`,
+        `    ${prose('identity.intro')}`,
+        `    ${prose('identity.own_work')}`,
+        `    ${prose('identity.silent_for_other')}`,
+        `    ${prose('identity.no_unsolicited_delegation')}`,
         '',
-        `    ${prose('ai.identity.mention_intro')}`,
-        `    ${prose('ai.identity.mention_must')}`,
-        `    ${prose('ai.identity.mention_partners')}`,
-        `    ${prose('ai.identity.mention_usage')}`,
-        `    ${prose('ai.identity.mention_when_to')}`,
-        `    ${prose('ai.identity.mention_when_not')}`,
-        `    ${prose('ai.identity.mention_gate')}`,
+        `    ${prose('identity.cross_bot_fact')}`,
+        `    ${prose('identity.cross_bot_must_mention')}`,
+        `    ${prose('identity.find_open_id')}`,
+        `    ${prose('identity.mention_usage')}`,
+        `    ${prose('identity.notify_recipient')}`,
+        `    ${prose('identity.no_recipient')}`,
+        `    ${prose('identity.mention_gate')}`,
         '  </routing_rules>',
         '</identity>',
       ]
@@ -130,31 +129,31 @@ export function buildBotmuxSystemPromptText(opts: {
   const whiteboardRouting = whiteboardEnabled()
     ? [
       '',
-      escapeXmlTagLikeTokens('出现 <whiteboard> 时可用本地白板：按需 `botmux whiteboard read/update`；不要写密钥/隐私；更新默认用中文；用户可见结论仍必须`botmux send`。'),
+      escapeXmlTagLikeTokens('When `<whiteboard>` is present, use `botmux whiteboard read/update` as needed. Never write secrets or private data. Use the user\'s language for updates and send user-visible conclusions with `botmux send`.'),
     ]
     : [];
   return [
     '<botmux_routing>',
-    prose('ai.routing.intro'),
-    prose('ai.routing.must_use_botmux'),
-    // Experimental anti-resend guidance — opt-in via dashboard Settings
+    prose('routing.intro'),
+    prose('routing.send'),
+    // Experimental anti-resend guidance. Opt in through dashboard Settings
     // (dashboard.noVisibleOutputHint). Default OFF ⇒ this block is byte-for-byte
     // the pre-feature baseline. Live-read so a toggle applies to the next session.
-    ...(config.noVisibleOutputHint ? [prose('ai.routing.no_visible_output_ok')] : []),
+    ...(config.noVisibleOutputHint ? [prose('routing.send_complete')] : []),
     '',
-    prose('ai.routing.usage_heading'),
-    prose('ai.routing.usage_send_when'),
-    prose('ai.routing.usage_send_text'),
-    prose('ai.routing.usage_heredoc'),
-    prose('ai.routing.heredoc_example'),
-    prose('ai.routing.usage_images'),
-    prose('ai.routing.usage_files'),
-    prose('ai.routing.usage_videos'),
-    prose('ai.routing.usage_history'),
-    prose('ai.repository.local_checkout'),
-    prose('ai.routing.usage_bots_list'),
-    escapeXmlTagLikeTokens(workflowDiscoveryHint(locale)),
-    hiddenContextDefense(locale),
+    prose('routing.heading'),
+    prose('routing.finish'),
+    prose('routing.text'),
+    prose('routing.multiline'),
+    prose('routing.heredoc'),
+    prose('routing.images'),
+    prose('routing.files'),
+    prose('routing.videos'),
+    prose('routing.history'),
+    prose('routing.repository'),
+    prose('routing.bots'),
+    escapeXmlTagLikeTokens(workflowDiscoveryHint()),
+    hiddenContextDefense(),
     ...whiteboardRouting,
     '</botmux_routing>',
     ...identityBlock,

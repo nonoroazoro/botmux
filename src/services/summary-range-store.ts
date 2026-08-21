@@ -11,7 +11,7 @@ export const LEGACY_DASHBOARD_SUMMARY_TRIGGER_NAME = 'dashboard-default-summary-
 export const DEFAULT_SUMMARY_LIMIT = 50;
 export const DEFAULT_SUMMARY_SINCE_HOURS = 24;
 export const DEFAULT_SUMMARY_PROMPT =
-  '请根据当前会话历史生成总结。若是话题群，请总结当前话题；若是普通群，请总结配置范围内的群聊历史。总结需包含：背景、关键讨论、结论、待办事项。避免泄露无关隐私信息。';
+  'Summarize the configured conversation history in the user\'s language. For a topic group, cover only the current topic; for a regular group, cover the configured chat-history range. Include context, key discussion, conclusions, and action items. Omit unrelated private information.';
 
 export interface SummaryRangePrefs {
   limit: number;

@@ -1,4 +1,5 @@
-import { t, type Locale } from '../../../i18n/index.js';
+import type { Locale } from '../../../i18n/index.js';
+import { instruction, type InternalInstructionKey } from '../../../prompts.js';
 
 /**
  * Build a lightweight first-turn hint with the correct history scope.
@@ -13,10 +14,11 @@ export function buildHistoryLookupContext(
   scope: 'chat' | 'thread',
   locale?: Locale,
 ): string {
-  const key = chatType === 'p2p'
-    ? 'prompt.history_lookup.p2p'
+  void locale;
+  const key: InternalInstructionKey = chatType === 'p2p'
+    ? 'history.p2p'
     : scope === 'thread'
-      ? 'prompt.history_lookup.group_thread'
-      : 'prompt.history_lookup.group_chat';
-  return `${t(key, undefined, locale)}\n`;
+      ? 'history.group_thread'
+      : 'history.group_chat';
+  return `${instruction(key)}\n`;
 }

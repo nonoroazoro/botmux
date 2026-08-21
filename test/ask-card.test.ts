@@ -27,6 +27,7 @@ import {
   handleAskCardAction,
   parseFormSelections,
 } from '../src/im/lark/ask-card.js';
+import { buildSafeRecoveryExecutionCard } from '../src/im/lark/safe-recovery-card.js';
 
 const mockedSubmitAsk = vi.mocked(submitAsk);
 
@@ -243,6 +244,79 @@ describe('buildAskCard', () => {
     expect(text).toContain('"key":"update"');
     expect(text).toContain('"key":"separate"');
     expect(text).toContain('"key":"cancel"');
+  });
+
+  it('safe recovery uses a dedicated confirmation card without embedding context', () => {
+    const ask = makePending({
+      answererOpenId: 'ou_owner',
+      presentation: { type: 'safe_recovery' },
+      questions: [{
+        prompt: 'Start a new Codex conversation?',
+        multiSelect: false,
+        options: [
+          { key: 'confirm', label: 'Confirm' },
+          { key: 'cancel', label: 'Cancel' },
+        ],
+      }],
+    });
+    const card = JSON.parse(buildAskCard(ask));
+    const text = JSON.stringify(card);
+
+    expect(card.header.title.content).toContain('安全策略阻断');
+    expect(text).toContain('问题');
+    expect(text).toContain('cybersecurity policy');
+    expect(text).toContain('工具执行进度');
+    expect(text).toContain('新建会话并安全重试');
+    expect(text).toContain('取消');
+    expect(text).toContain('"key":"confirm"');
+    expect(text).toContain('"key":"cancel"');
+    expect(text).not.toContain('ou_owner');
+    expect(text).not.toContain('Start a new Codex conversation?');
+    expect(text.toLowerCase()).not.toContain('botmux');
+  });
+
+  it('safe recovery cancellation removes pending guidance and warnings', () => {
+    const ask = makePending({
+      answererOpenId: 'ou_owner',
+      presentation: { type: 'safe_recovery' },
+      questions: [{
+        prompt: 'Start a new conversation?',
+        multiSelect: false,
+        options: [
+          { key: 'confirm', label: 'Confirm' },
+          { key: 'cancel', label: 'Cancel' },
+        ],
+      }],
+    });
+    const card = JSON.parse(buildAskCard(ask, {
+      kind: 'answered',
+      answers: [['cancel']],
+      by: 'ou_owner',
+      comment: null,
+      timedOut: false,
+    }));
+    const text = JSON.stringify(card);
+
+    expect(card.header.title.content).toBe('已取消安全重试');
+    expect(text).toContain('未新建会话，原任务不会自动重试');
+    expect(text).not.toContain('部分信息可能丢失');
+    expect(text).not.toContain('新建会话并安全重试');
+  });
+
+  it('safe recovery shows success only after the worker starts recovery', () => {
+    const started = JSON.parse(buildSafeRecoveryExecutionCard({ status: 'started', locale: 'zh' }));
+    const failed = JSON.parse(buildSafeRecoveryExecutionCard({ status: 'failed', locale: 'zh' }));
+    const unknown = JSON.parse(buildSafeRecoveryExecutionCard({ status: 'unknown', locale: 'zh' }));
+
+    expect(started.header.template).toBe('green');
+    expect(started.header.title.content).toBe('已开始安全重试');
+    expect(JSON.stringify(started)).toContain('已在新会话中重新处理原始问题');
+    expect(failed.header.template).toBe('red');
+    expect(failed.header.title.content).toBe('安全重试未能启动');
+    expect(JSON.stringify(failed)).toContain('原始问题没有重新处理');
+    expect(unknown.header.template).toBe('orange');
+    expect(unknown.header.title.content).toBe('无法确认安全重试状态');
+    expect(JSON.stringify(unknown)).toContain('请先检查当前会话状态');
   });
 
   it('settled 态（answered + comment）：渲染自定义回复文字与标签', () => {

@@ -73,6 +73,6 @@ describe('chat rename', () => {
     const skill = BUILTIN_SKILLS.find(item => item.name === 'botmux-chat-rename');
     expect(skill?.content).toContain('botmux chat rename');
     expect(skill?.content).toContain('--proactive');
-    expect(skill?.content).toContain('只能修改当前会话所在群');
+    expect(skill?.content).toContain('Rename only the current group');
   });
 });

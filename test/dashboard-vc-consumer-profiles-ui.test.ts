@@ -291,7 +291,7 @@ describe('VcConsumerProfilesSection · Listener 归属与语义文案', () => {
     await openFirstTemplate();
     expect(idInput(r).props.value).toBe('important-sync');
     expect(labelInput(r).props.value).toBe('会议重要信息同步');
-    expect(r.root.findByType('textarea').props.value).toContain('时间、负责人、范围、状态或结论的修正');
+    expect(r.root.findByType('textarea').props.value).toContain('Corrections to time, owner, scope, status, or conclusions');
     await closeProfile(r);
     await openFirstTemplate();
     expect(idInput(r).props.value).toBe('important-sync-2');

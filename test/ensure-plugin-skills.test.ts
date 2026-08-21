@@ -10,7 +10,7 @@ describe('ensurePluginSkills', () => {
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'plugin-skills-')); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  it('写入 .claude-plugin/plugin.json（合法 JSON，name=botmux）', () => {
+  it('writes a valid .claude-plugin/plugin.json manifest named botmux', () => {
     ensurePluginSkills('claude-code', dir);
     const manifestFile = join(dir, '.claude-plugin', 'plugin.json');
     expect(existsSync(manifestFile)).toBe(true);
@@ -18,7 +18,7 @@ describe('ensurePluginSkills', () => {
     expect(manifest.name).toBe('botmux');
   });
 
-  it('每个内置 skill 写到 skills/<name>/SKILL.md，内容与定义一致', () => {
+  it('writes every built-in skill to skills/<name>/SKILL.md', () => {
     ensurePluginSkills('claude-code', dir);
     for (const skill of BUILTIN_SKILLS) {
       const skillFile = join(dir, 'skills', skill.name, 'SKILL.md');
@@ -27,14 +27,14 @@ describe('ensurePluginSkills', () => {
     }
   });
 
-  it('botmux-goal-ask 文案和 GoalInputs answer 结构一致', () => {
+  it('keeps botmux-goal-ask aligned with the GoalInputs answer shape', () => {
     const skill = BUILTIN_SKILLS.find((s) => s.name === 'botmux-goal-ask');
     expect(skill?.content).toContain('"from": "human"');
     expect(skill?.content).toContain('"name": "answer"');
     expect(skill?.content).not.toContain('from: "human/answer"');
   });
 
-  it('幂等：重复调用不报错且内容稳定', () => {
+  it('is idempotent', () => {
     ensurePluginSkills('claude-code', dir);
     const sample = join(dir, 'skills', BUILTIN_SKILLS[0].name, 'SKILL.md');
     const first = readFileSync(sample, 'utf-8');
@@ -42,7 +42,7 @@ describe('ensurePluginSkills', () => {
     expect(readFileSync(sample, 'utf-8')).toBe(first);
   });
 
-  it('pluginDir 为 undefined：直接跳过，不报错', () => {
+  it('does nothing when pluginDir is undefined', () => {
     expect(() => ensurePluginSkills('claude-code', undefined)).not.toThrow();
   });
 });
@@ -57,11 +57,11 @@ describe('removeGlobalBotmuxSkills', () => {
     writeFileSync(join(dir, name, 'SKILL.md'), 'x', 'utf-8');
   };
 
-  it('按 botmux- 前缀删除所有 botmux skill（含未在本版本列表里的），保留用户自有 skill', () => {
+  it('removes every botmux-prefixed skill and preserves user skills', () => {
     for (const s of BUILTIN_SKILLS) seed(s.name);
     seed(ASK_SKILL_NAME);
     for (const r of RETIRED_SKILL_NAMES) seed(r);
-    // 其它 botmux 版本装过、但本 checkout 不认识的 skill（如 botmux-handoff）也要清掉
+    // Remove skills left by versions unknown to this checkout.
     seed('botmux-handoff');
     seed('botmux-some-future-skill');
     seed('my-own-skill');
@@ -73,28 +73,28 @@ describe('removeGlobalBotmuxSkills', () => {
     for (const r of RETIRED_SKILL_NAMES) expect(existsSync(join(dir, r))).toBe(false);
     expect(existsSync(join(dir, 'botmux-handoff'))).toBe(false);
     expect(existsSync(join(dir, 'botmux-some-future-skill'))).toBe(false);
-    // 不属于 botmux 的 skill 必须保留
+    // Preserve skills not owned by botmux.
     expect(existsSync(join(dir, 'my-own-skill'))).toBe(true);
   });
 
-  it('目录不存在 / undefined：no-op，不报错', () => {
+  it('does nothing for a missing or undefined directory', () => {
     expect(() => removeGlobalBotmuxSkills(join(dir, 'nope'))).not.toThrow();
     expect(() => removeGlobalBotmuxSkills(undefined)).not.toThrow();
   });
 
-  it('二次扫描：第一次清理后重启竞态又写回的 botmux skill，会被再扫一遍清掉', () => {
-    // 第一道：清理（模拟早期 cleanupGlobalBotmuxSkillsOnce）
+  it('removes botmux skills recreated by a restart race on a second scan', () => {
+    // First cleanup pass.
     seed('botmux-send');
     removeGlobalBotmuxSkills(dir);
     expect(existsSync(join(dir, 'botmux-send'))).toBe(false);
 
-    // 重启竞态：清理后又被外部老 build / 残留进程写回全局
+    // Simulate an old build recreating global skills after cleanup.
     seed('botmux-send');
     seed('botmux-handoff');
     seed('my-own-skill');
     expect(existsSync(join(dir, 'botmux-send'))).toBe(true);
 
-    // 第二道：restore 完成后再扫一遍（本次修复的核心）——botmux 残留清掉、用户 skill 保留
+    // A second pass removes botmux residue and preserves user content.
     removeGlobalBotmuxSkills(dir);
     expect(existsSync(join(dir, 'botmux-send'))).toBe(false);
     expect(existsSync(join(dir, 'botmux-handoff'))).toBe(false);

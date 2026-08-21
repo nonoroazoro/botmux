@@ -18,6 +18,7 @@ import { atomicWriteFileSync } from './utils/atomic-write.js';
 import { join, basename, dirname, delimiter, isAbsolute, relative } from 'node:path';
 import { syncMultiUserBaselineDirectory } from './core/multi-user-baseline.js';
 import { ensureCodexWorkspaceTrusted } from './core/codex-workspace-trust/index.js';
+import { CodexCyberPolicyRecovery } from './core/CodexCyberPolicyRecovery.js';
 import { resolveBotmuxWrapperBinDir, prependBotmuxBin } from './core/botmux-wrapper.js';
 import { homedir, tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -169,6 +170,7 @@ import type {
   DisplayMode,
   TermActionKey,
   ScreenStatus,
+  SafeRecoveryExecutionStatus,
   VcMeetingImTurnOrigin,
 } from './types.js';
 import { t, setDefaultLocale } from './i18n/index.js';
@@ -1755,6 +1757,7 @@ function armSessionRenameIdleTimeout(): void {
 async function deliverRawInput(msg: Extract<DaemonToWorker, { type: 'raw_input' }>): Promise<void> {
   const targetBackend = backend;
   if (!targetBackend) return;
+  const isCyberPolicyReset = msg === codexCyberPolicyResetInput;
 
   let sent = false;
   let recoveryFailureReason: string | undefined;
@@ -1777,6 +1780,7 @@ async function deliverRawInput(msg: Extract<DaemonToWorker, { type: 'raw_input' 
       },
     );
     sent = true;
+    if (isCyberPolicyReset) codexCyberPolicyResetInput = undefined;
     isPromptReady = false;
     idleDetector?.reset();
     log(`Passthrough slash command: ${msg.content}`);
@@ -1785,6 +1789,16 @@ async function deliverRawInput(msg: Extract<DaemonToWorker, { type: 'raw_input' 
     // `/effort` opens a level picker (unknown target) and is left alone.
     if (isEffortLevelCommand(msg.content)) armEffortConfirm();
   } catch (err: any) {
+    if (isCyberPolicyReset) {
+      codexCyberPolicyResetInput = undefined;
+      if (codexCyberPolicyRecoveryInput) {
+        const index = pendingMessages.indexOf(codexCyberPolicyRecoveryInput);
+        if (index >= 0) pendingMessages.splice(index, 1);
+      }
+      codexCyberPolicyRecoveryInput = undefined;
+      reportCodexCyberPolicyRecovery('failed');
+      log('Codex cyber-policy recovery aborted because /new could not be submitted');
+    }
     recoveryFailureReason = err instanceof SubmissionWriteError
       ? err.recoveryFailureReason
       : undefined;
@@ -1828,6 +1842,18 @@ async function deliverRawInput(msg: Extract<DaemonToWorker, { type: 'raw_input' 
 /** Inputs written to the CLI whose turn hasn't completed — re-queued across a
  *  CLI crash so a submit-time death can't silently eat user messages. */
 const inflightInputs = new InflightInputTracker();
+const codexCyberPolicyRecovery = new CodexCyberPolicyRecovery();
+let codexCyberPolicyResetInput: Extract<DaemonToWorker, { type: 'raw_input' }> | undefined;
+let codexCyberPolicyRecoveryInput: PendingCliInput | undefined;
+let codexCyberPolicyOriginalContext: string | undefined;
+let codexCyberPolicyRecoveryRequestId: string | undefined;
+
+function reportCodexCyberPolicyRecovery(status: SafeRecoveryExecutionStatus): void {
+  const requestId = codexCyberPolicyRecoveryRequestId;
+  if (!requestId) return;
+  codexCyberPolicyRecoveryRequestId = undefined;
+  send({ type: 'safe_recovery_result', requestId, status });
+}
 /** Alternate submit-confirmation signals. Some CLIs can consume PTY input and
  *  start work before their history/transcript submit marker is observable. */
 let lastPtyActivityAtMs = 0;
@@ -4348,76 +4374,62 @@ function drainReliableTerminalBeforeInterrupt(): void {
   }
 }
 
-const codexCyberPolicyRecoveryCounts = new Map<string, number>();
-const MAX_CODEX_CYBER_POLICY_RECOVERIES_PER_TURN = 3;
-const MAX_TRACKED_CODEX_CYBER_POLICY_TURNS = 256;
-const CODEX_CYBER_POLICY_CONTINUATION_PROMPT =
-  'Continue processing the most recent user request from this conversation. Do not repeat the request. Return the result normally.';
-
 /**
- * Retire a failed Codex conversation and continue the turn in a fork.
- * The botmux session and Lark topic remain unchanged. Only the CLI-native
- * conversation id rotates.
+ * Offer a fresh conversation after an exact Codex policy terminal.
+ * The policy error remains visible. Recovery starts only after the requesting
+ * user confirms the dedicated Lark card.
  *
  * @param turn The failed transcript turn.
  */
-function recoverCodexCyberPolicyTurn(turn: CodexPendingTurn): boolean {
+function offerCodexCyberPolicyRecovery(turn: CodexPendingTurn): void {
   if (lastInitConfig?.cliId !== 'codex'
     || lastInitConfig.adoptMode
-    || turn.terminalErrorCode !== 'codex_task_error:cyber_policy') return false;
+    || turn.terminalErrorCode !== 'codex_task_error:cyber_policy') return;
 
-  const recoveryKey = `${turn.turnId}:${turn.dispatchAttempt ?? '-'}`;
-  const recoveryCount = codexCyberPolicyRecoveryCounts.get(recoveryKey) ?? 0;
-  if (recoveryCount >= MAX_CODEX_CYBER_POLICY_RECOVERIES_PER_TURN) {
-    log(
-      `Codex cyber-policy recovery exhausted for ${turn.turnId.slice(0, 12)} `
-      + `after ${recoveryCount} fork attempts; surfacing the policy error`,
-    );
-    return false;
+  const failedInput = inflightInputs.findTurn(turn.turnId, turn.dispatchAttempt);
+  const context = codexCyberPolicyOriginalContext
+    ?? failedInput?.content
+    ?? turn.userText
+    ?? lastInitConfig.prompt;
+  if (!context) {
+    log(`Codex cyber-policy recovery offer skipped for ${turn.turnId.slice(0, 12)}: input unavailable`);
+    return;
   }
-  const sourceConversationId = lastInitConfig.cliSessionId;
-  if (!sourceConversationId) {
-    log(`Codex cyber-policy recovery skipped for ${turn.turnId.slice(0, 12)}: conversation id unavailable`);
-    return false;
-  }
-
-  const recoverySourceBatch = inflightInputs.takeBatchForRecovery(turn.turnId, turn.dispatchAttempt);
-  if (recoverySourceBatch.length === 0) {
-    log(`Codex cyber-policy recovery skipped for ${turn.turnId.slice(0, 12)}: input unavailable`);
-    return false;
-  }
-
-  const nextRecoveryCount = recoveryCount + 1;
-  codexCyberPolicyRecoveryCounts.delete(recoveryKey);
-  codexCyberPolicyRecoveryCounts.set(recoveryKey, nextRecoveryCount);
-  while (codexCyberPolicyRecoveryCounts.size > MAX_TRACKED_CODEX_CYBER_POLICY_TURNS) {
-    const oldest = codexCyberPolicyRecoveryCounts.keys().next().value;
-    if (typeof oldest !== 'string') break;
-    codexCyberPolicyRecoveryCounts.delete(oldest);
-  }
-  const recoveryBatch = recoverySourceBatch.map(item =>
-    item.turnId === turn.turnId && item.dispatchAttempt === turn.dispatchAttempt
-      ? {
-          ...item,
-          content: CODEX_CYBER_POLICY_CONTINUATION_PROMPT,
-          logicalContent: undefined,
-          codexAppInput: undefined,
-        }
-      : item,
-  );
-  pendingMessages.unshift(...recoveryBatch);
-  log(
-    `Codex cyber-policy recovery: forking conversation ${sourceConversationId} `
-    + `and continuing ${recoveryBatch.length} input(s) for turn ${turn.turnId.slice(0, 12)} `
-    + `(attempt ${nextRecoveryCount}/${MAX_CODEX_CYBER_POLICY_RECOVERIES_PER_TURN})`,
-  );
-  void restartCliProcess('Codex cyber-policy conversation recovery', {
-    immediate: true,
-    preservePending: true,
-    skipRestartBudget: true,
-    forkSession: true,
+  codexCyberPolicyOriginalContext = context;
+  send({
+    type: 'safe_recovery_confirmation',
+    content: context,
+    turnId: turn.turnId,
   });
-  return true;
+  log(`Requested safe-recovery confirmation for policy-blocked turn ${turn.turnId.slice(0, 12)}`);
+}
+
+/**
+ * Queue `/new` followed by the defensive recovery prompt.
+ *
+ * @param recoveryInput The prompt that starts the fresh conversation.
+ * @param recoveryBatch Inputs to restore after the failed conversation.
+ * @param turnId The turn that keeps the existing reply route.
+ */
+function queueCodexCyberPolicyRecovery(
+  recoveryInput: PendingCliInput,
+  recoveryBatch: PendingCliInput[],
+  turnId?: string,
+): void {
+  pendingMessages.unshift(...recoveryBatch);
+  const resetInput: Extract<DaemonToWorker, { type: 'raw_input' }> = {
+    type: 'raw_input',
+    content: '/new',
+    ...(turnId ? { turnId } : {}),
+  };
+  codexCyberPolicyResetInput = resetInput;
+  codexCyberPolicyRecoveryInput = recoveryInput;
+  pendingRawInputs.unshift(resetInput);
+  log(
+    `Codex cyber-policy recovery: opening a fresh conversation and continuing `
+    + `${recoveryBatch.length} input(s)${turnId ? ` for turn ${turnId.slice(0, 12)}` : ''}`,
+  );
+  queueMicrotask(() => { void flushPending(); });
 }
 
 function emitReadyCodexTurns(): void {
@@ -4442,7 +4454,10 @@ function emitReadyCodexTurns(): void {
     : undefined;
   for (let i = 0; i < ready.length; i++) {
     const turn = ready[i];
-    if (recoverCodexCyberPolicyTurn(turn)) return;
+    offerCodexCyberPolicyRecovery(turn);
+    if (turn.terminalErrorCode !== 'codex_task_error:cyber_policy') {
+      codexCyberPolicyOriginalContext = undefined;
+    }
     const sourceHermesSessionId = structuredBridgeIsHermes() ? turn.sourceSessionId : undefined;
     const nextBoundaryMs = (i + 1 < ready.length ? ready[i + 1].markTimeMs : nextPendingMarkTimeMs);
     const gateInput = {
@@ -6853,7 +6868,10 @@ async function flushPending(): Promise<void> {
   // message. It must wait for a real prompt even on type-ahead CLIs. Normal
   // pending messages can still drain while busy; the rename stays queued.
   const sessionRenameReady = isPromptReady && pendingSessionRename !== null;
-  const rawInputReady = isPromptReady && pendingRawInputs.length > 0;
+  const recoveryPromptReady = isPromptReady
+    && !codexCyberPolicyResetInput
+    && pendingMessages[0] === codexCyberPolicyRecoveryInput;
+  const rawInputReady = isPromptReady && pendingRawInputs.length > 0 && !recoveryPromptReady;
   let supportedSessionRenameReady = sessionRenameReady;
   if (sessionRenameReady && !cliAdapter.buildSessionRenameCommand) {
     pendingSessionRename = null;
@@ -6944,6 +6962,7 @@ async function flushPending(): Promise<void> {
     while (pendingMessages.length > 0 && backend && cliAdapter) {
       const item = freshnessInputQueue.takeNormal();
       if (!item) break;
+      const isCyberPolicyRecovery = item === codexCyberPolicyRecoveryInput;
       const durableWrite = item.dispatchAttempt !== undefined;
       const msg = item.content;
       const logicalMsg = item.logicalContent ?? msg;
@@ -6954,6 +6973,9 @@ async function flushPending(): Promise<void> {
       const prepareNormalWrite = (): void => {
         if (normalWritePrepared) return;
         normalWritePrepared = true;
+        if (item === codexCyberPolicyRecoveryInput) {
+          codexCyberPolicyRecoveryInput = undefined;
+        }
         renderer?.markNewTurn();
         currentBotmuxTurnId = item.turnId;
         currentBotmuxDispatchAttempt = item.dispatchAttempt;
@@ -7092,6 +7114,14 @@ async function flushPending(): Promise<void> {
           break;
         }
         log(`writeInput threw: ${err?.message ?? err}`);
+        if (isCyberPolicyRecovery) {
+          if (codexCyberPolicyRecoveryInput === item) {
+            codexCyberPolicyRecoveryInput = undefined;
+          }
+          inflightInputs.retire(item);
+          reportCodexCyberPolicyRecovery(blockedBeforeWrite ? 'failed' : 'unknown');
+          break;
+        }
         if (blockedBeforeWrite && submissionBackend) {
           // This exact item is known not to have touched the PTY. Keep its
           // original durable attempt (and ordinary IM content) queued, but do
@@ -7155,6 +7185,14 @@ async function flushPending(): Promise<void> {
           ?? codexRpcEngine?.activeThreadId
           ?? lastInitConfig.cliSessionId;
         if (threadId) void syncFreshCodexNativeSessionTitle(threadId, codexRpcEngine);
+      }
+      if (isCyberPolicyRecovery) {
+        const status = result?.submitted !== false
+          ? 'started'
+          : recoveryFailureReason
+            ? 'unknown'
+            : 'failed';
+        reportCodexCyberPolicyRecovery(status);
       }
       // `&& backend`: if the CLI exited during this write (pane gone → onExit
       // nulled backend) the user already got a "CLI exited" notice; don't also
@@ -10307,7 +10345,6 @@ async function restartCliProcess(
     immediate?: boolean;
     preservePending?: boolean;
     skipRestartBudget?: boolean;
-    forkSession?: boolean;
   } = {},
 ): Promise<void> {
   if (lastInitConfig?.adoptMode) {
@@ -10369,15 +10406,13 @@ async function restartCliProcess(
               resume: true,
               prompt: '',
               cliSessionId: rpcThreadId ?? lastInitConfig.cliSessionId,
-              forkSession: opts.forkSession === true,
             };
             spawnedWorkingDir = restartCfg.workingDir;
             // Re-engage RPC so the new --remote pane binds to the CURRENT app-server
             // (a fresh port), not the dead prior one. engageCodexRpc only sets
             // remote* on success, else spawnCli falls back to paste.
             let rpcPluginGenerationPrepared = false;
-            if (!restartCfg.forkSession
-              && codexRpcEligible(restartCfg, { sandboxForced: sandboxEnabled() })) {
+            if (codexRpcEligible(restartCfg, { sandboxForced: sandboxEnabled() })) {
               const adapter = createCliAdapterSync(restartCfg.cliId as CliId, restartCfg.cliPathOverride);
               await prepareCliPluginGenerationAndGateway(restartCfg, adapter);
               rpcPluginGenerationPrepared = true;
@@ -12119,6 +12154,7 @@ process.on('message', async (raw: unknown) => {
       if (tmuxScrolledHalfPages > 0 && !messageAdoptMode) exitTmuxScrollMode();
       let content = msg.content;
       let codexAppInput = msg.codexAppInput;
+      codexCyberPolicyOriginalContext = undefined;
       if (deferredPluginSkillCatalog && !lastInitConfig?.adoptMode) {
         content = `${content}\n\n${deferredPluginSkillCatalog}`;
         if (codexAppInput) {
@@ -12403,6 +12439,34 @@ process.on('message', async (raw: unknown) => {
         if (inputCommitted) acknowledgeTurnInputCommitted(msg.turnId);
         else if (ordinaryImTurnId) rejectOrdinaryImTurn(ordinaryImTurnId, 'cli_input_unavailable');
       }
+      break;
+    }
+
+    case 'safe_recover': {
+      if (lastInitConfig?.cliId !== 'codex' || lastInitConfig.adoptMode) {
+        log('Ignored safe recovery for a non-Codex or adopted session');
+        send({ type: 'safe_recovery_result', requestId: msg.requestId, status: 'failed' });
+        break;
+      }
+      if (codexCyberPolicyResetInput || codexCyberPolicyRecoveryInput) {
+        log('Ignored safe recovery because another recovery is already queued');
+        send({ type: 'safe_recovery_result', requestId: msg.requestId, status: 'failed' });
+        break;
+      }
+      const turnId = msg.turnId ?? currentBotmuxTurnId;
+      codexCyberPolicyOriginalContext = msg.content;
+      codexCyberPolicyRecoveryRequestId = msg.requestId;
+      const recoveryInput: PendingCliInput = {
+        content: codexCyberPolicyRecovery.buildPrompt(
+          lastInitConfig.prompt || msg.content,
+          msg.content,
+        ),
+        ...(turnId ? { turnId } : {}),
+      };
+      // The operator intentionally retires the current native conversation.
+      // Its old in-flight write must never be replayed after `/new`.
+      inflightInputs.onTurnComplete();
+      queueCodexCyberPolicyRecovery(recoveryInput, [recoveryInput], turnId);
       break;
     }
 

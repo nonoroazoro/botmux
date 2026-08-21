@@ -12,6 +12,7 @@ import { t, localeForBot, type Locale } from '../../i18n/index.js';
 import { replyMessage, sendMessage, updateMessage } from './client.js';
 import { buildArtifactOverlapCard } from './artifact-overlap-card.js';
 import { buildWorkflowTrialCard } from './workflow-trial-card.js';
+import { buildSafeRecoveryCard } from './safe-recovery-card.js';
 
 /** 旧单选即答动作（保留兼容旧卡片回调；Task 5 新增 ask_submit 路径）。 */
 export const ASK_SELECT_ACTION = 'ask_select';
@@ -323,6 +324,14 @@ export function buildAskCard(ask: PendingAsk, result?: AskResult): string {
     return buildArtifactOverlapCard({
       ask,
       presentation: ask.presentation,
+      selectAction: ASK_SELECT_ACTION,
+      result,
+      locale,
+    });
+  }
+  if (ask.presentation?.type === 'safe_recovery') {
+    return buildSafeRecoveryCard({
+      ask,
       selectAction: ASK_SELECT_ACTION,
       result,
       locale,

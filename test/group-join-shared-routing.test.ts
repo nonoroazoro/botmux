@@ -261,7 +261,7 @@ describe('handleBotAdded — 普通群 shared 路由', () => {
     expect(mocks.forkWorker).toHaveBeenCalledOnce();
     const firstTurn = mocks.forkWorker.mock.calls[0]?.[1];
     expect(firstTurn.content).toContain('fetch_status="unavailable"');
-    expect(firstTurn.content).toContain('读取失败，不代表群内没有任务');
+    expect(firstTurn.content).toContain('it does not mean the chat has no task');
   });
 
   it('chat 模式保持群顶层平铺且不创建话题根', async () => {

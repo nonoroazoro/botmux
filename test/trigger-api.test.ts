@@ -158,10 +158,10 @@ describe('trigger request contract', () => {
     (req.options as any) = { asyncReturnSessionId: true };
     const prompt = buildUntrustedEventPrompt(req, 'trg_1');
     expect(prompt).toContain('<botmux_http_response_mode');
-    expect(prompt).toContain('Output ONLY the final answer');
-    // Guards against the model narrating the routing header.
-    expect(prompt.toLowerCase()).toContain('routing header');
-    expect(prompt).toContain('Do not call botmux send');
+    expect(prompt).toContain('Return only the final task result');
+    // Guards against the model narrating transport context.
+    expect(prompt.toLowerCase()).toContain('commentary about routing or context');
+    expect(prompt).toContain('Do not call `botmux send`');
   });
 
   it('no response-mode block without wait/async options (plain webhook delivery)', () => {

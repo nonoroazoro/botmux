@@ -62,7 +62,7 @@ describe('generateCodexAppThreadTitle', () => {
       selectedCapabilityRoots: [],
       environments: [],
       dynamicTools: null,
-      developerInstructions: expect.stringContaining('不得调用工具'),
+      developerInstructions: expect.stringContaining('Do not use tools, apps, plugins, MCP, shell, network, files, or subagents'),
       config: {
         model: 'fake-low-cost-model',
         model_reasoning_effort: 'low',

@@ -203,6 +203,18 @@ export interface DaemonSession {
   codexServiceTier?: CodexServiceTierSnapshot;
   /** Tier change arrived while a card POST was in-flight. */
   pendingCodexTierCardRefresh?: boolean;
+  /**
+   * One code-owned confirmation may authorize replacing the current native
+   * Codex conversation. Runtime-only and bound to the exact requester turn.
+   */
+  pendingSafeRecovery?: {
+    requestId: string;
+    turnId: string;
+    content: string;
+    phase: 'awaiting_confirmation' | 'starting';
+    cardMessageId?: string;
+    ackTimeout?: NodeJS.Timeout;
+  };
   /** The currently referenced card has been frozen/parked for handoff. Tier
    * updates belong to the successor card and must not rewrite this snapshot. */
   parkedStreamCardNonce?: string;

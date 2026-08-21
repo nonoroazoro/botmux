@@ -67,16 +67,16 @@ describe('VC meeting consumer profile template catalog', () => {
       title: { zh: '会议纪要与行动项' },
     });
     expect(templates.find(template => template.templateId === 'meeting-facilitator')?.instructions.zh)
-      .toContain('本次会议补充说明');
+      .toContain('per-meeting context');
     expect(templates.find(template => template.templateId === 'solution-review-risk-challenge')?.instructions.zh)
-      .toContain('失败路径');
+      .toContain('failure paths');
     expect(templates.find(template => template.templateId === 'interview-requirement-insights')?.instructions.zh)
-      .toContain('不诱导');
+      .toContain('non-leading follow-up');
   });
 
   it('makes corrections explicit without adding fingerprint or cadence configuration', () => {
     const important = VC_MEETING_CONSUMER_PROFILE_TEMPLATE_CATALOG.templates[0];
-    expect(important.instructions.zh).toContain('修正必须视为新信息');
+    expect(important.instructions.zh).toContain('are new information');
     expect(important.instructions.en).toContain('are new information');
     const serialized = JSON.stringify(VC_MEETING_CONSUMER_PROFILE_TEMPLATE_CATALOG).toLowerCase();
     expect(serialized).not.toContain('fingerprint');

@@ -196,8 +196,8 @@ describe('claude-code buildArgs', () => {
     const args = adapter.buildArgs({ sessionId: 's', resume: false, disableCliBypass: true });
     expect(args).not.toContain('--dangerously-skip-permissions');
     expect(args).toContain('--disallowed-tools');
-    // SessionStart 就绪 hook 改走全局 settings.json（见 hookInstall.sessionStartCommand），
-    // 不再注入进程级 --settings；bypass 键也没有 → 没东西可传 → 干脆不带 --settings。
+    // The SessionStart readiness hook is installed through the global settings file.
+    // With bypass disabled, there are no process-level settings to pass.
     expect(args).not.toContain('--settings');
     expect(adapter.hookInstall?.sessionStartCommand).toContain('session-ready');
   });
@@ -214,10 +214,9 @@ describe('claude-code buildArgs', () => {
     expect(idx).toBeGreaterThanOrEqual(0);
     const prompt = args[idx + 1];
     expect(prompt).toContain("botmux send <<'EOF'");
-    expect(prompt).toContain('第一行');
-    expect(prompt).toContain('第二行');
-    expect(prompt).toContain('botmux send "第一行\\n第二行"');
-    expect(prompt).toContain('字面量');
+    expect(prompt).toContain('line 1');
+    expect(prompt).toContain('line 2');
+    expect(prompt).toContain('literal `\\n`');
     expect(prompt).toContain('JSON.stringify');
     expect(prompt).toContain('--content-file');
   });
@@ -228,7 +227,7 @@ describe('claude-code buildArgs', () => {
     for (const prompt of [systemPrompt, shellHints]) {
       expect(prompt).toContain('JSON.stringify');
       expect(prompt).toContain('JSON-escaped text as a positional argument');
-      expect(prompt).toContain('literal `\\n` back into newlines');
+      expect(prompt).toContain('literal `\\n` back into a newline');
       expect(prompt).toContain('--content-file');
     }
   });

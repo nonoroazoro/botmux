@@ -2,20 +2,19 @@ import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { slugFromWorktreeText } from './git-worktree.js';
 
-const SYSTEM_PROMPT = `You generate short, stable git branch slugs for coding tasks.
-Return ONLY one lowercase ASCII slug, no markdown, no quotes.
-Rules:
-- Translate Chinese or any non-English task into concise English keywords.
-- Use 2 to 5 words when possible.
+const SYSTEM_PROMPT = `Generate a short, stable git branch slug for the supplied coding task.
+Return exactly one lowercase ASCII slug without Markdown or quotes.
+- Translate non-English input into concise English keywords.
+- Prefer 2 to 5 words.
 - Use only a-z, 0-9, and hyphen.
 - Start and end with a letter or digit.
-- Max 48 characters.
+- Use at most 48 characters.
 - Prefer concrete engineering terms over generic words.
 Examples:
-中文 worktree 命名逻辑 -> worktree-naming-logic
-远端同名分支已存在时 checkout 逻辑 -> remote-branch-checkout
-创建 PR 前自动跑测试 -> pre-pr-test-run
-修复飞书卡片重复点击 -> lark-card-double-click`;
+worktree naming logic -> worktree-naming-logic
+checkout an existing remote branch -> remote-branch-checkout
+run tests before creating a PR -> pre-pr-test-run
+prevent duplicate card actions -> card-action-deduplication`;
 
 function firstText(title?: string, firstPrompt?: string): string | undefined {
   const t = title?.trim();

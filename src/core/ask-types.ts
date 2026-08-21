@@ -42,7 +42,18 @@ export interface ArtifactOverlapPresentation {
   summary: string;
 }
 
-export type AskPresentation = WorkflowTrialPresentation | ArtifactOverlapPresentation;
+/**
+ * Code-owned confirmation shown before replacing a policy-blocked Codex
+ * conversation. It carries no recovery context or caller identity.
+ */
+export interface SafeRecoveryPresentation {
+  type: 'safe_recovery';
+}
+
+export type AskPresentation =
+  | WorkflowTrialPresentation
+  | ArtifactOverlapPresentation
+  | SafeRecoveryPresentation;
 
 /** Terminal result of an ask, returned to the CLI caller. Discriminated by
  *  `kind` so the CLI can map straight to stdout shape + exit code.
@@ -136,6 +147,11 @@ export interface CreateAskInput {
   /** Optional code-owned card presentation. The broker still owns waiting and
    *  answer settlement, while the IM layer renders a purpose-specific card. */
   presentation?: AskPresentation;
+  /**
+   * Whether a normal text message in the same topic may answer this ask.
+   * Defaults to true. Set false for decisions that must use card buttons.
+   */
+  allowCustomReply?: boolean;
   /** Absolute deadline; computed by caller from `--timeout`. Broker won't
    *  re-compute. */
   timeoutMs: number;
@@ -164,6 +180,10 @@ export interface PendingAsk {
   /** 问题列表，替代旧的 `options` + `prompt`。 */
   questions: ReadonlyArray<AskQuestion>;
   presentation?: AskPresentation;
+  /**
+   * False when only an explicit card action may settle this ask.
+   */
+  allowCustomReply?: boolean;
   /** 当前已勾选答案快照。仅 daemon/card 内部使用；CLI IPC 边界不暴露。 */
   selections?: ReadonlyArray<ReadonlyArray<string>>;
   createdAt: number;

@@ -1,27 +1,29 @@
-// Dashboard「创建会话」的纯逻辑层：请求校验、列/模式归一化、lead 编排前言与
-// 协作提示的 prompt 组装、会话标题推导。与 DOM / Lark API / 进程管理解耦，便于
-// 单测。daemon 侧 /api/sessions/spawn 与 session-manager 的 spawn/activate 复用。
+// Pure logic for dashboard session creation: request validation, mode and
+// column normalization, role context, and title derivation.
 import { t, type Locale } from '../i18n/index.js';
+import { instruction } from '../prompts.js';
 import type { CliTurnPayload } from '../types.js';
 import { parseDashboardImageUploads, type DashboardImageUpload } from './dashboard-images.js';
 
-/** 协作模式：
- *  - 'all'  「一起开工」——每个被选 bot 各起一条会话、拿同一份内容。
- *  - 'lead' 「Lead 分配」——只有 lead bot 起会话，内容带编排上下文，由它决定何时
- *           在群里 @ 拉起 sub bot。 */
+/**
+ * Collaboration mode.
+ * - `all`: start one session per selected bot with the same request.
+ * - `lead`: start only the lead bot and let it delegate when useful.
+ */
 export const CREATE_SESSION_MODES = ['all', 'lead'] as const;
 export type CreateSessionMode = (typeof CREATE_SESSION_MODES)[number];
 
-/** 入列：建完后会话落在看板哪一列。
- *  - 'in_progress' 直接开跑（立即 forkWorker）。
- *  - 'backlog'     入待办池（parked，不起 CLI，等激活）。 */
+/**
+ * Dashboard column for a newly created session.
+ * - `in_progress`: start immediately.
+ * - `backlog`: park without starting a CLI.
+ */
 export const CREATE_SESSION_COLUMNS = ['in_progress', 'backlog'] as const;
 export type CreateSessionColumn = (typeof CREATE_SESSION_COLUMNS)[number];
 
-/** 单个 bot 在新群里扮演的角色，决定它的首轮 prompt 怎么包：
- *  - 'solo'   只有它一个 worker（单 bot，或 lead 模式下的 lead 且没 sub）。
- *  - 'lead'   lead 分配模式的 lead，prompt 前置编排上下文（列出 sub bot）。
- *  - 'collab' 一起开工模式的并列 worker，prompt 前置一句「还有谁在一起干」。 */
+/**
+ * Role used to wrap a bot's opening prompt in a newly created chat.
+ */
 export type SpawnRole = 'solo' | 'lead' | 'collab';
 export const SPAWN_ROLES: readonly SpawnRole[] = ['solo', 'lead', 'collab'];
 
@@ -50,7 +52,9 @@ function normalizeSpawnRole(value: unknown): SpawnRole | null {
     : null;
 }
 
-/** 会话标题：取内容首个非空行，压空白、限长。空内容回退占位。 */
+/**
+ * Derive a bounded session title from the first non-empty content line.
+ */
 export function deriveSessionTitleFromContent(content: string): string {
   const firstLine = content.split(/\r?\n/).map(s => s.trim()).find(Boolean) ?? '';
   if (!firstLine) return t('cmd.createSession.untitled');
@@ -83,24 +87,28 @@ function coworkerListBlock(coworkers: Coworker[]): string {
     .join('\n');
 }
 
-/** Lead 分配模式下，prepend 到用户内容前的编排上下文块。列出群里可协作的 sub
- *  bot（名字 + open_id，便于 @），并交代「你是 lead、自行决定何时拉起谁」。 */
+/**
+ * Build trusted orchestration context for a lead bot.
+ */
 export function buildLeadDispatchPreamble(coworkers: Coworker[], locale?: Locale): string {
-  const intro = t('cmd.createSession.lead_preamble_intro', undefined, locale);
-  const outro = t('cmd.createSession.lead_preamble_outro', undefined, locale);
+  void locale;
+  const intro = instruction('session.lead_intro');
+  const outro = instruction('session.lead_outro');
   const list = coworkers.length > 0
     ? coworkerListBlock(coworkers)
-    : t('cmd.createSession.lead_preamble_no_subs', undefined, locale);
+    : instruction('session.no_sub_bots');
   return `<botmux_lead_dispatch>\n${intro}\n${list}\n${outro}\n</botmux_lead_dispatch>`;
 }
 
-/** 一起开工模式下，prepend 一句「本群还有谁在并行干同一任务」的轻量提示。
- *  没有其他 coworker 时返回空串（退化成 solo）。 */
+/**
+ * Build trusted peer context for parallel collaborators.
+ */
 export function buildCollabNote(coworkers: Coworker[], locale?: Locale): string {
+  void locale;
   const others = coworkers.filter(c => c.name);
   if (others.length === 0) return '';
-  const names = others.map(c => c.name).join('、');
-  return `<botmux_collab>${t('cmd.createSession.collab_note', { peers: names }, locale)}</botmux_collab>`;
+  const names = others.map(c => c.name).join(', ');
+  return `<botmux_collab>${instruction('session.collaboration', { peers: names })}</botmux_collab>`;
 }
 
 /** System-generated dashboard role context kept separate from the human task
@@ -117,8 +125,9 @@ export function composeSpawnCodexAppContext(args: {
   return undefined;
 }
 
-/** 组装喂给 buildNewTopicPrompt 的「用户内容」——按角色在原始 content 前拼上
- *  lead 编排前言 / 协作提示。solo 原样返回。 */
+/**
+ * Compose role context and the unmodified user request for a new session.
+ */
 export function composeSpawnUserContent(args: {
   content: string;
   role: SpawnRole;

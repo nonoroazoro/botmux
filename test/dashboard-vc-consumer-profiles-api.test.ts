@@ -435,7 +435,7 @@ describe('default VC consumer profile bootstrap', () => {
       }],
     });
     expect((meetingConsumer.consumerProfiles as Array<Record<string, unknown>>)[0]?.instructions)
-      .toContain('无实质增量时保持静默');
+      .toContain('Otherwise remain silent');
     expect(meetingConsumer.defaultProfileBootstrap).toMatchObject({
       generatorVersion: 2,
       profileId: 'minutes',

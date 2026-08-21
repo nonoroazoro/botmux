@@ -113,7 +113,7 @@ describe('buildBridgeInputContent', () => {
       mentions,
       selfMention: { name: 'Claude', openId: 'ou_self' },
     });
-    expect(out).toContain('[@提及]');
+    expect(out).toContain('[@Mentions]');
     expect(out).toContain('@Claude');
   });
 
@@ -123,7 +123,7 @@ describe('buildBridgeInputContent', () => {
     // Without selfMention we keep legacy behavior — leading @Codex stays,
     // mention block stays.
     expect(out).toContain('@Codex hello');
-    expect(out).toContain('[@提及]');
+    expect(out).toContain('[@Mentions]');
   });
 
   it('contrast: buildFollowUpContent (non-bridge) DOES inject botmux_reminder', () => {

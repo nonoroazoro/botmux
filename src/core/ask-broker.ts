@@ -53,6 +53,13 @@ interface InternalPending extends Omit<PendingAsk, 'selections'> {
    *  waiter here so all callers get the one result — no second ask/card
    *  (codex P1-1 active-replay). */
   waiters: Array<(result: AskResult) => void>;
+  /**
+   * Callers waiting until the card is visible in Lark.
+   */
+  dispatchWaiters: Array<{
+    resolve: (result: { messageId: string }) => void;
+    reject: (error: Error) => void;
+  }>;
   timeoutHandle: NodeJS.Timeout;
   /** epoch ms when settle ran; undefined while still pending. */
   settledAt?: number;
@@ -274,10 +281,12 @@ export function registerAsk(input: CreateAskInput): Promise<AskResult> {
       chatType: input.chatType,
       questions: input.questions,
       presentation: input.presentation,
+      allowCustomReply: input.allowCustomReply !== false,
       createdAt,
       deadlineAt,
       settled: false,
       waiters: [resolve],
+      dispatchWaiters: [],
       timeoutHandle,
       selections,
     };
@@ -304,7 +313,8 @@ function sameIdentity(ask: InternalPending, input: CreateAskInput): boolean {
     ask.answererOpenId === input.answererOpenId &&
     ask.originKind === (input.originKind ?? 'hook') &&
     questionsShape(ask.questions) === questionsShape(input.questions) &&
-    JSON.stringify(ask.presentation) === JSON.stringify(input.presentation)
+    JSON.stringify(ask.presentation) === JSON.stringify(input.presentation) &&
+    (ask.allowCustomReply !== false) === (input.allowCustomReply !== false)
   );
 }
 
@@ -354,6 +364,7 @@ function sendCardForAsk(ask: InternalPending): void {
         const cur = pending.get(ask.askId);
         if (cur && !cur.settled) {
           cur.cardMessageId = messageId;
+          resolveDispatchWaiters(cur, { messageId });
           if (cur.resumable) persistFromInternal(cur);
         }
         return; // sent (or server-deduped to the original) — done
@@ -373,6 +384,10 @@ function sendCardForAsk(ask: InternalPending): void {
         logger.warn?.(
           `ask-broker: ${ask.askId} card dispatch failed (${retryable ? 'transient, retries exhausted' : 'not retryable'}): ${msg}`,
         );
+        const cur = pending.get(ask.askId);
+        if (cur && !cur.settled) {
+          rejectDispatchWaiters(cur, new Error(`card dispatch failed: ${msg}`));
+        }
         settle(ask.askId, {
           kind: 'invalidated', reason: `card dispatch failed: ${msg}`,
           selected: null, by: null, comment: null, timedOut: false,
@@ -381,6 +396,44 @@ function sendCardForAsk(ask: InternalPending): void {
       }
     }
   })();
+}
+
+function resolveDispatchWaiters(
+  ask: InternalPending,
+  result: { messageId: string },
+): void {
+  const waiters = ask.dispatchWaiters.splice(0);
+  for (const waiter of waiters) waiter.resolve(result);
+}
+
+function rejectDispatchWaiters(ask: InternalPending, error: Error): void {
+  const waiters = ask.dispatchWaiters.splice(0);
+  for (const waiter of waiters) waiter.reject(error);
+}
+
+/**
+ * Wait until the exact registered ask card is visible in Lark.
+ *
+ * @param input The scoped ask identity used during registration.
+ */
+export function waitForAskCardDispatch(input: {
+  larkAppId: string;
+  sessionId: string;
+  originKind: string;
+  requestId: string;
+}): Promise<{ messageId: string }> {
+  const ask = findByKey(askKeyFor(
+    input.larkAppId,
+    input.sessionId,
+    input.originKind,
+    input.requestId,
+  ));
+  if (!ask) return Promise.reject(new Error('ask is not registered'));
+  if (ask.cardMessageId) return Promise.resolve({ messageId: ask.cardMessageId });
+  if (ask.settled) return Promise.reject(new Error('ask settled before card dispatch'));
+  return new Promise((resolve, reject) => {
+    ask.dispatchWaiters.push({ resolve, reject });
+  });
 }
 
 /** Promise-based sleep whose timer never keeps the process alive (unref). */
@@ -457,6 +510,7 @@ function persistFromInternal(ask: InternalPending): void {
     answererOpenId: ask.answererOpenId,
     chatType: ask.chatType,
     questions: ask.questions,
+    allowCustomReply: ask.allowCustomReply !== false,
     createdAt: ask.createdAt,
     deadlineAt: ask.deadlineAt,
     cardMessageId: ask.cardMessageId,
@@ -602,6 +656,7 @@ export function submitCustomReply(args: {
   const ask = pending.get(args.askId);
   if (!ask) return 'stale';
   if (ask.settled) return 'already_settled';
+  if (ask.allowCustomReply === false) return 'stale';
   if (!isAuthorizedToAnswer(ask, args.by, args.actor)) return 'unauthorized';
   const text = args.text.trim();
   if (!text) return 'stale';
@@ -638,6 +693,7 @@ export function findPendingAskByAnchor(args: {
   let otherExactMatch: InternalPending | undefined;
   for (const ask of pending.values()) {
     if (ask.settled) continue;
+    if (ask.allowCustomReply === false) continue;
     if (ask.larkAppId !== args.larkAppId) continue;
     if (ask.chatId !== args.chatId) continue;
     const matches =
@@ -700,6 +756,36 @@ export function invalidateAll(reason: string): number {
 }
 
 /**
+ * Invalidate one code-owned ask by its scoped request identity.
+ *
+ * @param input The immutable ask identity and invalidation reason.
+ */
+export function invalidateAskRequest(input: {
+  larkAppId: string;
+  sessionId: string;
+  originKind: string;
+  requestId: string;
+  reason: string;
+}): boolean {
+  const ask = findByKey(askKeyFor(
+    input.larkAppId,
+    input.sessionId,
+    input.originKind,
+    input.requestId,
+  ));
+  if (!ask || ask.settled) return false;
+  settle(ask.askId, {
+    kind: 'invalidated',
+    reason: input.reason,
+    selected: null,
+    by: null,
+    comment: null,
+    timedOut: false,
+  });
+  return true;
+}
+
+/**
  * Restore pending asks from disk after a daemon restart. Each becomes a DORMANT
  * entry: its card is still live in Feishu (we do NOT re-post — cardMessageId is
  * preserved), so a click can settle it, but there is no waiter Promise until the
@@ -758,6 +844,7 @@ export function restorePersistedAsks(now: number = Date.now(), larkAppId?: strin
       answererOpenId: p.answererOpenId,
       chatType: p.chatType,
       questions: p.questions,
+      allowCustomReply: p.allowCustomReply !== false,
       createdAt: p.createdAt,
       deadlineAt: p.deadlineAt,
       cardMessageId: p.cardMessageId,
@@ -768,6 +855,7 @@ export function restorePersistedAsks(now: number = Date.now(), larkAppId?: strin
       settledAt: hasStashedAnswer ? (p.answeredAt ?? now) : undefined,
       dormant: true,
       waiters: [], // attached when the reconnecting hook re-registers
+      dispatchWaiters: [],
       // Carry a stashed answer forward (user answered before restart): the
       // reconnecting hook claims it via reattachByRequest.
       ...(p.answeredResult ? { answeredResult: p.answeredResult, terminalResult: p.answeredResult } : {}),
@@ -825,7 +913,7 @@ function settle(askId: string, result: AskResult): void {
     armHandoffExpiry(ask);
     logger.info?.(`ask-broker: stashed answer for dormant ask ${askId} (key=${ask.askKey}) — awaiting hook claim`);
     // Still notify the card layer so the Feishu card flips to its settled view.
-    notifyOnSettle(ask, result);
+    void notifyOnSettle(ask, result);
     return;
   }
 
@@ -833,6 +921,9 @@ function settle(askId: string, result: AskResult): void {
   ask.settledAt = Date.now();
   ask.terminalResult = result; // retained for a same-requestId replay in the ambiguous window
   clearTimeout(ask.timeoutHandle);
+  if (!ask.cardMessageId && ask.dispatchWaiters.length > 0) {
+    rejectDispatchWaiters(ask, new Error('ask settled before card dispatch'));
+  }
   // The durable record's job is done the moment the ask leaves the pending
   // state (delivered to live waiters, or a terminal non-answer) — drop it so a
   // later restart doesn't resurrect a settled ask.
@@ -843,34 +934,43 @@ function settle(askId: string, result: AskResult): void {
 
   // Resolve every waiter (normally one; >1 when a same-requestId active replay
   // joined). A dormant ask has no waiters — the loop simply no-ops.
-  const waiters = ask.waiters;
-  ask.waiters = [];
-  for (const w of waiters) {
+  if (ask.presentation?.type === 'safe_recovery') {
+    void notifyOnSettle(ask, result).finally(() => {
+      resolveAskWaiters(ask, result);
+    });
+    return;
+  }
+  resolveAskWaiters(ask, result);
+  void notifyOnSettle(ask, result);
+}
+
+function resolveAskWaiters(ask: InternalPending, result: AskResult): void {
+  const waiters = ask.waiters.splice(0);
+  for (const waiter of waiters) {
     try {
-      w(result);
-    } catch (err) {
+      waiter(result);
+    } catch (error) {
       logger.warn?.(
-        `ask-broker: ${askId} waiter threw: ${err instanceof Error ? err.message : String(err)}`,
+        `ask-broker: ${ask.askId} waiter threw: `
+        + `${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
-
-  notifyOnSettle(ask, result);
 }
 
-/** Notify the IM-side dispatcher's onSettle hook (best-effort — never blocks
- *  broker state). Shared by the normal settle path and the dormant-answer stash. */
-function notifyOnSettle(ask: InternalPending, result: AskResult): void {
+/**
+ * Notify the IM-side dispatcher's onSettle hook. Safe-recovery callers await
+ * this best-effort patch before starting work so a preparing card cannot
+ * overwrite a later worker result.
+ */
+async function notifyOnSettle(ask: InternalPending, result: AskResult): Promise<void> {
   if (!dispatcher?.onSettle) return;
   try {
-    void Promise.resolve(dispatcher.onSettle(snapshot(ask), result)).catch((err) => {
-      logger.warn?.(
-        `ask-broker: ${ask.askId} onSettle failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    });
-  } catch (err) {
+    await dispatcher.onSettle(snapshot(ask), result);
+  } catch (error) {
     logger.warn?.(
-      `ask-broker: ${ask.askId} onSettle threw: ${err instanceof Error ? err.message : String(err)}`,
+      `ask-broker: ${ask.askId} onSettle failed: `
+      + `${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -881,6 +981,7 @@ function snapshot(ask: InternalPending): PendingAsk {
   const {
     // Runtime-only / broker-internal fields excluded from the IM contract:
     waiters: _w, timeoutHandle: _t, settledAt: _sat, selections: _sel,
+    dispatchWaiters: _dw,
     askKey: _ak, requestId: _rid, originKind: _ok, resumable: _rs,
     dormant: _dm, answeredResult: _ar, terminalResult: _tr,
     ...rest
@@ -971,8 +1072,9 @@ export function listPendingAsks(): PendingAsk[] {
 }
 
 /**
- * Desktop / trusted-host answer path. Bypasses canTalk (no Feishu openId) —
- * caller must be authenticated as the local dashboard/desktop operator.
+ * Desktop / trusted-host answer path. Bypasses canTalk because there is no
+ * verified Feishu actor. Exact-user decisions therefore fail closed and must
+ * be completed through their Feishu card.
  */
 export function submitAskFromDesktop(args: {
   askId: string;
@@ -984,10 +1086,12 @@ export function submitAskFromDesktop(args: {
   const ask = pending.get(args.askId);
   if (!ask) return 'stale';
   if (ask.settled) return 'already_settled';
+  if (ask.answererOpenId !== undefined) return 'unauthorized';
 
   const answers = args.selections;
   for (let i = 0; i < ask.questions.length; i++) {
-    const q = ask.questions[i]!;
+    const q = ask.questions[i];
+    if (!q) return 'stale';
     const sel = answers[i] ?? [];
     if (!q.multiSelect && sel.length !== 1) return 'stale';
     for (const key of sel) {

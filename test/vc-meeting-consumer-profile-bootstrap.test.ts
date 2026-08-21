@@ -95,7 +95,7 @@ describe('lock-protected default VC consumer profile bootstrap', () => {
       }],
     });
     expect(raw[0].vcMeetingAgent.meetingConsumer.consumerProfiles[0].instructions)
-      .toContain('无实质增量时保持静默');
+      .toContain('Otherwise remain silent');
     const consumer = raw[0].vcMeetingAgent.meetingConsumer;
     expect(consumer.defaultProfileBootstrap.configHash).toBe(
       bootstrap.computeVcMeetingDefaultConsumerProfileConfigHash({
