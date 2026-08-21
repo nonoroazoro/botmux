@@ -69,7 +69,7 @@ describe('resolveCommand shell output parsing', () => {
 
   it('takes the last absolute line so rc-file banners cannot break resolution', () => {
     // Simulates an rc file that echoes a banner before `which` prints its path.
-    useFakeShell('#!/bin/sh\necho "Welcome to devbox!"\necho "/opt/fake/bin/mytool"\nexit 0\n');
+    useFakeShell('#!/bin/sh\necho "Welcome to this host!"\necho "/opt/fake/bin/mytool"\nexit 0\n');
     expect(resolveCommand('mytool')).toBe('/opt/fake/bin/mytool');
   });
 

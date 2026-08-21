@@ -59,7 +59,8 @@ pnpm test:e2e
 - `pnpm test` runs the unit project.
 - `pnpm test:e2e` runs real CLI or browser-backed tests sequentially.
 - Run only the relevant E2E subset when a full E2E environment is unavailable.
-- For live Lark verification, follow the local or devbox1 deployment runbook in [AGENTS.md](AGENTS.md).
+- For live Lark verification, follow the local instructions in [AGENTS.md](AGENTS.md)
+  and the runbook for your deployment environment.
 
 ## Pull Requests
 

@@ -6,7 +6,8 @@
 
 On-call groups / cross-team consultations / external support — anyone in the group can @ the bot to ask questions.
 
-- **Use a clean dedicated Devbox**: spin up a separate, clean Devbox just for on-call, so you don't have to worry about on-call / external folks messing up your **personal development environment**.
+- **Use a clean dedicated host**: run on-call automation on a separate machine so
+  it cannot affect anyone's personal development environment.
 - **Configure the on-call bot's role**: use `/role set` (this group) or `/role team set` (cross-group default) to write down its persona and boundaries. You can run **multiple bots mapped to different development directories**, each managing its own area.
 - **Write permissions/boundaries into the default role**: a typical on-call role prompt (paste it after sending `/role set` in the group):
 

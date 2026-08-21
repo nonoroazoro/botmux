@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const roots = ['src', 'test', 'scripts', 'docs', 'docs-site', '.github'];
-const rootFiles = ['README.md', 'README.en.md', 'package.json'];
+const rootFiles = ['README.md', 'README.zh.md', 'package.json'];
 const textExtensions = new Set([
   '.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.md', '.yml', '.yaml',
   '.html', '.css', '.sh', '.kdl',

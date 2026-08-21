@@ -2,7 +2,8 @@
 
 Before installing botmux, make sure these are in place — **many "installed but won't connect / sessions won't start" issues trace back to a missing prerequisite here** (Node version, CLI not logged in, not on PATH).
 
-**Applies to**: any machine that will run the botmux daemon (dev machine / devbox / server).
+**Applies to**: any machine that will run the botmux daemon, such as a development
+machine or server.
 **Doesn't apply**: if you only @ a bot in a group someone else already set up — you don't need to install anything locally.
 
 ## Runtime environment
@@ -15,7 +16,9 @@ Before installing botmux, make sure these are in place — **many "installed but
 
 ## Recommended deployment
 
-Deploy on an **always-on dev machine / devbox** (rather than a laptop), so the daemon stays online long-term, tmux sessions persist, and you can remote-control from your phone anytime. Pair it with `botmux autostart enable` for automatic recovery across restarts.
+Deploy on an **always-on development server** rather than a laptop, so the daemon
+stays online, tmux sessions persist, and remote control remains available. Pair
+it with `botmux autostart enable` for automatic recovery across restarts.
 
 ## Common failures
 

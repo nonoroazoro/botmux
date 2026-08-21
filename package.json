@@ -11,7 +11,7 @@
     "dist/",
     "ecosystem.config.cjs",
     "README.md",
-    "README.en.md",
+    "README.zh.md",
     "LICENSE"
   ],
   "publishConfig": {
