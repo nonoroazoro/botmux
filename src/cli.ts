@@ -56,6 +56,7 @@ import {
   type BotConfigEditInput,
 } from './setup/bot-config-editor.js';
 import { resolveCliSelection, selectionKeyForBot } from './setup/cli-selection.js';
+import { newBotConversationDefaults } from './setup/defaults/index.js';
 import { checkCliAvailability, hasAgentLaunchConfigChanged } from './setup/cli-availability.js';
 import { resolveSetupAppName } from './setup/app-name.js';
 import {
@@ -1276,6 +1277,7 @@ async function promptBotConfig(rl: ReturnType<typeof createInterface>): Promise<
     larkAppId: creds.appId,
     larkAppSecret: creds.appSecret,
     cliId,
+    ...newBotConversationDefaults(),
     // wrapper 启动前缀；普通 CLI 不写此字段。
     ...(wrapperCli ? { wrapperCli } : {}),
     multiUserIsolation: createDefaultMultiUserIsolationConfig(creds.appId),

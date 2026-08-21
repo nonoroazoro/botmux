@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import {
   buildBotFromAddFlags,
   editInputFromFlags,
@@ -191,6 +193,20 @@ describe('buildBotFromAddFlags', () => {
       larkAppId: 'cli_x',
       larkAppSecret: 's3cret',
       cliId: 'claude-code',
+      p2pMode: 'chat',
+      regularGroupReplyMode: 'new-topic',
+      regularGroupMentionMode: 'topic',
+      docSubscribeDefaultMode: 'mention-only',
+      multiUserIsolation: {
+        enabled: true,
+        root: join(homedir(), 'BotmuxUsers', 'cli_x'),
+        ownerOnlyTopics: true,
+        sharedCodexHome: join(homedir(), '.codex'),
+        defaultGitIdentity: {
+          name: 'Botmux Agent',
+          email: 'botmux-agent@botmux.local',
+        },
+      },
       workingDir: '~',
       allowedUsers: ['alice@example.com'],
     });

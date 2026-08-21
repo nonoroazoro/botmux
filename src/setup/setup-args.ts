@@ -15,6 +15,8 @@ import {
   type BotConfigEditInput,
 } from './bot-config-editor.js';
 import { CLI_SELECT_OPTIONS, resolveCliSelection } from './cli-selection.js';
+import { newBotConversationDefaults } from './defaults/index.js';
+import { createDefaultMultiUserIsolationConfig } from '../core/multi-user-isolation-defaults.js';
 import type { CliRuntimeConfig } from '../adapters/cli/runtime.js';
 
 /** add / edit 共用的 bot 字段 flag（原始字符串，'-' 表示清空，语义同 TUI 编辑）。 */
@@ -303,9 +305,11 @@ export function parseSetupCommand(argv: string[]): SetupCommand {
  * 必填缺失、CLI 选择键非法、owner 缺失等一律抛 Error。
  */
 export function buildBotFromAddFlags(flags: SetupBotFlags): Record<string, any> {
+  const appId = flags.appId?.trim() ?? '';
+  const appSecret = flags.appSecret?.trim() ?? '';
   const missing: string[] = [];
-  if (!flags.appId?.trim()) missing.push('--app-id');
-  if (!flags.appSecret?.trim()) missing.push('--app-secret');
+  if (!appId) missing.push('--app-id');
+  if (!appSecret) missing.push('--app-secret');
   if (!flags.allowedUsers?.trim()) missing.push('--allowed-users');
   if (missing.length > 0) throw new Error(`add 缺少必填参数: ${missing.join(' ')}`);
 
@@ -316,9 +320,11 @@ export function buildBotFromAddFlags(flags: SetupBotFlags): Record<string, any> 
 
   const sel = resolveCliSelection((flags.cli ?? 'claude-code').trim());
   const base: Record<string, any> = {
-    larkAppId: flags.appId!.trim(),
-    larkAppSecret: flags.appSecret!.trim(),
+    larkAppId: appId,
+    larkAppSecret: appSecret,
     cliId: sel.cliId,
+    ...newBotConversationDefaults(),
+    multiUserIsolation: createDefaultMultiUserIsolationConfig(appId),
     ...(sel.wrapperCli ? { wrapperCli: sel.wrapperCli } : {}),
     // 与 TUI 同口径：feishu 不落 brand 字段，bots.json 保持干净。
     ...(brand === 'lark' ? { brand: 'lark' } : {}),

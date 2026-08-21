@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BotOnboardingManager } from '../src/dashboard/bot-onboarding.js';
 import type { RegisterAppOptions, RegisterAppResult } from '../src/setup/register-app.js';
@@ -163,7 +163,26 @@ describe('BotOnboardingManager', () => {
       data: { emails: ['creator@example.com'], include_resigned: false },
     });
     const bots = JSON.parse(readFileSync(join(dir, 'bots.json'), 'utf-8'));
-    expect(bots[0]).toMatchObject({ larkAppId: 'cli_web_owner', allowedUsers: ['on_creator'] });
+    expect(bots[0]).toMatchObject({
+      larkAppId: 'cli_web_owner',
+      allowedUsers: ['on_creator'],
+      p2pMode: 'chat',
+      regularGroupReplyMode: 'new-topic',
+      regularGroupMentionMode: 'topic',
+      docSubscribeDefaultMode: 'mention-only',
+      multiUserIsolation: {
+        enabled: true,
+        root: join(homedir(), 'BotmuxUsers', 'cli_web_owner'),
+        ownerOnlyTopics: true,
+        sharedCodexHome: join(homedir(), '.codex'),
+        defaultGitIdentity: {
+          name: 'Botmux Agent',
+          email: 'botmux-agent@botmux.local',
+        },
+      },
+    });
+    expect(bots[0].groupOpen).toBeUndefined();
+    expect(bots[0].p2pOpen).toBeUndefined();
     rmSync(dir, { recursive: true, force: true });
   });
 

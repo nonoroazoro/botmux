@@ -5,6 +5,7 @@ import { readBotsJsonOrEmpty, writeBotsJsonAtomic } from '../setup/bots-store.js
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
 import { logger } from '../utils/logger.js';
 import { createDefaultMultiUserIsolationConfig } from '../core/multi-user-isolation-defaults.js';
+import { newBotConversationDefaults } from '../setup/defaults/index.js';
 import { normalizeBotConfig, findInvalidAllowedUserEntries, hasOwnerEntry, isMobileEntry, normalizeMobileEntry } from '../setup/bot-config-editor.js';
 import { tryRegisterApp, type RegisterAppOptions, type RegisterAppResult } from '../setup/register-app.js';
 import {
@@ -1675,6 +1676,7 @@ export class BotOnboardingManager {
       larkAppId: result.appId,
       larkAppSecret: result.appSecret,
       cliId,
+      ...newBotConversationDefaults(),
       // wrapper 启动前缀；普通 CLI 不写此字段。
       ...(input.wrapperCli ? { wrapperCli: input.wrapperCli } : {}),
       multiUserIsolation: createDefaultMultiUserIsolationConfig(result.appId),
