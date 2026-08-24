@@ -48,11 +48,12 @@ describe('CodexBridgeQueue', () => {
   it('marked turn whose user fingerprint matches becomes started; assistant_final closes it; drainEmittable yields finalText', () => {
     const q = new CodexBridgeQueue();
     q.mark('t1', 'hello model please', 100);
-    q.ingest([userEv('hello model please'), asstEv('reply text')]);
+    q.ingest([userEv('hello model please'), asstEv('reply text', 'terminal-event')]);
     const ready = q.drainEmittable();
     expect(ready).toHaveLength(1);
     expect(ready[0].turnId).toBe('t1');
     expect(ready[0].finalText).toBe('reply text');
+    expect(ready[0].terminalEventUuid).toBe('terminal-event');
   });
 
   it('carries an explicit transcript terminal outcome with an empty final', () => {

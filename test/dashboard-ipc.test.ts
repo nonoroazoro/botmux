@@ -1245,7 +1245,7 @@ describe('POST /api/sessions/:sessionId/restart', () => {
 describe('POST /api/sessions/:sessionId/safe-recover', () => {
   it('requests exact-user confirmation instead of resetting Codex immediately', async () => {
     setIpcAuthSecret(TEST_IPC_SECRET);
-    const confirmSpy = vi.spyOn(workerPool, 'requestSafeRecoveryConfirmation')
+    const confirmSpy = vi.spyOn(workerPool, 'requestManualSafeRecoveryConfirmation')
       .mockResolvedValue({ ok: true, pending: false });
     const findSpy = vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
       session: {
@@ -1273,7 +1273,6 @@ describe('POST /api/sessions/:sessionId/safe-recover', () => {
       });
       expect(confirmSpy).toHaveBeenCalledWith(
         expect.objectContaining({ session: expect.objectContaining({ sessionId: 's-safe-recover' }) }),
-        'Analyze the reported issue from the current topic.',
       );
     } finally {
       confirmSpy.mockRestore();
@@ -1295,7 +1294,7 @@ describe('POST /api/sessions/:sessionId/safe-recover', () => {
 
   it('reports a transport failure when the confirmation card is not delivered', async () => {
     setIpcAuthSecret(TEST_IPC_SECRET);
-    const confirmSpy = vi.spyOn(workerPool, 'requestSafeRecoveryConfirmation')
+    const confirmSpy = vi.spyOn(workerPool, 'requestManualSafeRecoveryConfirmation')
       .mockResolvedValue({ ok: false, error: 'card_dispatch_failed' });
     const findSpy = vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
       session: {
@@ -1323,6 +1322,8 @@ describe('POST /api/sessions/:sessionId/safe-recover', () => {
 
   it('rejects sessions without a recoverable Codex task', async () => {
     setIpcAuthSecret(TEST_IPC_SECRET);
+    const confirmSpy = vi.spyOn(workerPool, 'requestManualSafeRecoveryConfirmation')
+      .mockResolvedValue({ ok: false, error: 'recovery_context_unavailable' });
     const findSpy = vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
       session: { sessionId: 's-safe-recover-empty', cliId: 'codex' },
       worker: { send: vi.fn(), killed: false },
@@ -1342,6 +1343,7 @@ describe('POST /api/sessions/:sessionId/safe-recover', () => {
         error: 'recovery_context_unavailable',
       });
     } finally {
+      confirmSpy.mockRestore();
       findSpy.mockRestore();
     }
   });

@@ -5286,6 +5286,7 @@ async function cmdSafeRecover(): Promise<void> {
     adopt_recovery_unsupported: 'adopt 会话不支持安全恢复。',
     codex_required: '该命令仅支持 Codex 会话。',
     recovery_context_unavailable: '找不到最近一次任务上下文。',
+    recovery_preparation_timeout: '读取原会话上下文超时，请稍后重试。',
     no_live_worker: '会话 worker 未运行，请先恢复会话。',
     requester_unavailable: '找不到可确认该操作的最近调用者。',
     card_dispatch_failed: '确认卡片发送失败，安全恢复未启动。',

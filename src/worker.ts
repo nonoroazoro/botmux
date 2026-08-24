@@ -133,7 +133,7 @@ import {
   setCodexAppThreadName,
 } from './services/codex-app-threads.js';
 import { buildBotmuxLarkNativeSessionTitle } from './core/session-title.js';
-import { drainCodexRollout, findCodexRolloutBySessionId, findCodexRolloutByPid, findCodexRolloutSetByPid, codexHistorySidIsOwned, splitCodexEventsByCutoff, extractLastCodexTurn, codexSessionIdFromRolloutPath, scanCodexThreadSettings, type CodexBridgeEvent, type CodexDrainResult } from './services/codex-transcript.js';
+import { drainCodexRollout, findCodexRolloutBySessionId, findCodexRolloutByPid, findCodexRolloutSetByPid, codexHistorySidIsOwned, splitCodexEventsByCutoff, extractLastCodexTurn, codexSessionIdFromRolloutPath, scanCodexThreadSettings, readCodexRecoveryEventWindow, type CodexBridgeEvent, type CodexDrainResult } from './services/codex-transcript.js';
 import { CodexServiceTierTracker, resolveCodexServiceTierSnapshot } from './services/codex-service-tier.js';
 import { drainTraexRollout, findTraexRolloutBySessionId, findTraexRolloutByPid, findTraexRolloutSetByPid, traexHistorySidIsOwned } from './services/traex-transcript.js';
 import { parseTraexUserInputQuestions } from './services/traex-user-input.js';
@@ -1846,6 +1846,7 @@ const codexCyberPolicyRecovery = new CodexCyberPolicyRecovery();
 let codexCyberPolicyResetInput: Extract<DaemonToWorker, { type: 'raw_input' }> | undefined;
 let codexCyberPolicyRecoveryInput: PendingCliInput | undefined;
 let codexCyberPolicyOriginalContext: string | undefined;
+let codexCyberPolicyOriginalTurnId: string | undefined;
 let codexCyberPolicyRecoveryRequestId: string | undefined;
 
 function reportCodexCyberPolicyRecovery(status: SafeRecoveryExecutionStatus): void {
@@ -4387,21 +4388,70 @@ function offerCodexCyberPolicyRecovery(turn: CodexPendingTurn): void {
     || turn.terminalErrorCode !== 'codex_task_error:cyber_policy') return;
 
   const failedInput = inflightInputs.findTurn(turn.turnId, turn.dispatchAttempt);
-  const context = codexCyberPolicyOriginalContext
-    ?? failedInput?.content
+  let context = codexCyberPolicyOriginalContext;
+  if (!context && codexBridgeRolloutPath && turn.terminalEventUuid) {
+    try {
+      const window = readCodexRecoveryEventWindow(codexBridgeRolloutPath, {
+        boundaryEventUuid: turn.terminalEventUuid,
+      });
+      if (window) {
+        context = codexCyberPolicyRecovery.extractConversation(window.events, {
+          boundaryEventUuid: window.boundaryEventUuid,
+          earlierMessagesOmitted: window.earlierMessagesOmitted,
+          messagePrefixOmitted: window.messagePrefixOmitted,
+        });
+      }
+    } catch (error) {
+      log(
+        'Codex cyber-policy recovery could not read the original conversation: '
+        + `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  context ??= failedInput?.content
     ?? turn.userText
     ?? lastInitConfig.prompt;
   if (!context) {
     log(`Codex cyber-policy recovery offer skipped for ${turn.turnId.slice(0, 12)}: input unavailable`);
     return;
   }
-  codexCyberPolicyOriginalContext = context;
+  if (!codexCyberPolicyOriginalContext) {
+    codexCyberPolicyOriginalContext = context;
+    codexCyberPolicyOriginalTurnId = turn.turnId;
+  }
   send({
     type: 'safe_recovery_confirmation',
     content: context,
     turnId: turn.turnId,
   });
   log(`Requested safe-recovery confirmation for policy-blocked turn ${turn.turnId.slice(0, 12)}`);
+}
+
+/** Build the manual recovery snapshot through the latest policy terminal. */
+function prepareManualCodexCyberPolicyRecovery(): { content: string; turnId?: string } | undefined {
+  if (codexCyberPolicyOriginalContext) {
+    return {
+      content: codexCyberPolicyOriginalContext,
+      ...(codexCyberPolicyOriginalTurnId ? { turnId: codexCyberPolicyOriginalTurnId } : {}),
+    };
+  }
+  if (!codexBridgeRolloutPath) return undefined;
+  try {
+    const window = readCodexRecoveryEventWindow(codexBridgeRolloutPath);
+    if (!window) return undefined;
+    const content = codexCyberPolicyRecovery.extractConversation(window.events, {
+      boundaryEventUuid: window.boundaryEventUuid,
+      earlierMessagesOmitted: window.earlierMessagesOmitted,
+      messagePrefixOmitted: window.messagePrefixOmitted,
+    });
+    return content ? { content } : undefined;
+  } catch (error) {
+    log(
+      'Manual Codex cyber-policy recovery could not read the original conversation: '
+      + `${error instanceof Error ? error.message : String(error)}`,
+    );
+    return undefined;
+  }
 }
 
 /**
@@ -4457,6 +4507,7 @@ function emitReadyCodexTurns(): void {
     offerCodexCyberPolicyRecovery(turn);
     if (turn.terminalErrorCode !== 'codex_task_error:cyber_policy') {
       codexCyberPolicyOriginalContext = undefined;
+      codexCyberPolicyOriginalTurnId = undefined;
     }
     const sourceHermesSessionId = structuredBridgeIsHermes() ? turn.sourceSessionId : undefined;
     const nextBoundaryMs = (i + 1 < ready.length ? ready[i + 1].markTimeMs : nextPendingMarkTimeMs);
@@ -12155,6 +12206,7 @@ process.on('message', async (raw: unknown) => {
       let content = msg.content;
       let codexAppInput = msg.codexAppInput;
       codexCyberPolicyOriginalContext = undefined;
+      codexCyberPolicyOriginalTurnId = undefined;
       if (deferredPluginSkillCatalog && !lastInitConfig?.adoptMode) {
         content = `${content}\n\n${deferredPluginSkillCatalog}`;
         if (codexAppInput) {
@@ -12442,6 +12494,29 @@ process.on('message', async (raw: unknown) => {
       break;
     }
 
+    case 'prepare_safe_recovery': {
+      if (lastInitConfig?.cliId !== 'codex' || lastInitConfig.adoptMode) {
+        send({
+          type: 'safe_recovery_prepared',
+          requestId: msg.requestId,
+          error: 'recovery_context_unavailable',
+        });
+        break;
+      }
+      const prepared = prepareManualCodexCyberPolicyRecovery();
+      send({
+        type: 'safe_recovery_prepared',
+        requestId: msg.requestId,
+        ...(prepared
+          ? {
+              content: prepared.content,
+              ...(prepared.turnId ? { turnId: prepared.turnId } : {}),
+            }
+          : { error: 'recovery_context_unavailable' as const }),
+      });
+      break;
+    }
+
     case 'safe_recover': {
       if (lastInitConfig?.cliId !== 'codex' || lastInitConfig.adoptMode) {
         log('Ignored safe recovery for a non-Codex or adopted session');
@@ -12455,6 +12530,7 @@ process.on('message', async (raw: unknown) => {
       }
       const turnId = msg.turnId ?? currentBotmuxTurnId;
       codexCyberPolicyOriginalContext = msg.content;
+      codexCyberPolicyOriginalTurnId = turnId;
       codexCyberPolicyRecoveryRequestId = msg.requestId;
       const recoveryInput: PendingCliInput = {
         content: codexCyberPolicyRecovery.buildPrompt(

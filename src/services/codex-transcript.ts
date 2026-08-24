@@ -458,6 +458,260 @@ function codexAbortErrorCode(reason: unknown): string {
   return `codex_turn_aborted:${normalized}`;
 }
 
+function codexBridgeEventFromObject(
+  obj: any,
+  path: string,
+  lineStart: number,
+): CodexBridgeEvent | undefined {
+  const payload = obj?.payload;
+  if (!payload || typeof payload !== 'object') return undefined;
+  const parsedTimestamp = typeof obj.timestamp === 'string' ? Date.parse(obj.timestamp) : NaN;
+  const timestampMs = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
+
+  if (obj.type === 'response_item' && payload.type === 'message' && payload.role === 'user') {
+    const text = joinTextBlocks(payload.content, 'input_text');
+    return text
+      ? { uuid: `${path}:${lineStart}`, timestampMs, kind: 'user', text }
+      : undefined;
+  }
+
+  if (obj.type === 'event_msg'
+    && payload.type === 'task_complete'
+    && typeof payload.turn_id === 'string'
+    && payload.turn_id.length > 0) {
+    const taskError = payload.error && typeof payload.error === 'object'
+      ? payload.error as Record<string, unknown>
+      : undefined;
+    const taskErrorMessage = typeof taskError?.message === 'string'
+      ? taskError.message.trim()
+      : '';
+    const taskErrorInfo = typeof taskError?.codex_error_info === 'string'
+      ? taskError.codex_error_info.trim().replace(/[^A-Za-z0-9._-]+/gu, '_')
+      : '';
+    return {
+      uuid: `${path}:${lineStart}`,
+      timestampMs,
+      kind: 'assistant_final',
+      text: typeof payload.last_agent_message === 'string' && payload.last_agent_message.trim()
+        ? payload.last_agent_message
+        : taskErrorMessage,
+      ...(taskErrorMessage
+        ? {
+            terminalStatus: 'failed' as const,
+            terminalErrorCode: taskErrorInfo
+              ? `codex_task_error:${taskErrorInfo}`
+              : 'codex_task_error',
+          }
+        : {}),
+    };
+  }
+
+  if (obj.type === 'event_msg'
+    && payload.type === 'turn_aborted'
+    && typeof payload.turn_id === 'string'
+    && payload.turn_id.length > 0) {
+    return {
+      uuid: `${path}:${lineStart}`,
+      timestampMs,
+      kind: 'assistant_final',
+      text: '',
+      terminalStatus: 'ambiguous',
+      terminalErrorCode: codexAbortErrorCode(payload.reason),
+    };
+  }
+
+  return undefined;
+}
+
+export interface CodexRecoveryEventWindow {
+  events: CodexBridgeEvent[];
+  boundaryEventUuid: string;
+  earlierMessagesOmitted: boolean;
+  messagePrefixOmitted: boolean;
+}
+
+export interface CodexRecoveryEventWindowOptions {
+  boundaryEventUuid?: string;
+  maxEvents?: number;
+  maxChars?: number;
+  chunkBytes?: number;
+  maxLineBytes?: number;
+}
+
+/**
+ * Read a bounded visible conversation ending at an exact cyber-policy event.
+ * A missing boundary selects the latest bridge event only when that event is
+ * itself a policy terminal. The scanner streams JSONL chunks, skips oversized
+ * records, and retains only the configured visible window.
+ *
+ * @param path Codex rollout path.
+ * @param options Boundary and resource limits.
+ */
+export function readCodexRecoveryEventWindow(
+  path: string,
+  options: CodexRecoveryEventWindowOptions = {},
+): CodexRecoveryEventWindow | undefined {
+  if (!existsSync(path)) return undefined;
+  const maxEvents = Math.max(1, options.maxEvents ?? 200);
+  const maxChars = Math.max(1, options.maxChars ?? 120_000);
+  const chunkBytes = Math.max(1024, options.chunkBytes ?? 64 * 1024);
+  const maxLineBytes = Math.max(chunkBytes, options.maxLineBytes ?? 1024 * 1024);
+  const parseLine = (line: Buffer, lineStart: number): CodexBridgeEvent | undefined => {
+    if (line.length === 0) return undefined;
+    const raw = line.toString('utf8');
+    if (!raw.includes('task_complete')
+      && !raw.includes('turn_aborted')
+      && !raw.includes('"role":"user"')
+      && !raw.includes('"role": "user"')) return undefined;
+    let obj: any;
+    try { obj = JSON.parse(raw); } catch { return undefined; }
+    return codexBridgeEventFromObject(obj, path, lineStart);
+  };
+
+  let fd: number | undefined;
+  try {
+    const size = statSync(path).size;
+    if (size === 0) return undefined;
+    fd = openSync(path, 'r');
+    if (!options.boundaryEventUuid) {
+      const finalByte = Buffer.allocUnsafe(1);
+      if (readSync(fd, finalByte, 0, 1, size - 1) !== 1 || finalByte[0] !== 0x0a) {
+        return undefined;
+      }
+    }
+    let boundaryEvent: CodexBridgeEvent | undefined;
+    let scanEnd = size;
+    if (options.boundaryEventUuid) {
+      const separator = options.boundaryEventUuid.lastIndexOf(':');
+      const lineStart = Number(options.boundaryEventUuid.slice(separator + 1));
+      if (separator < 0
+        || options.boundaryEventUuid.slice(0, separator) !== path
+        || !Number.isSafeInteger(lineStart)
+        || lineStart < 0
+        || lineStart >= size) {
+        return undefined;
+      }
+      const chunks: Buffer[] = [];
+      let lineBytes = 0;
+      let position = lineStart;
+      while (position < size && lineBytes <= maxLineBytes) {
+        const bytesToRead = Math.min(chunkBytes, size - position);
+        const chunk = Buffer.allocUnsafe(bytesToRead);
+        const bytesRead = readSync(fd, chunk, 0, bytesToRead, position);
+        if (bytesRead <= 0) break;
+        const newline = chunk.subarray(0, bytesRead).indexOf(0x0a);
+        const part = newline >= 0 ? chunk.subarray(0, newline) : chunk.subarray(0, bytesRead);
+        chunks.push(Buffer.from(part));
+        lineBytes += part.length;
+        position += newline >= 0 ? newline + 1 : bytesRead;
+        if (newline >= 0) break;
+      }
+      if (lineBytes > maxLineBytes) return undefined;
+      boundaryEvent = parseLine(Buffer.concat(chunks, lineBytes), lineStart);
+      if (boundaryEvent?.uuid !== options.boundaryEventUuid
+        || boundaryEvent.terminalErrorCode !== 'codex_task_error:cyber_policy') return undefined;
+      scanEnd = lineStart;
+    }
+
+    const selectedNewestFirst: CodexBridgeEvent[] = [];
+    let selectedChars = 0;
+    let earlierMessagesOmitted = false;
+    let messagePrefixOmitted = false;
+    let boundaryResolved = boundaryEvent !== undefined;
+    let carry = Buffer.alloc(0);
+    let skippingOversizedLine = false;
+    let end = scanEnd;
+    let stopped = false;
+
+    const visitEvent = (event: CodexBridgeEvent): void => {
+      if (!boundaryResolved) {
+        if (event.terminalErrorCode !== 'codex_task_error:cyber_policy') {
+          stopped = true;
+          return;
+        }
+        boundaryEvent = event;
+        boundaryResolved = true;
+        return;
+      }
+      const visible = event.text.trim().length > 0
+        && (event.kind === 'user'
+          || (event.kind === 'assistant_final'
+            && event.terminalErrorCode !== 'codex_task_error:cyber_policy'
+            && (event.terminalStatus === undefined || event.terminalStatus === 'completed')));
+      if (!visible) return;
+      const omitsMessagePrefix = event.text.length > maxChars;
+      const boundedEvent = omitsMessagePrefix
+        ? { ...event, text: event.text.slice(-maxChars) }
+        : event;
+      if (selectedNewestFirst.length >= maxEvents
+        || (selectedNewestFirst.length > 0 && selectedChars + boundedEvent.text.length > maxChars)) {
+        earlierMessagesOmitted = true;
+        stopped = true;
+        return;
+      }
+      selectedNewestFirst.push(boundedEvent);
+      selectedChars += boundedEvent.text.length;
+      if (omitsMessagePrefix) messagePrefixOmitted = true;
+    };
+
+    while (end > 0 && !stopped) {
+      const start = Math.max(0, end - chunkBytes);
+      const chunk = Buffer.allocUnsafe(end - start);
+      readSync(fd, chunk, 0, chunk.length, start);
+      let block: Buffer;
+      if (skippingOversizedLine) {
+        const newline = chunk.lastIndexOf(0x0a);
+        if (newline < 0) {
+          end = start;
+          continue;
+        }
+        block = chunk.subarray(0, newline + 1);
+        skippingOversizedLine = false;
+        carry = Buffer.alloc(0);
+      } else {
+        block = carry.length > 0 ? Buffer.concat([chunk, carry]) : chunk;
+      }
+      let lineEnd = block.length;
+      if (lineEnd > 0 && block[lineEnd - 1] === 0x0a) lineEnd -= 1;
+      let carryEnd = lineEnd;
+      for (let index = lineEnd - 1; index >= 0 && !stopped; index -= 1) {
+        if (block[index] !== 0x0a) continue;
+        const lineLength = lineEnd - index - 1;
+        if (lineLength <= maxLineBytes) {
+          const event = parseLine(block.subarray(index + 1, lineEnd), start + index + 1);
+          if (event) visitEvent(event);
+        } else if (!boundaryResolved) {
+          stopped = true;
+        }
+        lineEnd = index;
+        carryEnd = index;
+      }
+      carry = Buffer.from(block.subarray(0, carryEnd));
+      if (carry.length > maxLineBytes) {
+        if (!boundaryResolved) return undefined;
+        carry = Buffer.alloc(0);
+        skippingOversizedLine = true;
+      }
+      end = start;
+    }
+    if (!stopped && end === 0 && !skippingOversizedLine && carry.length > 0) {
+      const event = parseLine(carry, 0);
+      if (event) visitEvent(event);
+    }
+    if (!boundaryEvent || !boundaryResolved) return undefined;
+    return {
+      events: [...selectedNewestFirst.reverse(), boundaryEvent],
+      boundaryEventUuid: boundaryEvent.uuid,
+      earlierMessagesOmitted,
+      messagePrefixOmitted,
+    };
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
 /** Increment-read the rollout from `fromOffset`. Mirrors the byte-offset
  *  contract of claude-transcript.drainTranscript so callers can swap them
  *  out and reuse the existing fs.watch / poll wakeup machinery. */
@@ -501,81 +755,8 @@ export function drainCodexRollout(path: string, fromOffset: number): CodexDrainR
       latestThreadSettings = settings;
       continue;
     }
-    const p = obj?.payload;
-    if (!p || typeof p !== 'object') continue;
-    const ts = typeof obj.timestamp === 'string' ? Date.parse(obj.timestamp) : NaN;
-    const timestampMs = Number.isFinite(ts) ? ts : Date.now();
-    // User turn-start: response_item message role=user. Stable across every
-    // codex version, and the ONLY event the RPC rollout-match probe reads
-    // (codex-rpc-lifecycle.rolloutUserTurnMatches), so it must stay a
-    // response_item user message.
-    if (obj.type === 'response_item' && p.type === 'message' && p.role === 'user') {
-      const text = joinTextBlocks(p.content, 'input_text');
-      if (!text) continue;
-      events.push({ uuid: `${path}:${lineStart}`, timestampMs, kind: 'user', text });
-      continue;
-    }
-    // Turn terminal: event_msg `task_complete` carries the final visible text
-    // in `last_agent_message` (may be empty) and fires exactly ONCE per turn.
-    // This is the SOLE assistant_final source. Codex assistant `response_item`
-    // messages are NOT a safe boundary: the `phase:'final_answer'` marker was
-    // dropped (>=0.146), and mid-turn assistant messages are byte-identical to
-    // the final one (both phase:undefined) — keying on them would close a turn
-    // on the first mid-turn preamble and truncate/duplicate. Taking only
-    // task_complete also dedups codex's triple representation of one answer
-    // (event_msg agent_message / response_item message / event_msg
-    // task_complete). Mirrors the traex reader. See file header.
-    if (obj.type === 'event_msg'
-      && p.type === 'task_complete'
-      && typeof p.turn_id === 'string'
-      && p.turn_id.length > 0) {
-      const taskError = p.error && typeof p.error === 'object'
-        ? p.error as Record<string, unknown>
-        : undefined;
-      const taskErrorMessage = typeof taskError?.message === 'string'
-        ? taskError.message.trim()
-        : '';
-      const taskErrorInfo = typeof taskError?.codex_error_info === 'string'
-        ? taskError.codex_error_info.trim().replace(/[^A-Za-z0-9._-]+/gu, '_')
-        : '';
-      events.push({
-        uuid: `${path}:${lineStart}`,
-        timestampMs,
-        kind: 'assistant_final',
-        text: typeof p.last_agent_message === 'string' && p.last_agent_message.trim()
-          ? p.last_agent_message
-          : taskErrorMessage,
-        ...(taskErrorMessage
-          ? {
-              terminalStatus: 'failed' as const,
-              terminalErrorCode: taskErrorInfo
-                ? `codex_task_error:${taskErrorInfo}`
-                : 'codex_task_error',
-            }
-          : {}),
-      });
-      continue;
-    }
-    // A cancelled turn writes `turn_aborted` (turn_id, reason) and NO
-    // task_complete. Side effects may already have run, so release the durable
-    // delivery as `ambiguous` rather than wedge the turn as running forever.
-    if (obj.type === 'event_msg'
-      && p.type === 'turn_aborted'
-      && typeof p.turn_id === 'string'
-      && p.turn_id.length > 0) {
-      events.push({
-        uuid: `${path}:${lineStart}`,
-        timestampMs,
-        kind: 'assistant_final',
-        text: '',
-        terminalStatus: 'ambiguous',
-        terminalErrorCode: codexAbortErrorCode(p.reason),
-      });
-      continue;
-    }
-    // Everything else is skipped: role=developer/system instructions,
-    // reasoning, function_call*, and every assistant `response_item` message
-    // (mid-turn OR final) — the turn boundary comes only from task_complete.
+    const event = codexBridgeEventFromObject(obj, path, lineStart);
+    if (event) events.push(event);
   }
   return { events, newOffset, pendingTail, latestThreadSettings };
 }

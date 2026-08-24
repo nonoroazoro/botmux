@@ -59,6 +59,9 @@ export interface CodexPendingTurn {
    *  assistant-final => completed behaviour. */
   terminalStatus?: 'completed' | 'failed' | 'ambiguous';
   terminalErrorCode?: string;
+  /** Exact rollout event that closed this turn. Recovery uses this immutable
+   *  boundary instead of selecting a later policy terminal from a batch. */
+  terminalEventUuid?: string;
   /** Set when this turn was synthesised from a user_message that didn't
    *  match any pending Lark fingerprint. Adopt-only. The worker emit path
    *  formats these with both userText and finalText under a "终端本地对话"
@@ -264,6 +267,7 @@ export class CodexBridgeQueue {
         this.collecting.finalText = ev.text;
         this.collecting.terminalStatus = ev.terminalStatus;
         this.collecting.terminalErrorCode = ev.terminalErrorCode;
+        this.collecting.terminalEventUuid = ev.uuid;
         this.lastClosedAssistantFinalTimeMs = ev.timestampMs;
         this.collecting = null;
       } else if (bufferUnmatched && !this.localTurnsEnabled) {

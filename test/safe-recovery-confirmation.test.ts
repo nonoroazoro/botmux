@@ -9,6 +9,7 @@ import {
 } from '../src/core/ask-broker.js';
 import { AskDispatchError, type PendingAsk } from '../src/core/ask-types.js';
 import {
+  requestManualSafeRecoveryConfirmation,
   requestSafeRecoveryConfirmation,
   sendWorkerSessionInput,
 } from '../src/core/worker-pool.js';
@@ -180,5 +181,30 @@ describe('safe recovery confirmation', () => {
       'om_retry',
     )).resolves.toEqual({ ok: false, error: 'card_dispatch_failed' });
     expect(session.pendingSafeRecovery).toBeUndefined();
+  });
+
+  it('asks the worker to prepare the shared transcript snapshot for manual recovery', async () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const session = makeSession(send);
+
+      const result = requestManualSafeRecoveryConfirmation(session);
+
+      expect(send).toHaveBeenCalledWith(
+        {
+          type: 'prepare_safe_recovery',
+          requestId: expect.any(String),
+        },
+        expect.any(Function),
+      );
+      await vi.advanceTimersByTimeAsync(10_001);
+      await expect(result).resolves.toEqual({
+        ok: false,
+        error: 'recovery_preparation_timeout',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

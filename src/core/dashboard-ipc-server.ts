@@ -70,7 +70,7 @@ import { readGlobalConfig } from '../global-config.js';
 import { normalizeChatReplyMode, setChatReplyMode, type ChatReplyMode } from '../services/chat-reply-mode-store.js';
 import * as chatFirstSeenStore from '../services/chat-first-seen-store.js';
 import * as scheduler from './scheduler.js';
-import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessionsRegistry, transferSession, deliverWriteLinkCardToOwners, forkWorker, suspendWorker, killWorker, latestPerBotEnvForRestart, getDaemonReplyCardUsageSnapshot, parkStreamCard, sessionSupportsWebTerminal, sendWorkerInput, sendWorkerSessionInput, isSessionTransferring, requestSafeRecoveryConfirmation } from './worker-pool.js';
+import { listActiveSessions, findActiveBySessionId, closeSession, getActiveSessionsRegistry, transferSession, deliverWriteLinkCardToOwners, forkWorker, suspendWorker, killWorker, latestPerBotEnvForRestart, getDaemonReplyCardUsageSnapshot, parkStreamCard, sessionSupportsWebTerminal, sendWorkerInput, sendWorkerSessionInput, isSessionTransferring, requestManualSafeRecoveryConfirmation } from './worker-pool.js';
 import { listOnlineDaemons } from '../utils/daemon-discovery.js';
 import { isSessionStopped } from './session-liveness.js';
 import { isSuspendableBackendType } from './persistent-backend.js';
@@ -752,13 +752,12 @@ ipcRoute('POST', '/api/sessions/:sessionId/safe-recover', async (req, res, param
   if (isSessionTransferring(ds)) {
     return jsonRes(res, 409, { ok: false, error: 'session_transferring' });
   }
-  const content = ds.lastCliInput ?? ds.session.lastCliInput;
-  if (!content) {
-    return jsonRes(res, 409, { ok: false, error: 'recovery_context_unavailable' });
-  }
-  const confirmation = await requestSafeRecoveryConfirmation(ds, content);
+  const confirmation = await requestManualSafeRecoveryConfirmation(ds);
   if (!confirmation.ok) {
-    const status = confirmation.error === 'card_dispatch_failed' ? 502 : 409;
+    const status = confirmation.error === 'card_dispatch_failed'
+      || confirmation.error === 'recovery_preparation_timeout'
+      ? 502
+      : 409;
     return jsonRes(res, status, { ok: false, error: confirmation.error });
   }
   return jsonRes(res, 202, {

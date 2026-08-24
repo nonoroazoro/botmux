@@ -472,6 +472,7 @@ export function getActiveSessionsRegistry(): Map<string, DaemonSession> | undefi
 const SAFE_RECOVERY_ASK_ORIGIN = 'safe_recovery';
 const SAFE_RECOVERY_CONFIRMATION_TIMEOUT_MS = 10 * 60_000;
 const SAFE_RECOVERY_ACK_TIMEOUT_MS = 60_000;
+const SAFE_RECOVERY_PREPARATION_TIMEOUT_MS = 10_000;
 
 export type SafeRecoveryConfirmationResult =
   | { ok: true; pending: boolean }
@@ -485,6 +486,89 @@ export type SafeRecoveryConfirmationResult =
         | 'requester_unavailable'
         | 'card_dispatch_failed';
     };
+
+export type ManualSafeRecoveryResult = SafeRecoveryConfirmationResult | {
+  ok: false;
+  error: 'recovery_context_unavailable' | 'recovery_preparation_timeout';
+};
+
+interface PendingSafeRecoveryPreparation {
+  ds: DaemonSession;
+  worker: ChildProcess;
+  timer: NodeJS.Timeout;
+  resolve: (result: ManualSafeRecoveryResult) => void;
+}
+
+const pendingSafeRecoveryPreparations = new Map<string, PendingSafeRecoveryPreparation>();
+
+/**
+ * Ask the worker to prepare the same bounded transcript snapshot used by
+ * automatic policy recovery, then present the normal exact-user card.
+ *
+ * @param ds The active Codex-backed session.
+ */
+export async function requestManualSafeRecoveryConfirmation(
+  ds: DaemonSession,
+): Promise<ManualSafeRecoveryResult> {
+  if (ds.pendingSafeRecovery) {
+    return requestSafeRecoveryConfirmation(
+      ds,
+      ds.pendingSafeRecovery.content,
+      ds.pendingSafeRecovery.turnId,
+    );
+  }
+  if (ds.session.status !== 'active') return { ok: false, error: 'session_not_active' };
+  if (ds.adoptedFrom || ds.initConfig?.adoptMode) {
+    return { ok: false, error: 'adopt_recovery_unsupported' };
+  }
+  if ((ds.session.cliId ?? ds.initConfig?.cliId) !== 'codex') {
+    return { ok: false, error: 'codex_required' };
+  }
+  const worker = ds.worker;
+  if (!worker || worker.killed) return { ok: false, error: 'no_live_worker' };
+
+  const requestId = randomUUID();
+  return new Promise<ManualSafeRecoveryResult>((resolve) => {
+    const timer = setTimeout(() => {
+      const pending = pendingSafeRecoveryPreparations.get(requestId);
+      if (!pending || pending.worker !== worker) return;
+      pendingSafeRecoveryPreparations.delete(requestId);
+      resolve({ ok: false, error: 'recovery_preparation_timeout' });
+    }, SAFE_RECOVERY_PREPARATION_TIMEOUT_MS);
+    timer.unref?.();
+    pendingSafeRecoveryPreparations.set(requestId, { ds, worker, timer, resolve });
+    try {
+      worker.send({ type: 'prepare_safe_recovery', requestId } satisfies DaemonToWorker, (error) => {
+        if (!error) return;
+        const pending = pendingSafeRecoveryPreparations.get(requestId);
+        if (!pending || pending.worker !== worker) return;
+        pendingSafeRecoveryPreparations.delete(requestId);
+        clearTimeout(pending.timer);
+        pending.resolve({ ok: false, error: 'recovery_context_unavailable' });
+      });
+    } catch {
+      pendingSafeRecoveryPreparations.delete(requestId);
+      clearTimeout(timer);
+      resolve({ ok: false, error: 'recovery_context_unavailable' });
+    }
+  });
+}
+
+async function finishManualSafeRecoveryPreparation(
+  ds: DaemonSession,
+  worker: ChildProcess,
+  message: Extract<WorkerToDaemon, { type: 'safe_recovery_prepared' }>,
+): Promise<void> {
+  const pending = pendingSafeRecoveryPreparations.get(message.requestId);
+  if (!pending || pending.ds !== ds || pending.worker !== worker) return;
+  pendingSafeRecoveryPreparations.delete(message.requestId);
+  clearTimeout(pending.timer);
+  if (!message.content || message.error) {
+    pending.resolve({ ok: false, error: 'recovery_context_unavailable' });
+    return;
+  }
+  pending.resolve(await requestSafeRecoveryConfirmation(ds, message.content, message.turnId));
+}
 
 function finishSafeRecovery(
   ds: DaemonSession,
@@ -6376,6 +6460,12 @@ function setupWorkerHandlers(
         } catch (err: any) {
           logger.error(`[${t}] Failed to deliver user_notify to Lark: ${err.message}`);
         }
+        break;
+      }
+
+      case 'safe_recovery_prepared': {
+        if (!ownsLifecycleMutation()) break;
+        await finishManualSafeRecoveryPreparation(ds, worker, msg);
         break;
       }
 

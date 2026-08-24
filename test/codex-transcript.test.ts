@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync, statSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { drainCodexRollout, codexSessionIdFromRolloutPath, findCodexRolloutBySessionId, findCodexSessionIdByBotmuxSessionId, codexHistorySidIsOwned, splitCodexEventsByCutoff, extractLastCodexTurn, scanCodexThreadSettings, type CodexBridgeEvent } from '../src/services/codex-transcript.js';
+import { drainCodexRollout, codexSessionIdFromRolloutPath, findCodexRolloutBySessionId, findCodexSessionIdByBotmuxSessionId, codexHistorySidIsOwned, splitCodexEventsByCutoff, extractLastCodexTurn, scanCodexThreadSettings, readCodexRecoveryEventWindow, type CodexBridgeEvent } from '../src/services/codex-transcript.js';
 
 let dir: string;
 let path: string;
@@ -36,6 +36,22 @@ function assistantFinalResponseItem(text: string, ts = '2026-04-29T07:00:01.000Z
       type: 'task_complete',
       turn_id: `turn-${ts}`,
       last_agent_message: text,
+    },
+  };
+}
+
+function policyTaskComplete(ts: string) {
+  return {
+    timestamp: ts,
+    type: 'event_msg',
+    payload: {
+      type: 'task_complete',
+      turn_id: `turn-${ts}`,
+      last_agent_message: null,
+      error: {
+        message: "This content can't be shown",
+        codex_error_info: 'cyber_policy',
+      },
     },
   };
 }
@@ -488,6 +504,87 @@ describe('drainCodexRollout', () => {
     const r2 = drainCodexRollout(path, r1.newOffset);
     expect(r2.events).toHaveLength(1);
     expect(r2.events[0].text).toBe('s');
+  });
+});
+
+describe('readCodexRecoveryEventWindow', () => {
+  it('stops at the exact policy terminal instead of a later policy turn', () => {
+    writeFileSync(path,
+      ev(userResponseItem('first task', '2026-04-29T07:00:00.000Z'))
+      + ev(policyTaskComplete('2026-04-29T07:00:01.000Z'))
+      + ev(userResponseItem('second task', '2026-04-29T07:00:02.000Z'))
+      + ev(policyTaskComplete('2026-04-29T07:00:03.000Z')));
+    const all = drainCodexRollout(path, 0).events;
+    const firstBoundary = all.find(event => event.terminalErrorCode === 'codex_task_error:cyber_policy');
+    expect(firstBoundary).toBeDefined();
+
+    const window = readCodexRecoveryEventWindow(path, {
+      boundaryEventUuid: firstBoundary?.uuid,
+      chunkBytes: 1024,
+    });
+
+    expect(window?.boundaryEventUuid).toBe(firstBoundary?.uuid);
+    expect(window?.events.map(event => event.text)).toContain('first task');
+    expect(window?.events.map(event => event.text)).not.toContain('second task');
+  });
+
+  it('allows manual recovery only when the latest bridge event is a policy terminal', () => {
+    writeFileSync(path,
+      ev(userResponseItem('blocked task', '2026-04-29T07:00:00.000Z'))
+      + ev(policyTaskComplete('2026-04-29T07:00:01.000Z')));
+    expect(readCodexRecoveryEventWindow(path)).toBeDefined();
+
+    appendFileSync(path, ev(userResponseItem('new active task', '2026-04-29T07:00:02.000Z')));
+    expect(readCodexRecoveryEventWindow(path)).toBeUndefined();
+  });
+
+  it('skips oversized tool records without loading the whole rollout', () => {
+    const oversizedTool = {
+      timestamp: '2026-04-29T07:00:01.000Z',
+      type: 'response_item',
+      payload: { type: 'function_call_output', output: 'x'.repeat(8_000) },
+    };
+    writeFileSync(path,
+      ev(userResponseItem('retain this task', '2026-04-29T07:00:00.000Z'))
+      + ev(oversizedTool)
+      + ev(policyTaskComplete('2026-04-29T07:00:02.000Z')));
+
+    const window = readCodexRecoveryEventWindow(path, {
+      chunkBytes: 1024,
+      maxLineBytes: 1024,
+    });
+
+    expect(window?.events.map(event => event.text)).toContain('retain this task');
+    expect(window?.events.at(-1)?.terminalErrorCode).toBe('codex_task_error:cyber_policy');
+  });
+
+  it('retains a bounded visible window and counts omitted messages', () => {
+    writeFileSync(path,
+      Array.from({ length: 8 }, (_, index) => ev(userResponseItem(
+        `message-${index}`,
+        `2026-04-29T07:00:${String(index).padStart(2, '0')}.000Z`,
+      ))).join('')
+      + ev(policyTaskComplete('2026-04-29T07:01:00.000Z')));
+
+    const window = readCodexRecoveryEventWindow(path, { maxEvents: 3, maxChars: 1_000 });
+
+    expect(window?.events.slice(0, -1).map(event => event.text)).toEqual([
+      'message-5',
+      'message-6',
+      'message-7',
+    ]);
+    expect(window?.earlierMessagesOmitted).toBe(true);
+  });
+
+  it('reports when a retained message prefix is omitted by the character limit', () => {
+    writeFileSync(path,
+      ev(userResponseItem('prefix-retained-suffix', '2026-04-29T07:00:00.000Z'))
+      + ev(policyTaskComplete('2026-04-29T07:00:01.000Z')));
+
+    const window = readCodexRecoveryEventWindow(path, { maxChars: 15 });
+
+    expect(window?.events[0].text).toBe('retained-suffix');
+    expect(window?.messagePrefixOmitted).toBe(true);
   });
 });
 

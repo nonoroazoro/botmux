@@ -732,6 +732,9 @@ export type DaemonToWorker =
    * exact-user confirmation before sending it; normal user turns never emit it.
    */
   | { type: 'safe_recover'; requestId: string; content: string; turnId?: string }
+  /** Ask the worker to prepare the same bounded Codex conversation snapshot
+   *  used by automatic policy recovery. This does not reset the CLI. */
+  | { type: 'prepare_safe_recovery'; requestId: string }
   /** Rename the current CLI-native interactive session. The worker queues this
    *  administrative slash command until the TUI is idle and does not treat it
    *  as a model turn. Only adapters declaring buildSessionRenameCommand handle
@@ -881,7 +884,15 @@ export type WorkerToDaemon =
    * exact Codex cyber-policy terminal. The daemon re-derives the requester and
    * reply route from the trusted turn.
    */
-  | { type: 'safe_recovery_confirmation'; content: string; turnId: string }
+  | { type: 'safe_recovery_confirmation'; content: string; turnId?: string }
+  /** Response to a host-requested recovery snapshot preparation. */
+  | {
+      type: 'safe_recovery_prepared';
+      requestId: string;
+      content?: string;
+      turnId?: string;
+      error?: 'recovery_context_unavailable';
+    }
   /**
    * Reports whether the worker actually submitted the recovery prompt.
    */
