@@ -4,15 +4,19 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  createCapability,
   createCapabilityDeleteProposal,
   createCapabilitySaveProposal,
   listCapabilities,
+  loadCapabilityProposal,
 } from '../../../src/core/capabilities/index.js';
 import { handleCapabilityCardAction } from '../../../src/im/lark/capability-card-handler.js';
 import {
   CAPABILITY_ACCEPT_ACTION,
   CAPABILITY_ACCEPT_CONTRIBUTE_ACTION,
+  CAPABILITY_REJECT_ACTION,
   buildCapabilityProposalCard,
+  buildCapabilityDeleteRequestStatusCard,
   buildCapabilityProposalResultCard,
 } from '../../../src/im/lark/capability-card.js';
 
@@ -65,12 +69,12 @@ describe('capability card handler', () => {
 
   it('saves a Dynamic Workflow personally and submits a separate team proposal', async () => {
     const proposed = proposeWorkflow();
-    const sendOwnerCard = vi.fn(async () => undefined);
+    const deliverOwnerProposal = vi.fn(async () => undefined);
     const deps = {
       dataDir,
       ownerOpenId: () => 'ou_owner',
       resolveOperatorUnionId: async () => 'on_user',
-      sendOwnerCard,
+      deliverOwnerProposal,
     };
 
     const personalResult = await handleCapabilityCardAction({
@@ -92,30 +96,22 @@ describe('capability card handler', () => {
       larkAppId: 'app_1',
       principal: { kind: 'union', unionId: 'on_user' },
     })).toHaveLength(1);
-    expect(sendOwnerCard).toHaveBeenCalledTimes(1);
+    expect(deliverOwnerProposal).toHaveBeenCalledTimes(1);
+    expect(deliverOwnerProposal.mock.calls[0]?.[2]).toMatchObject({
+      operation: 'contribute',
+      targetScope: { kind: 'bot', larkAppId: 'app_1' },
+      draft: { type: 'workflow', name: 'weekly-product-report' },
+    });
+    const contribution = deliverOwnerProposal.mock.calls[0]?.[2];
+    const contributionNonce = deliverOwnerProposal.mock.calls[0]?.[3];
+    expect(contributionNonce).toMatch(/^[0-9a-f]{64}$/);
+    if (!contribution || !contributionNonce) throw new Error('Expected a team contribution');
 
-    const ownerCardText = sendOwnerCard.mock.calls[0]?.[2];
-    const ownerCard = typeof ownerCardText === 'string'
-      ? JSON.parse(ownerCardText) as {
-          elements?: Array<{
-            actions?: Array<{
-              text?: { content?: string };
-              value?: Record<string, string>;
-            }>;
-          }>;
-        }
-      : undefined;
-    const ownerButtons = ownerCard?.elements
-      ?.flatMap((element) => element.actions ?? [])
-      .map((button) => button.text?.content);
-    expect(ownerButtons).toEqual(['同意共享到团队', '拒绝共享']);
-    const ownerValue = ownerCard?.elements
-      ?.flatMap((element) => element.actions ?? [])
-      .find((button) => button.value?.action === CAPABILITY_ACCEPT_ACTION)
-      ?.value;
-    expect(ownerValue).toBeDefined();
-
-    const ownerResult = await handleCapabilityCardAction(ownerValue, {
+    const ownerResult = await handleCapabilityCardAction({
+      action: CAPABILITY_ACCEPT_ACTION,
+      proposalId: contribution.proposalId,
+      nonce: contributionNonce,
+    }, {
       operator: { open_id: 'ou_owner' },
     }, 'app_1', {
       ...deps,
@@ -145,7 +141,7 @@ describe('capability card handler', () => {
       dataDir,
       ownerOpenId: () => undefined,
       resolveOperatorUnionId: async () => 'on_user',
-      sendOwnerCard: async () => undefined,
+      deliverOwnerProposal: async () => undefined,
     });
 
     expect(result).toEqual({
@@ -167,7 +163,7 @@ describe('capability card handler', () => {
       dataDir,
       ownerOpenId: () => 'ou_owner',
       resolveOperatorUnionId: async () => 'on_user',
-      sendOwnerCard: async () => undefined,
+      deliverOwnerProposal: async () => undefined,
     };
     await handleCapabilityCardAction({
       action: CAPABILITY_ACCEPT_ACTION,
@@ -213,6 +209,138 @@ describe('capability card handler', () => {
       header: { title: { content: '已删除个人内容' } },
     });
     expect(listCapabilities(dataDir, scope)).toEqual([]);
+  });
+
+  it('notifies the requester after the owner decides a team deletion request', async () => {
+    const scope = { kind: 'bot' as const, larkAppId: 'app_1' };
+    const saved = createCapabilitySaveProposal({
+      dataDir,
+      requester: { kind: 'app_open', larkAppId: 'app_1', openId: 'ou_owner' },
+      requesterOpenId: 'ou_owner',
+      larkAppId: 'app_1',
+      sessionId: 'session_owner',
+      turnId: 'turn_save',
+      targetScope: scope,
+      draft: {
+        type: 'knowledge',
+        name: 'product-orange-release',
+        description: 'Explain the shared orange release convention.',
+        instructions: 'An orange release requires frontend and backend smoke checks.',
+      },
+    });
+    await handleCapabilityCardAction({
+      action: CAPABILITY_ACCEPT_ACTION,
+      proposalId: saved.proposal.proposalId,
+      nonce: saved.nonce,
+    }, {
+      operator: { open_id: 'ou_owner' },
+    }, 'app_1', {
+      dataDir,
+      ownerOpenId: () => 'ou_owner',
+      resolveOperatorUnionId: async () => undefined,
+      deliverOwnerProposal: async () => undefined,
+    });
+    const artifact = listCapabilities(dataDir, scope)[0];
+    expect(artifact).toBeDefined();
+    if (!artifact) throw new Error('Expected a team artifact');
+    const deletion = createCapabilityDeleteProposal({
+      dataDir,
+      requester: { kind: 'app_open', larkAppId: 'app_1', openId: 'ou_contributor' },
+      requesterOpenId: 'ou_contributor',
+      larkAppId: 'app_1',
+      sessionId: 'session_contributor',
+      turnId: 'turn_delete',
+      targetScope: scope,
+      artifactId: artifact.artifactId,
+      reason: 'The shared convention is obsolete.',
+    });
+    const enqueueRequesterCard = vi.fn();
+
+    const result = await handleCapabilityCardAction({
+      action: CAPABILITY_ACCEPT_ACTION,
+      proposalId: deletion.proposal.proposalId,
+      nonce: deletion.nonce,
+    }, {
+      operator: { open_id: 'ou_owner' },
+    }, 'app_1', {
+      dataDir,
+      ownerOpenId: () => 'ou_owner',
+      resolveOperatorUnionId: async () => undefined,
+      deliverOwnerProposal: async () => undefined,
+      enqueueRequesterCard,
+    });
+
+    expect(result).toMatchObject({
+      header: { title: { content: '已删除团队内容' } },
+    });
+    expect(enqueueRequesterCard).toHaveBeenCalledOnce();
+    expect(enqueueRequesterCard.mock.calls[0]?.[1]).toBe('ou_contributor');
+    expect(enqueueRequesterCard.mock.calls[0]?.[2]).toContain('团队删除申请已通过');
+    expect(loadCapabilityProposal(dataDir, deletion.proposal.proposalId))
+      .toMatchObject({ requesterNotificationState: 'queued' });
+    expect(listCapabilities(dataDir, scope)).toEqual([]);
+  });
+
+  it('notifies the requester when the owner rejects a team deletion request', async () => {
+    const scope = { kind: 'bot' as const, larkAppId: 'app_1' };
+    const artifact = createCapability(dataDir, scope, {
+      type: 'knowledge',
+      name: 'product-orange-release',
+      description: 'Explain the shared orange release convention.',
+      instructions: 'An orange release requires frontend and backend smoke checks.',
+    }).metadata;
+    const deletion = createCapabilityDeleteProposal({
+      dataDir,
+      requester: { kind: 'app_open', larkAppId: 'app_1', openId: 'ou_contributor' },
+      requesterOpenId: 'ou_contributor',
+      larkAppId: 'app_1',
+      sessionId: 'session_contributor',
+      turnId: 'turn_delete',
+      targetScope: scope,
+      artifactId: artifact.artifactId,
+      reason: 'The shared convention is obsolete.',
+    });
+    const enqueueRequesterCard = vi.fn();
+
+    const result = await handleCapabilityCardAction({
+      action: CAPABILITY_REJECT_ACTION,
+      proposalId: deletion.proposal.proposalId,
+      nonce: deletion.nonce,
+    }, {
+      operator: { open_id: 'ou_owner' },
+    }, 'app_1', {
+      dataDir,
+      ownerOpenId: () => 'ou_owner',
+      resolveOperatorUnionId: async () => undefined,
+      deliverOwnerProposal: async () => undefined,
+      enqueueRequesterCard,
+    });
+
+    expect(result).toMatchObject({
+      header: { title: { content: '已拒绝删除申请' } },
+    });
+    expect(enqueueRequesterCard).toHaveBeenCalledOnce();
+    expect(enqueueRequesterCard.mock.calls[0]?.[1]).toBe('ou_contributor');
+    expect(enqueueRequesterCard.mock.calls[0]?.[2]).toContain('团队删除申请已拒绝');
+    expect(loadCapabilityProposal(dataDir, deletion.proposal.proposalId))
+      .toMatchObject({ requesterNotificationState: 'queued' });
+    expect(listCapabilities(dataDir, scope)).toHaveLength(1);
+  });
+
+  it('uses dedicated artifact status cards for team deletion requests', () => {
+    const pending = JSON.parse(buildCapabilityDeleteRequestStatusCard({
+      state: 'pending',
+      type: 'knowledge',
+      name: 'product-orange-release',
+    }, 'zh')) as {
+      header: { title: { content: string } };
+      elements: Array<{ fields?: Array<{ text?: { content?: string } }> }>;
+    };
+    expect(pending.header.title.content).toBe('团队删除申请已提交');
+    expect(pending.elements[0]?.fields?.map(field => field.text?.content)).toEqual([
+      '**类型**\nKnowledge',
+      '**名称**\nproduct-orange-release',
+    ]);
   });
 
   it('renders explicit personal, team, and cancel choices in both locales', () => {

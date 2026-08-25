@@ -8,3 +8,6 @@ export * from './skill-adapter.js';
 export * from './types.js';
 export * from './workflow-trial-ticket.js';
 export * from './workflow-trial-assessment.js';
+export * from './CapabilityNotificationOutbox.js';
+export * from './CapabilityProposalOutbox.js';
+export * from './CapabilityProposalDeliveryError.js';

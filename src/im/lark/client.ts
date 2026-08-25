@@ -12,6 +12,7 @@ import { resolveUserToken } from '../../utils/user-token.js';
 import { listObservedBots } from '../../services/observed-bots-store.js';
 import { getBotCapability } from '../../services/bot-profile-store.js';
 import { resolveTeamRoleFile } from '../../core/role-resolver.js';
+import { LarkMessageSendError } from '../index.js';
 import { type Brand, larkHosts, normalizeBrand, sdkDomain } from './lark-hosts.js';
 import { canonicalMobileKey, isMobileEntry, normalizeMobileEntry } from '../../setup/bot-config-editor.js';
 import { stampBotmuxCallbackMarkers } from './callback-button-marker.js';
@@ -560,7 +561,10 @@ export async function sendUserMessage(
     });
 
   if (res.code !== 0) {
-    throw new Error(`Failed to send user message: ${res.msg} (code: ${res.code})`);
+    throw new LarkMessageSendError(
+      `Failed to send user message: ${res.msg} (code: ${res.code})`,
+      { deliveryRejected: true },
+    );
   }
 
   const messageId = res.data?.message_id;

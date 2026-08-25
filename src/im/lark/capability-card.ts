@@ -62,6 +62,9 @@ export function buildCapabilityProposalCard(
 ): string {
   if (proposal.operation === 'delete') {
     const personal = proposal.targetScope.kind === 'personal';
+    const requester = /^ou_[A-Za-z0-9_-]+$/.test(proposal.requesterOpenId)
+      ? `<at user_id="${proposal.requesterOpenId}"></at>`
+      : escapeLarkMarkdown(proposal.requesterOpenId);
     return JSON.stringify({
       config: { wide_screen_mode: true },
       header: {
@@ -104,11 +107,31 @@ export function buildCapabilityProposalCard(
             content: `**${t('card.capability.field.description', undefined, locale)}**\n${escapeLarkMarkdown(proposal.target.description)}`,
           },
         },
+        ...(!personal ? [{
+          tag: 'div',
+          text: {
+            tag: 'lark_md',
+            content: `**${t('card.capability.field.requester', undefined, locale)}**\n${requester}`,
+          },
+        }] : []),
+        ...(!personal && proposal.reason ? [{
+          tag: 'div',
+          text: {
+            tag: 'lark_md',
+            content: `**${t('card.capability.field.reason', undefined, locale)}**\n${escapeLarkMarkdown(proposal.reason)}`,
+          },
+        }] : []),
         {
           tag: 'note',
           elements: [{
             tag: 'plain_text',
-            content: t('card.capability.note.delete', undefined, locale),
+            content: t(
+              personal
+                ? 'card.capability.note.delete'
+                : 'card.capability.note.delete.bot',
+              undefined,
+              locale,
+            ),
           }],
         },
         {
@@ -133,7 +156,13 @@ export function buildCapabilityProposalCard(
               tag: 'button',
               text: {
                 tag: 'plain_text',
-                content: t('card.capability.button.cancel', undefined, locale),
+                content: t(
+                  personal
+                    ? 'card.capability.button.cancel'
+                    : 'card.capability.button.delete.reject',
+                  undefined,
+                  locale,
+                ),
               },
               type: 'default',
               value: actionValue(CAPABILITY_REJECT_ACTION, proposal.proposalId, nonce),
@@ -335,6 +364,55 @@ export function buildCapabilityProposalCard(
   });
 }
 
+export function buildCapabilityDeleteRequestStatusCard(input: {
+  state: 'pending' | 'accepted' | 'rejected';
+  type: CapabilityType;
+  name: string;
+}, locale?: Locale): string {
+  return JSON.stringify({
+    config: { wide_screen_mode: true },
+    header: {
+      template: input.state === 'accepted'
+        ? 'green'
+        : input.state === 'rejected'
+          ? 'grey'
+          : 'blue',
+      title: {
+        tag: 'plain_text',
+        content: t(`card.capability.title.delete_request.${input.state}`, undefined, locale),
+      },
+    },
+    elements: [
+      {
+        tag: 'div',
+        fields: [
+          {
+            is_short: true,
+            text: {
+              tag: 'lark_md',
+              content: `**${t('card.capability.field.type', undefined, locale)}**\n${escapeLarkMarkdown(capabilityTypeLabel(input.type, locale))}`,
+            },
+          },
+          {
+            is_short: true,
+            text: {
+              tag: 'lark_md',
+              content: `**${t('card.capability.field.name', undefined, locale)}**\n${escapeLarkMarkdown(input.name)}`,
+            },
+          },
+        ],
+      },
+      {
+        tag: 'note',
+        elements: [{
+          tag: 'plain_text',
+          content: t(`card.capability.note.delete_request.${input.state}`, undefined, locale),
+        }],
+      },
+    ],
+  });
+}
+
 export function buildCapabilityProposalResultCard(input: {
   state: 'accepted' | 'rejected';
   operation: CapabilityProposalOperation;
@@ -368,7 +446,9 @@ export function buildCapabilityProposalResultCard(input: {
           ? acceptedTitle
           : t(
               input.operation === 'delete'
-                ? 'card.capability.result.delete_cancelled'
+                ? input.scope === 'bot'
+                  ? 'card.capability.result.delete_rejected'
+                  : 'card.capability.result.delete_cancelled'
                 : 'card.capability.result.cancelled',
               undefined,
               locale,

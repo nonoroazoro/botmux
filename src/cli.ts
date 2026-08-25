@@ -9631,6 +9631,7 @@ async function cmdArtifact(rest: string[], commandLabel = 'artifact'): Promise<v
   const type = argValue(args, '--type');
   const name = argValue(args, '--name');
   const description = argValue(args, '--description');
+  const reason = argValue(args, '--reason');
   const trialToken = argValue(args, '--trial-token');
   const trialOutcome = argValue(args, '--trial-outcome');
   const trialSummary = argValue(args, '--trial-summary');
@@ -9678,6 +9679,7 @@ async function cmdArtifact(rest: string[], commandLabel = 'artifact'): Promise<v
         || limit < 1
         || limit > 20))
     || ((action === 'show' || action === 'history' || action === 'delete') && !name)
+    || (action === 'delete' && scope === 'bot' && !reason)
     || (action === 'list'
       && type !== undefined
       && type !== 'knowledge'
@@ -9689,6 +9691,7 @@ async function cmdArtifact(rest: string[], commandLabel = 'artifact'): Promise<v
     console.error(
       'Usage: botmux artifact <list|search|show|history|save|trial|trial-read|overlap|delete> [--scope personal|bot] ' +
       '[--type knowledge|skill|workflow] [--name <name>] [--description <text>] ' +
+      '[--reason <text>] ' +
       '[--existing <name>] [--trial-token <token>] [--trial-outcome <outcome>] ' +
       '[--trial-summary <text>] [--query <text>] [--limit 1..20]',
     );
@@ -9720,6 +9723,7 @@ async function cmdArtifact(rest: string[], commandLabel = 'artifact'): Promise<v
     ...(type ? { type } : {}),
     ...(name ? { name } : {}),
     ...(description ? { description } : {}),
+    ...(reason ? { reason } : {}),
     ...(existingName ? { existingName } : {}),
     ...(trialToken ? { trialToken } : {}),
     ...(trialOutcome ? { trialOutcome } : {}),

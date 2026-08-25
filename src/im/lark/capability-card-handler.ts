@@ -1,8 +1,9 @@
 import {
   acceptCapabilityProposal,
-  capabilityProposalDispatchUuid,
+  capabilityRequesterNotificationDispatchUuid,
   createCapabilityContributionProposal,
   loadCapabilityProposal,
+  markCapabilityRequesterNotificationQueued,
   rejectCapabilityProposal,
   type CapabilityProposal,
 } from '../../core/capabilities/index.js';
@@ -10,7 +11,7 @@ import { localeForBot, t, type Locale } from '../../i18n/index.js';
 import {
   CAPABILITY_ACCEPT_CONTRIBUTE_ACTION,
   CAPABILITY_REJECT_ACTION,
-  buildCapabilityProposalCard,
+  buildCapabilityDeleteRequestStatusCard,
   buildCapabilityProposalResultCard,
   capabilityProposalName,
   capabilityProposalType,
@@ -22,12 +23,19 @@ export interface CapabilityCardHandlerDeps {
   dataDir: string;
   ownerOpenId(larkAppId: string): string | undefined;
   resolveOperatorUnionId(data: CardActionData, larkAppId: string): Promise<string | undefined>;
-  sendOwnerCard(
+  deliverOwnerProposal(
     larkAppId: string,
     ownerOpenId: string,
+    proposal: CapabilityProposal,
+    nonce: string,
+  ): Promise<void>;
+  enqueueRequesterCard?(
+    larkAppId: string,
+    requesterOpenId: string,
     card: string,
     dispatchUuid: string,
-  ): Promise<void>;
+  ): void;
+  onDecided?(proposal: CapabilityProposal): void;
   onAccepted?(proposal: CapabilityProposal): void | Promise<void>;
   onError?(proposalId: string, error: unknown): void;
 }
@@ -69,6 +77,36 @@ export async function handleCapabilityCardAction(
         ...(operatorUnionId ? { operatorUnionId } : {}),
         ...(ownerOpenId ? { ownerOpenId } : {}),
       });
+      try {
+        deps.onDecided?.(rejected);
+      } catch (error) {
+        deps.onError?.(rejected.proposalId, error);
+      }
+      if (
+        rejected.operation === 'delete'
+        && rejected.targetScope.kind === 'bot'
+        && rejected.requesterOpenId !== operatorOpenId
+        && deps.enqueueRequesterCard
+      ) {
+        try {
+          deps.enqueueRequesterCard(
+            receivingLarkAppId,
+            rejected.requesterOpenId,
+            buildCapabilityDeleteRequestStatusCard({
+              state: 'rejected',
+              type: rejected.target.type,
+              name: rejected.target.name,
+            }, locale),
+            capabilityRequesterNotificationDispatchUuid(rejected.proposalId, 'rejected'),
+          );
+          markCapabilityRequesterNotificationQueued(
+            deps.dataDir,
+            rejected.proposalId,
+          );
+        } catch (error) {
+          deps.onError?.(rejected.proposalId, error);
+        }
+      }
       return JSON.parse(buildCapabilityProposalResultCard({
         state: 'rejected',
         operation: rejected.operation,
@@ -93,6 +131,36 @@ export async function handleCapabilityCardAction(
       ...(operatorUnionId ? { operatorUnionId } : {}),
       ...(ownerOpenId ? { ownerOpenId } : {}),
     });
+    try {
+      deps.onDecided?.(accepted);
+    } catch (error) {
+      deps.onError?.(accepted.proposalId, error);
+    }
+    if (
+      accepted.operation === 'delete'
+      && accepted.targetScope.kind === 'bot'
+      && accepted.requesterOpenId !== operatorOpenId
+      && deps.enqueueRequesterCard
+    ) {
+      try {
+        deps.enqueueRequesterCard(
+          receivingLarkAppId,
+          accepted.requesterOpenId,
+          buildCapabilityDeleteRequestStatusCard({
+            state: 'accepted',
+            type: accepted.target.type,
+            name: accepted.target.name,
+          }, locale),
+          capabilityRequesterNotificationDispatchUuid(accepted.proposalId, 'accepted'),
+        );
+        markCapabilityRequesterNotificationQueued(
+          deps.dataDir,
+          accepted.proposalId,
+        );
+      } catch (error) {
+        deps.onError?.(accepted.proposalId, error);
+      }
+    }
     if (value.action === CAPABILITY_ACCEPT_CONTRIBUTE_ACTION) {
       if (
         accepted.operation !== 'save'
@@ -105,11 +173,11 @@ export async function handleCapabilityCardAction(
         requesterOpenId: accepted.requesterOpenId,
       });
       try {
-        await deps.sendOwnerCard(
+        await deps.deliverOwnerProposal(
           receivingLarkAppId,
           ownerOpenId,
-          buildCapabilityProposalCard(contribution.proposal, contribution.nonce, locale),
-          capabilityProposalDispatchUuid(contribution.proposal.proposalId, contribution.nonce),
+          contribution.proposal,
+          contribution.nonce,
         );
       } catch (error) {
         deps.onError?.(contribution.proposal.proposalId, error);

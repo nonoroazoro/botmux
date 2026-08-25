@@ -173,23 +173,36 @@ import type { DaemonToWorker, ScheduledTask, ParsedSchedule, ScheduleExecutionPo
 import { sessionAnchorId, larkTransportEnabled, type DaemonSession } from './types.js';
 import { attachSkillPolicy, detachSkillPolicy } from './skills/im-command.js';
 import {
+  CapabilityProposalOutbox,
+  CapabilityProposalDeliveryError,
   createCapabilityDeleteProposal,
   createCapabilitySaveProposal,
+  discardUndeliveredCapabilityProposal,
   buildCapabilityInteractionContinuation,
   capabilityProposalDispatchUuid,
-  consumeWorkflowTrialTicket,
+  capabilityProposalRecipientOpenId,
+  capabilityRequesterNotificationDispatchUuid,
   issueWorkflowTrialTicket,
+  isCapabilityProposalDeliveryActive,
+  listPendingCapabilityProposals,
   listCapabilities,
   listCapabilityRevisions,
   readCapabilityRevision,
   readWorkflowTrialTicket,
+  rotateCapabilityProposalNonce,
   searchCapabilityMetadata,
   validateWorkflowTrialAssessment,
+  withWorkflowTrialTicket,
   type CapabilityDraft,
+  type CapabilityProposal,
   type CapabilityType,
   type CapabilityScope,
 } from './capabilities/index.js';
-import { buildCapabilityProposalCard } from '../im/lark/capability-card.js';
+import { LarkMessageSendError } from '../im/index.js';
+import {
+  buildCapabilityDeleteRequestStatusCard,
+  buildCapabilityProposalCard,
+} from '../im/lark/capability-card.js';
 import {
   castBotPollVote,
   createAndPublishPoll,
@@ -925,6 +938,143 @@ function recordCapabilityCardTurnSend(sessionId: string, messageId: string): voi
   }
 }
 
+export async function deliverCapabilityProposalCard(input: {
+  larkAppId: string;
+  recipientOpenId: string;
+  proposal: CapabilityProposal;
+  nonce: string;
+}): Promise<string> {
+  const outbox = capabilityProposalOutbox(input.larkAppId);
+  const card = buildCapabilityProposalCard(
+    input.proposal,
+    input.nonce,
+    localeForBot(input.larkAppId),
+  );
+  const dispatchUuid = capabilityProposalDispatchUuid(
+    input.proposal.proposalId,
+    input.nonce,
+  );
+  outbox.enqueue({
+    proposalId: input.proposal.proposalId,
+    nonce: input.nonce,
+    recipientOpenId: input.recipientOpenId,
+    card,
+    dispatchUuid,
+    expiresAt: input.proposal.expiresAt,
+  });
+  const outcome = await outbox.deliver(input.proposal.proposalId);
+  outbox.start();
+  if (outcome.state === 'delivered') return outcome.messageId;
+  if (outcome.state === 'failed') {
+    if (!(outcome.error instanceof LarkMessageSendError) || !outcome.error.deliveryRejected) {
+      return dispatchUuid;
+    }
+    outbox.cancel(input.proposal.proposalId);
+    let proposalDiscarded = false;
+    try {
+      discardUndeliveredCapabilityProposal(
+        config.session.dataDir,
+        input.proposal.proposalId,
+        input.nonce,
+      );
+      proposalDiscarded = true;
+    } catch (discardError) {
+      logger.warn(
+        `[capability:${input.proposal.proposalId}] failed to discard a rejected proposal: `
+        + `${discardError instanceof Error ? discardError.message : String(discardError)}`,
+      );
+    }
+    throw new CapabilityProposalDeliveryError(
+      outcome.error.message,
+      { proposalDiscarded, cause: outcome.error },
+    );
+  }
+  throw new CapabilityProposalDeliveryError(
+    'Capability proposal is no longer pending',
+    { proposalDiscarded: false },
+  );
+}
+
+const capabilityProposalOutboxes = new Map<string, CapabilityProposalOutbox>();
+
+function capabilityProposalOutbox(larkAppId: string): CapabilityProposalOutbox {
+  const dataDir = config.session.dataDir;
+  const key = `${dataDir}\0${larkAppId}`;
+  const existing = capabilityProposalOutboxes.get(key);
+  if (existing) return existing;
+  const outbox = new CapabilityProposalOutbox({
+    dataDir,
+    larkAppId,
+    send: (recipientOpenId, card, dispatchUuid) => sendUserMessage(
+      larkAppId,
+      recipientOpenId,
+      card,
+      'interactive',
+      dispatchUuid,
+    ),
+    isActive: (proposalId, nonce) => isCapabilityProposalDeliveryActive(
+      dataDir,
+      proposalId,
+      nonce,
+    ),
+    logger,
+  });
+  capabilityProposalOutboxes.set(key, outbox);
+  return outbox;
+}
+
+export function startCapabilityProposalDelivery(larkAppId: string): void {
+  const outbox = capabilityProposalOutbox(larkAppId);
+  for (const pending of listPendingCapabilityProposals(config.session.dataDir, larkAppId)) {
+    if (outbox.has(pending.proposalId)) continue;
+    const recipientOpenId = capabilityProposalRecipientOpenId(
+      pending,
+      getOwnerOpenId(larkAppId),
+    );
+    if (!recipientOpenId) continue;
+    try {
+      const recovered = rotateCapabilityProposalNonce(
+        config.session.dataDir,
+        pending.proposalId,
+      );
+      const dispatchUuid = capabilityProposalDispatchUuid(
+        recovered.proposal.proposalId,
+        recovered.nonce,
+      );
+      outbox.enqueue({
+        proposalId: recovered.proposal.proposalId,
+        nonce: recovered.nonce,
+        recipientOpenId,
+        card: buildCapabilityProposalCard(
+          recovered.proposal,
+          recovered.nonce,
+          localeForBot(larkAppId),
+        ),
+        dispatchUuid,
+        expiresAt: recovered.proposal.expiresAt,
+      });
+    } catch (error) {
+      logger.warn(
+        `[capability:${pending.proposalId}] delivery recovery failed: `
+        + `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  outbox.start();
+}
+
+export function stopCapabilityProposalDelivery(): void {
+  for (const outbox of capabilityProposalOutboxes.values()) outbox.stop();
+  capabilityProposalOutboxes.clear();
+}
+
+export function cancelCapabilityProposalDelivery(
+  larkAppId: string,
+  proposalId: string,
+): void {
+  capabilityProposalOutbox(larkAppId).cancel(proposalId);
+}
+
 const CAPABILITY_INTERACTION_TURN_POLL_MS = 50;
 const CAPABILITY_INTERACTION_TURN_WAIT_MS = 5 * 60 * 1_000;
 const capabilityInteractionTurnQueues = new Map<string, Promise<void>>();
@@ -1015,6 +1165,7 @@ ipcRoute('POST', '/api/capabilities/manage', async (req, res) => {
     name?: unknown;
     existingName?: unknown;
     description?: unknown;
+    reason?: unknown;
     instructions?: unknown;
     requestId?: unknown;
     trialToken?: unknown;
@@ -1069,11 +1220,12 @@ ipcRoute('POST', '/api/capabilities/manage', async (req, res) => {
       ? { kind: 'personal', larkAppId: ds.larkAppId, principal: requester }
       : { kind: 'bot', larkAppId: ds.larkAppId };
     const ownerOpenId = getOwnerOpenId(ds.larkAppId);
-    if (
-      scope.kind === 'bot'
-      && (action === 'save' || action === 'delete')
-      && (!ownerOpenId || callerOpenId !== ownerOpenId)
-    ) return jsonRes(res, 403, { ok: false, error: 'bot_owner_required' });
+    if (scope.kind === 'bot' && !ownerOpenId && (action === 'save' || action === 'delete')) {
+      return jsonRes(res, 403, { ok: false, error: 'bot_owner_required' });
+    }
+    if (scope.kind === 'bot' && action === 'save' && callerOpenId !== ownerOpenId) {
+      return jsonRes(res, 403, { ok: false, error: 'bot_owner_required' });
+    }
     const type: CapabilityType | undefined = body.type === 'knowledge'
       || body.type === 'skill'
       || body.type === 'workflow'
@@ -1338,40 +1490,45 @@ ipcRoute('POST', '/api/capabilities/manage', async (req, res) => {
       if (existing && existing.type !== body.type) {
         return jsonRes(res, 409, { ok: false, error: 'capability_type_conflict' });
       }
-      const draft: CapabilityDraft = workflowTrialDraft
-        ? consumeWorkflowTrialTicket({
+      const createAndSendProposal = async (draft: CapabilityDraft) => {
+        const proposed = createCapabilitySaveProposal({
+          dataDir: config.session.dataDir,
+          requester,
+          requesterOpenId: callerOpenId,
+          larkAppId: ds.larkAppId,
+          sessionId: ds.session.sessionId,
+          turnId,
+          targetScope: scope,
+          draft,
+          ...(workflowTrial ? { workflowTrial } : {}),
+        });
+        const recipientOpenId = capabilityProposalRecipientOpenId(proposed.proposal, ownerOpenId);
+        if (!recipientOpenId) throw new Error('Capability proposal recipient is unavailable');
+        const messageId = await deliverCapabilityProposalCard({
+          larkAppId: ds.larkAppId,
+          recipientOpenId,
+          proposal: proposed.proposal,
+          nonce: proposed.nonce,
+        });
+        return { proposed, messageId };
+      };
+      const saveResult = workflowTrialDraft
+        ? await withWorkflowTrialTicket({
             token: typeof body.trialToken === 'string' ? body.trialToken : '',
             sessionId: ds.session.sessionId,
             turnId,
-          })
-        : {
+            restoreOnError: error => (
+              !(error instanceof CapabilityProposalDeliveryError)
+              || error.proposalDiscarded
+            ),
+          }, createAndSendProposal)
+        : await createAndSendProposal({
             type: body.type,
             name,
             description: typeof body.description === 'string' ? body.description : '',
             instructions: typeof body.instructions === 'string' ? body.instructions : '',
-          };
-      const proposed = createCapabilitySaveProposal({
-        dataDir: config.session.dataDir,
-        requester,
-        requesterOpenId: callerOpenId,
-        larkAppId: ds.larkAppId,
-        sessionId: ds.session.sessionId,
-        turnId,
-        targetScope: scope,
-        draft,
-        ...(workflowTrial ? { workflowTrial } : {}),
-      });
-      const messageId = await sendUserMessage(
-        ds.larkAppId,
-        scope.kind === 'bot' && ownerOpenId ? ownerOpenId : callerOpenId,
-        buildCapabilityProposalCard(
-          proposed.proposal,
-          proposed.nonce,
-          localeForBot(ds.larkAppId),
-        ),
-        'interactive',
-        capabilityProposalDispatchUuid(proposed.proposal.proposalId, proposed.nonce),
-      );
+          });
+      const { proposed, messageId } = saveResult;
       recordCapabilityCardTurnSend(ds.session.sessionId, messageId);
       return jsonRes(res, 200, {
         ok: true,
@@ -1391,30 +1548,62 @@ ipcRoute('POST', '/api/capabilities/manage', async (req, res) => {
       turnId,
       targetScope: scope,
       artifactId: existing.artifactId,
+      ...(typeof body.reason === 'string' ? { reason: body.reason } : {}),
     });
-    const messageId = await sendUserMessage(
-      ds.larkAppId,
-      scope.kind === 'bot' && ownerOpenId ? ownerOpenId : callerOpenId,
-      buildCapabilityProposalCard(
-        proposed.proposal,
-        proposed.nonce,
-        localeForBot(ds.larkAppId),
-      ),
-      'interactive',
-      capabilityProposalDispatchUuid(proposed.proposal.proposalId, proposed.nonce),
-    );
-    recordCapabilityCardTurnSend(ds.session.sessionId, messageId);
+    const recipientOpenId = capabilityProposalRecipientOpenId(proposed.proposal, ownerOpenId);
+    if (!recipientOpenId) throw new Error('Capability proposal recipient is unavailable');
+    const approvalMessageId = await deliverCapabilityProposalCard({
+      larkAppId: ds.larkAppId,
+      recipientOpenId,
+      proposal: proposed.proposal,
+      nonce: proposed.nonce,
+    });
+    let visibleMessageId = approvalMessageId;
+    let requesterStatusDelivered = true;
+    if (scope.kind === 'bot' && ownerOpenId && callerOpenId !== ownerOpenId) {
+      try {
+        visibleMessageId = await sendUserMessage(
+          ds.larkAppId,
+          callerOpenId,
+          buildCapabilityDeleteRequestStatusCard({
+            state: 'pending',
+            type: existing.type,
+            name: existing.name,
+          }, localeForBot(ds.larkAppId)),
+          'interactive',
+          capabilityRequesterNotificationDispatchUuid(proposed.proposal.proposalId, 'pending'),
+        );
+      } catch (error) {
+        requesterStatusDelivered = false;
+        logger.warn(
+          `[capability:${proposed.proposal.proposalId}] requester status card failed: `
+          + `${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    if (requesterStatusDelivered) {
+      recordCapabilityCardTurnSend(ds.session.sessionId, visibleMessageId);
+    }
     return jsonRes(res, 200, {
       ok: true,
       proposalId: proposed.proposal.proposalId,
       status: 'pending_confirmation',
-      responseMode: 'card_only',
-      instruction: 'The confirmation card is the complete response. Do not call botmux send. End the turn with exactly BOTMUX_NOTHING_TO_SEND.',
+      responseMode: requesterStatusDelivered ? 'card_only' : 'agent_fallback',
+      instruction: requesterStatusDelivered
+        ? 'The confirmation card is the complete response. Do not call botmux send. End the turn with exactly BOTMUX_NOTHING_TO_SEND.'
+        : 'The owner received the deletion request, but its requester status card could not be delivered. Briefly tell the requester that the team deletion request is awaiting owner review, then end with BOTMUX_NOTHING_TO_SEND.',
     });
   } catch (error) {
-    return jsonRes(res, 400, {
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message === 'capability_delete_request_already_pending'
+      || message === 'capability_save_request_already_pending'
+      ? 409
+      : message === 'capability_delete_request_rate_limited'
+        ? 429
+        : 400;
+    return jsonRes(res, status, {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     });
   }
 });
@@ -5058,7 +5247,10 @@ export function startIpcServer(opts: {
     boundPort = port;
     return {
     port,
-    close: () => new Promise<void>(r => server.close(() => r())),
+    close: () => {
+      stopCapabilityProposalDelivery();
+      return new Promise<void>(r => server.close(() => r()));
+    },
   };
   });
 }

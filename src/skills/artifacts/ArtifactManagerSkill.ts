@@ -75,15 +75,16 @@ Delete by exact name:
 
 \`\`\`bash
 botmux artifact delete --scope personal --name <name>
+botmux artifact delete --scope bot --name <name> --reason <concise-reason>
 \`\`\`
 
-Deletion permanently removes the artifact and all revision history. Never claim deletion completed until the authorized user confirms the destructive card.
+Personal deletion requires the requesting user to confirm the destructive card. Team deletion requires a concise, truthful reason. Infer it only when the user's intent makes it clear; otherwise ask. Any authorized user may request team deletion, but only the bot owner can approve it. Deletion permanently removes the artifact and all revision history. Never claim deletion completed before the required confirmation.
 
 ## Scope and contribution
 
 - Use \`--scope personal\` by default.
 - Manage personal artifacts only in a P2P session with the bot. Never load or author personal artifacts in a shared group session.
-- Use \`--scope bot\` only when the bot owner explicitly manages the shared library.
+- Use \`--scope bot\` for bot owner management and explicit requests to delete shared content. A non-owner team deletion request remains pending until the bot owner decides its dedicated artifact card.
 - Treat personal scope as a visibility boundary, not permission to create identity-bound content. Author every artifact so it can be reused by another user and later contributed to a team.
 - Before a team contribution, review the name, description, and body for source-specific personal or conversation identity. If any remains, create a portable revision before proposing it.
 - A team contribution normally starts as a personal save followed by \`Save and propose to team\` on the confirmation card.
@@ -91,5 +92,5 @@ Deletion permanently removes the artifact and all revision history. Never claim 
 
 Create, Update, and Delete require card confirmation. List, Show, and History do not.
 
-For Create, Update, Delete, and Contribute, the code-owned card or terminal status is the complete response. End the turn with exactly \`BOTMUX_NOTHING_TO_SEND\`.
+For Create, Update, Delete, and Contribute, follow the command's JSON response. When \`responseMode\` is \`card_only\`, the code-owned card is the complete response and you must end with exactly \`BOTMUX_NOTHING_TO_SEND\`. When it is \`agent_fallback\`, follow its \`instruction\` exactly so a card delivery failure remains visible.
 `;

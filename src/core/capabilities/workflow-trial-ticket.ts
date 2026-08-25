@@ -67,6 +67,34 @@ export function consumeWorkflowTrialTicket(input: {
   return validateCapabilityDraft(JSON.parse(ticket.draft) as CapabilityDraft);
 }
 
+export async function withWorkflowTrialTicket<T>(input: {
+  token: string;
+  sessionId: string;
+  turnId: string;
+  now?: number;
+  restoreOnError?(error: unknown): boolean;
+}, callback: (draft: CapabilityDraft) => Promise<T>): Promise<T> {
+  const now = input.now ?? Date.now();
+  reapExpiredWorkflowTrialTickets(now);
+  if (!WORKFLOW_TRIAL_TOKEN_RE.test(input.token)) {
+    throw new Error('A valid Workflow trial confirmation is required');
+  }
+  const ticket = tickets.get(input.token);
+  if (
+    !ticket
+    || ticket.sessionId !== input.sessionId
+    || ticket.turnId !== input.turnId
+  ) throw new Error('A valid Workflow trial confirmation is required');
+  tickets.delete(input.token);
+  const draft = validateCapabilityDraft(JSON.parse(ticket.draft) as CapabilityDraft);
+  try {
+    return await callback(draft);
+  } catch (error) {
+    if (input.restoreOnError?.(error) ?? true) tickets.set(input.token, ticket);
+    throw error;
+  }
+}
+
 export function readWorkflowTrialTicket(input: {
   token: string;
   sessionId: string;

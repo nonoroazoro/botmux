@@ -26,11 +26,29 @@ import type {
 const PROPOSAL_ID_RE = /^cp_[0-9a-f]{32}$/;
 const NONCE_RE = /^[0-9a-f]{64}$/;
 const PROPOSAL_TTL_MS = 24 * 60 * 60 * 1_000;
+const REQUESTER_NOTIFICATION_TTL_MS = 24 * 60 * 60 * 1_000;
+const MAX_DELETE_REASON_BYTES = 1_000;
+const MAX_PENDING_BOT_DELETE_REQUESTS_PER_REQUESTER = 5;
 
 export function capabilityProposalDispatchUuid(proposalId: string, nonce: string): string {
   if (!PROPOSAL_ID_RE.test(proposalId)) throw new Error('Invalid capability proposal id');
   if (!NONCE_RE.test(nonce)) throw new Error('Invalid capability proposal nonce');
   return `cap-${proposalId.slice('cp_'.length)}-${nonce.slice(0, 12)}`;
+}
+
+export function capabilityRequesterNotificationDispatchUuid(
+  proposalId: string,
+  state: 'pending' | 'accepted' | 'rejected',
+): string {
+  if (!PROPOSAL_ID_RE.test(proposalId)) throw new Error('Invalid capability proposal id');
+  return `capr-${proposalId.slice(3, 19)}-${state}`;
+}
+
+export function capabilityProposalRecipientOpenId(
+  proposal: CapabilityProposal,
+  ownerOpenId: string | undefined,
+): string | undefined {
+  return proposal.targetScope.kind === 'bot' ? ownerOpenId : proposal.requesterOpenId;
 }
 
 function sha256(value: string): string {
@@ -102,8 +120,23 @@ function readProposalFile(dataDir: string, proposalId: string): CapabilityPropos
       || !target.name.trim()
       || typeof target.description !== 'string'
       || !target.description.trim()
+      || (proposal.reason !== undefined
+        && (typeof proposal.reason !== 'string'
+          || !proposal.reason.trim()
+          || Buffer.byteLength(proposal.reason, 'utf8') > MAX_DELETE_REASON_BYTES))
+      || (proposal.requesterNotificationState !== undefined
+        && (proposal.requesterNotificationState !== 'pending'
+          && proposal.requesterNotificationState !== 'queued'))
+      || (proposal.requesterNotificationState !== undefined
+        && (proposal.targetScope.kind !== 'bot' || proposal.state === 'pending'))
     ) throw new Error('Invalid capability delete proposal');
-    return { ...proposal, requester, targetScope, target };
+    return {
+      ...proposal,
+      requester,
+      targetScope,
+      target,
+      ...(proposal.reason ? { reason: proposal.reason.trim() } : {}),
+    };
   }
   const expectedTargetValid = (
     proposal.expectedArtifactId === undefined
@@ -161,6 +194,27 @@ function pruneExpiredProposals(dataDir: string, now: Date): void {
   }
 }
 
+function capabilityProposals(dataDir: string): CapabilityProposal[] {
+  const root = proposalRoot(dataDir);
+  if (!existsSync(root)) return [];
+  return readdirSync(root)
+    .filter((name) => /^cp_[0-9a-f]{32}\.json$/.test(name))
+    .flatMap((name) => {
+      try {
+        return [readProposalFile(dataDir, name.slice(0, -'.json'.length))];
+      } catch {
+        return [];
+      }
+    });
+}
+
+function pendingCapabilityProposals(dataDir: string, now: Date): CapabilityProposal[] {
+  return capabilityProposals(dataDir)
+    .filter((proposal) => (
+      proposal.state === 'pending' && Date.parse(proposal.expiresAt) > now.getTime()
+    ));
+}
+
 export function createCapabilitySaveProposal(input: {
   dataDir: string;
   requester: PersonalPrincipal;
@@ -208,40 +262,59 @@ export function createCapabilitySaveProposal(input: {
   if (draft.type !== 'workflow' && input.workflowTrial !== undefined) {
     throw new Error('Workflow trial assessment requires a Workflow proposal');
   }
-  const matches = listCapabilities(input.dataDir, targetScope)
-    .filter((metadata) => metadata.name === draft.name);
-  if (matches.length > 1) throw new Error('Duplicate capability names require manual repair');
-  const existing = matches[0];
-  if (existing && existing.type !== draft.type) {
-    throw new Error('Capability name already exists with a different type');
-  }
   const now = input.now ?? new Date();
-  pruneExpiredProposals(input.dataDir, now);
-  const nonce = randomBytes(32).toString('hex');
-  const proposal: CapabilityProposal = {
-    schemaVersion: 1,
-    proposalId: `cp_${randomUUID().replace(/-/g, '')}`,
-    operation: 'save',
-    state: 'pending',
-    requester,
-    requesterOpenId: input.requesterOpenId,
-    larkAppId: input.larkAppId,
-    sessionId: input.sessionId,
-    turnId: input.turnId,
-    targetScope,
-    draft,
-    ...(workflowTrial ? { workflowTrial } : {}),
-    ...(existing ? {
-      expectedArtifactId: existing.artifactId,
-      expectedRevisionId: existing.latestRevision,
-    } : {}),
-    nonceHash: sha256(nonce),
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + PROPOSAL_TTL_MS).toISOString(),
-  };
-  writeProposal(input.dataDir, proposal);
-  return { proposal, nonce };
+  const root = proposalRoot(input.dataDir);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  return withFileLockSync(
+    capabilityWriteLockTarget(input.dataDir, targetScope, draft.name),
+    () => {
+      const matches = listCapabilities(input.dataDir, targetScope)
+        .filter((metadata) => metadata.name === draft.name);
+      if (matches.length > 1) throw new Error('Duplicate capability names require manual repair');
+      const existing = matches[0];
+      if (existing && existing.type !== draft.type) {
+        throw new Error('Capability name already exists with a different type');
+      }
+      pruneExpiredProposals(input.dataDir, now);
+      const duplicate = pendingCapabilityProposals(input.dataDir, now).some((proposal) => (
+        proposal.operation === 'save'
+        && proposal.requesterOpenId === input.requesterOpenId
+        && proposal.sessionId === input.sessionId
+        && proposal.turnId === input.turnId
+        && canonicalJsonStringify(proposal.targetScope) === canonicalJsonStringify(targetScope)
+        && canonicalJsonStringify(proposal.draft) === canonicalJsonStringify(draft)
+        && canonicalJsonStringify(proposal.workflowTrial ?? null)
+          === canonicalJsonStringify(workflowTrial ?? null)
+      ));
+      if (duplicate) throw new Error('capability_save_request_already_pending');
+      const nonce = randomBytes(32).toString('hex');
+      const proposal: CapabilityProposal = {
+        schemaVersion: 1,
+        proposalId: `cp_${randomUUID().replace(/-/g, '')}`,
+        operation: 'save',
+        state: 'pending',
+        requester,
+        requesterOpenId: input.requesterOpenId,
+        larkAppId: input.larkAppId,
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        targetScope,
+        draft,
+        ...(workflowTrial ? { workflowTrial } : {}),
+        ...(existing ? {
+          expectedArtifactId: existing.artifactId,
+          expectedRevisionId: existing.latestRevision,
+        } : {}),
+        nonceHash: sha256(nonce),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + PROPOSAL_TTL_MS).toISOString(),
+      };
+      writeProposal(input.dataDir, proposal);
+      return { proposal, nonce };
+    },
+    { maxWaitMs: 3_000 },
+  );
 }
 
 export function createCapabilityDeleteProposal(input: {
@@ -253,6 +326,7 @@ export function createCapabilityDeleteProposal(input: {
   turnId: string;
   targetScope: CapabilityScope;
   artifactId: string;
+  reason?: string;
   now?: Date;
 }): { proposal: CapabilityProposal; nonce: string } {
   const requester = validatePersonalPrincipal(input.requester);
@@ -280,35 +354,76 @@ export function createCapabilityDeleteProposal(input: {
   ) {
     throw new Error('Proposal target does not match its requester');
   }
-  const metadata = readCapability(input.dataDir, targetScope, input.artifactId);
+  const initialMetadata = readCapability(input.dataDir, targetScope, input.artifactId);
   const now = input.now ?? new Date();
-  pruneExpiredProposals(input.dataDir, now);
-  const nonce = randomBytes(32).toString('hex');
-  const proposal: CapabilityProposal = {
-    schemaVersion: 1,
-    proposalId: `cp_${randomUUID().replace(/-/g, '')}`,
-    operation: 'delete',
-    state: 'pending',
-    requester,
-    requesterOpenId: input.requesterOpenId,
-    larkAppId: input.larkAppId,
-    sessionId: input.sessionId,
-    turnId: input.turnId,
+  const reason = input.reason?.trim();
+  if (reason && Buffer.byteLength(reason, 'utf8') > MAX_DELETE_REASON_BYTES) {
+    throw new Error('capability_delete_reason_too_long');
+  }
+  if (targetScope.kind === 'bot' && !reason) {
+    throw new Error('capability_delete_reason_required');
+  }
+  const root = proposalRoot(input.dataDir);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  return withCapabilityDeleteRequestLocks(
+    input.dataDir,
     targetScope,
-    target: {
-      artifactId: metadata.artifactId,
-      revisionId: metadata.latestRevision,
-      type: metadata.type,
-      name: metadata.name,
-      description: metadata.description,
+    initialMetadata.name,
+    () => {
+      const metadata = readCapability(input.dataDir, targetScope, input.artifactId);
+      if (metadata.name !== initialMetadata.name || metadata.type !== initialMetadata.type) {
+        throw new Error('Capability delete target changed');
+      }
+      pruneExpiredProposals(input.dataDir, now);
+      const pending = pendingCapabilityProposals(input.dataDir, now);
+      if (pending.some((proposal) => (
+        proposal.operation === 'delete'
+        && proposal.targetScope.kind === targetScope.kind
+        && canonicalJsonStringify(proposal.targetScope) === canonicalJsonStringify(targetScope)
+        && proposal.target.artifactId === metadata.artifactId
+      ))) {
+        throw new Error('capability_delete_request_already_pending');
+      }
+      if (
+        targetScope.kind === 'bot'
+        && pending.filter((proposal) => (
+          proposal.operation === 'delete'
+          && proposal.targetScope.kind === 'bot'
+          && proposal.larkAppId === input.larkAppId
+          && proposal.requesterOpenId === input.requesterOpenId
+        )).length >= MAX_PENDING_BOT_DELETE_REQUESTS_PER_REQUESTER
+      ) {
+        throw new Error('capability_delete_request_rate_limited');
+      }
+      const nonce = randomBytes(32).toString('hex');
+      const proposal: CapabilityProposal = {
+        schemaVersion: 1,
+        proposalId: `cp_${randomUUID().replace(/-/g, '')}`,
+        operation: 'delete',
+        state: 'pending',
+        requester,
+        requesterOpenId: input.requesterOpenId,
+        larkAppId: input.larkAppId,
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        targetScope,
+        ...(reason ? { reason } : {}),
+        target: {
+          artifactId: metadata.artifactId,
+          revisionId: metadata.latestRevision,
+          type: metadata.type,
+          name: metadata.name,
+          description: metadata.description,
+        },
+        nonceHash: sha256(nonce),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + PROPOSAL_TTL_MS).toISOString(),
+      };
+      writeProposal(input.dataDir, proposal);
+      return { proposal, nonce };
     },
-    nonceHash: sha256(nonce),
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + PROPOSAL_TTL_MS).toISOString(),
-  };
-  writeProposal(input.dataDir, proposal);
-  return { proposal, nonce };
+  );
 }
 
 export function loadCapabilityProposal(
@@ -321,29 +436,31 @@ export function loadCapabilityProposal(
   return readProposalFile(dataDir, proposalId);
 }
 
+export function isCapabilityProposalDeliveryActive(
+  dataDir: string,
+  proposalId: string,
+  nonce: string,
+  now: Date = new Date(),
+): boolean {
+  if (!PROPOSAL_ID_RE.test(proposalId) || !NONCE_RE.test(nonce)) return false;
+  try {
+    const proposal = readProposalFile(dataDir, proposalId);
+    return proposal.state === 'pending'
+      && Date.parse(proposal.expiresAt) > now.getTime()
+      && sha256(nonce) === proposal.nonceHash;
+  } catch {
+    return false;
+  }
+}
+
 export function listPendingCapabilityProposals(
   dataDir: string,
   larkAppId: string,
   now: Date = new Date(),
 ): CapabilityProposal[] {
   pruneExpiredProposals(dataDir, now);
-  const root = proposalRoot(dataDir);
-  if (!existsSync(root)) return [];
-  return readdirSync(root)
-    .filter((name) => /^cp_[0-9a-f]{32}\.json$/.test(name))
-    .flatMap((name) => {
-      const proposalId = name.slice(0, -'.json'.length);
-      try {
-        const proposal = readProposalFile(dataDir, proposalId);
-        return proposal.state === 'pending'
-          && proposal.larkAppId === larkAppId
-          && Date.parse(proposal.expiresAt) > now.getTime()
-          ? [proposal]
-          : [];
-      } catch {
-        return [];
-      }
-    })
+  return pendingCapabilityProposals(dataDir, now)
+    .filter((proposal) => proposal.larkAppId === larkAppId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
@@ -368,6 +485,69 @@ export function rotateCapabilityProposalNonce(
   });
 }
 
+export function discardUndeliveredCapabilityProposal(
+  dataDir: string,
+  proposalId: string,
+  nonce: string,
+): void {
+  const path = proposalPath(dataDir, proposalId);
+  withFileLockSync(path, () => {
+    const proposal = readProposalFile(dataDir, proposalId);
+    if (!NONCE_RE.test(nonce) || sha256(nonce) !== proposal.nonceHash) {
+      throw new Error('Capability proposal nonce mismatch');
+    }
+    if (proposal.state !== 'pending') {
+      throw new Error('Capability proposal is no longer pending');
+    }
+    unlinkSync(path);
+  });
+}
+
+export function listPendingCapabilityRequesterNotifications(
+  dataDir: string,
+  larkAppId: string,
+  now: Date = new Date(),
+): CapabilityProposal[] {
+  pruneExpiredProposals(dataDir, now);
+  return capabilityProposals(dataDir)
+    .filter((proposal) => (
+      proposal.operation === 'delete'
+      && proposal.targetScope.kind === 'bot'
+      && proposal.larkAppId === larkAppId
+      && (proposal.state === 'accepted' || proposal.state === 'rejected')
+      && proposal.requesterNotificationState === 'pending'
+    ))
+    .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+}
+
+export function markCapabilityRequesterNotificationQueued(
+  dataDir: string,
+  proposalId: string,
+  now: Date = new Date(),
+): CapabilityProposal {
+  const path = proposalPath(dataDir, proposalId);
+  return withFileLockSync(path, () => {
+    const proposal = readProposalFile(dataDir, proposalId);
+    if (
+      proposal.operation !== 'delete'
+      || proposal.targetScope.kind !== 'bot'
+      || (proposal.state !== 'accepted' && proposal.state !== 'rejected')
+      || (proposal.requesterNotificationState !== 'pending'
+        && proposal.requesterNotificationState !== 'queued')
+    ) {
+      throw new Error('Capability requester notification is unavailable');
+    }
+    if (proposal.requesterNotificationState === 'queued') return proposal;
+    const queued: CapabilityProposal = {
+      ...proposal,
+      requesterNotificationState: 'queued',
+      updatedAt: now.toISOString(),
+    };
+    writeProposal(dataDir, queued);
+    return queued;
+  });
+}
+
 function verifyPendingProposal(
   proposal: CapabilityProposal,
   nonce: string,
@@ -387,6 +567,23 @@ function capabilityWriteLockTarget(
 ): string {
   const key = sha256(canonicalJsonStringify({ scope, name }));
   return join(proposalRoot(dataDir), `.write-${key}`);
+}
+
+function withCapabilityDeleteRequestLocks<T>(
+  dataDir: string,
+  scope: CapabilityScope,
+  name: string,
+  callback: () => T,
+): T {
+  return withFileLockSync(
+    capabilityWriteLockTarget(dataDir, scope, name),
+    () => withFileLockSync(
+      join(proposalRoot(dataDir), '.delete-request'),
+      callback,
+      { maxWaitMs: 3_000 },
+    ),
+    { maxWaitMs: 3_000 },
+  );
 }
 
 function isCapabilityProposalOperator(input: {
@@ -526,6 +723,14 @@ export function acceptCapabilityProposal(input: {
     const accepted: CapabilityProposal = {
       ...proposal,
       state: 'accepted',
+      ...(proposal.operation === 'delete'
+        && proposal.targetScope.kind === 'bot'
+        && proposal.requesterOpenId !== input.operatorOpenId
+        ? {
+            requesterNotificationState: 'pending' as const,
+            expiresAt: new Date(now.getTime() + REQUESTER_NOTIFICATION_TTL_MS).toISOString(),
+          }
+        : {}),
       resultArtifactId: result.artifactId,
       resultRevisionId: result.revisionId,
       updatedAt: now.toISOString(),
@@ -558,9 +763,21 @@ export function rejectCapabilityProposal(input: {
     const rejected: CapabilityProposal = {
       ...proposal,
       state: 'rejected',
+      ...(proposal.operation === 'delete'
+        && proposal.targetScope.kind === 'bot'
+        && proposal.requesterOpenId !== input.operatorOpenId
+        ? {
+            requesterNotificationState: 'pending' as const,
+            expiresAt: new Date(now.getTime() + REQUESTER_NOTIFICATION_TTL_MS).toISOString(),
+          }
+        : {}),
       updatedAt: now.toISOString(),
     };
-    unlinkSync(path);
+    if (rejected.operation === 'delete' && rejected.requesterNotificationState === 'pending') {
+      writeProposal(input.dataDir, rejected);
+    } else {
+      unlinkSync(path);
+    }
     return rejected;
   });
 }

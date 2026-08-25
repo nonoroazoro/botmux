@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,16 +7,23 @@ import { config } from '../src/config.js';
 import { __testOnly_resetBotRegistry, registerBot } from '../src/bot-registry.js';
 import {
   setIpcAuthSecret,
+  startCapabilityProposalDelivery,
   startIpcServer,
+  stopCapabilityProposalDelivery,
   type IpcServerHandle,
 } from '../src/core/dashboard-ipc-server.js';
 import * as askBroker from '../src/core/ask-broker.js';
 import * as libraryStore from '../src/core/capabilities/library-store.js';
 import {
+  createCapabilitySaveProposal,
+  listPendingCapabilityProposals,
+} from '../src/core/capabilities/index.js';
+import {
   issueWorkflowTrialTicket,
   resetWorkflowTrialTicketsForTest,
 } from '../src/core/capabilities/workflow-trial-ticket.js';
 import * as workerPool from '../src/core/worker-pool.js';
+import { LarkMessageSendError } from '../src/im/index.js';
 import * as larkClient from '../src/im/lark/client.js';
 
 const CAPABILITY = 'cafe1234'.repeat(8);
@@ -36,12 +43,15 @@ beforeEach(() => {
     larkAppSecret: '',
     cliId: 'codex',
     apiOnly: true,
+    ownerOpenId: 'ou_bot_owner',
+    allowedUsers: ['ou_bot_owner'],
   });
 });
 
 afterEach(async () => {
   if (handle) await handle.close();
   handle = null;
+  stopCapabilityProposalDelivery();
   setIpcAuthSecret(null);
   vi.restoreAllMocks();
   resetWorkflowTrialTicketsForTest();
@@ -246,6 +256,258 @@ describe('POST /api/capabilities/manage', () => {
     });
   });
 
+  it('recovers a proposal created before its delivery record was persisted', async () => {
+    const proposed = createCapabilitySaveProposal({
+      dataDir,
+      requester: { kind: 'union', unionId: 'on_artifact_user' },
+      requesterOpenId: 'ou_artifact_user',
+      larkAppId: 'cli_artifact_bot',
+      sessionId: SESSION_ID,
+      turnId: TURN_ID,
+      targetScope: {
+        kind: 'personal',
+        larkAppId: 'cli_artifact_bot',
+        principal: { kind: 'union', unionId: 'on_artifact_user' },
+      },
+      draft: {
+        type: 'knowledge',
+        name: 'product-orange-release',
+        description: 'Explain the personal orange release convention.',
+        instructions: 'An orange release requires frontend and backend smoke checks.',
+      },
+    });
+    const sendUserMessage = vi.spyOn(larkClient, 'sendUserMessage')
+      .mockResolvedValue('om_recovered_proposal');
+
+    startCapabilityProposalDelivery('cli_artifact_bot');
+
+    await vi.waitFor(() => expect(sendUserMessage).toHaveBeenCalledOnce());
+    expect(sendUserMessage.mock.calls[0]?.[1]).toBe('ou_artifact_user');
+    expect(sendUserMessage.mock.calls[0]?.[2]).toContain(proposed.proposal.proposalId);
+    expect(sendUserMessage.mock.calls[0]?.[4]).toMatch(/^cap-/);
+  });
+
+  it('queues and deduplicates a save when card delivery is ambiguous', async () => {
+    mockSession();
+    const sendUserMessage = vi.spyOn(larkClient, 'sendUserMessage')
+      .mockRejectedValue(new Error('connection closed after request write'));
+    const request = {
+      originCapability: CAPABILITY,
+      action: 'save',
+      type: 'knowledge',
+      name: 'product-orange-release',
+      description: 'Explain the personal orange release convention.',
+      instructions: 'An orange release requires frontend and backend smoke checks.',
+    };
+
+    const queued = await postManage(request);
+
+    expect(queued.status).toBe(200);
+    expect(await queued.json()).toMatchObject({
+      ok: true,
+      status: 'pending_confirmation',
+      responseMode: 'card_only',
+    });
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toHaveLength(1);
+    await vi.waitFor(() => expect(sendUserMessage).toHaveBeenCalledTimes(2));
+
+    const retried = await postManage(request);
+
+    expect(retried.status).toBe(409);
+    expect(await retried.json()).toMatchObject({
+      ok: false,
+      error: 'capability_save_request_already_pending',
+    });
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toHaveLength(1);
+  });
+
+  it('lets a non-owner request team deletion while keeping approval owner-only', async () => {
+    const scope = { kind: 'bot' as const, larkAppId: 'cli_artifact_bot' };
+    const created = libraryStore.createCapability(dataDir, scope, {
+      type: 'knowledge',
+      name: 'product-orange-release',
+      description: 'Explain the shared orange release convention.',
+      instructions: 'An orange release requires frontend and backend smoke checks.',
+    });
+    mockSession();
+    vi.mocked(libraryStore.listCapabilities).mockReturnValue([created.metadata]);
+    const sendUserMessage = vi.spyOn(larkClient, 'sendUserMessage')
+      .mockImplementation(async (_larkAppId, receiverId) => (
+        receiverId === 'ou_bot_owner' ? 'om_owner_approval' : 'om_requester_status'
+      ));
+
+    const response = await postManage({
+      originCapability: CAPABILITY,
+      action: 'delete',
+      scope: 'bot',
+      name: 'product-orange-release',
+      reason: 'The shared convention is obsolete.',
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      status: 'pending_confirmation',
+      responseMode: 'card_only',
+    });
+    expect(sendUserMessage).toHaveBeenCalledTimes(2);
+    expect(sendUserMessage.mock.calls[0]?.[1]).toBe('ou_bot_owner');
+    expect(sendUserMessage.mock.calls[1]?.[1]).toBe('ou_artifact_user');
+    expect(sendUserMessage.mock.calls[0]?.[2]).toContain('请决定是否删除团队 Knowledge');
+    expect(sendUserMessage.mock.calls[0]?.[2]).toContain('<at user_id=\\"ou_artifact_user\\"></at>');
+    expect(sendUserMessage.mock.calls[0]?.[2]).toContain('批准删除团队内容');
+    expect(sendUserMessage.mock.calls[0]?.[2]).toContain('拒绝删除申请');
+    expect(sendUserMessage.mock.calls[0]?.[2]).toContain('The shared convention is obsolete.');
+    expect(sendUserMessage.mock.calls[1]?.[2]).toContain('团队删除申请已提交');
+    expect(libraryStore.readCapability(
+      dataDir,
+      scope,
+      created.metadata.artifactId,
+    )).toMatchObject({ name: 'product-orange-release' });
+  });
+
+  it('discards a rejected approval proposal so the request can be retried', async () => {
+    const scope = { kind: 'bot' as const, larkAppId: 'cli_artifact_bot' };
+    const created = libraryStore.createCapability(dataDir, scope, {
+      type: 'knowledge',
+      name: 'product-orange-release',
+      description: 'Explain the shared orange release convention.',
+      instructions: 'An orange release requires frontend and backend smoke checks.',
+    });
+    mockSession();
+    vi.mocked(libraryStore.listCapabilities).mockReturnValue([created.metadata]);
+    const sendUserMessage = vi.spyOn(larkClient, 'sendUserMessage');
+    sendUserMessage.mockRejectedValueOnce(new LarkMessageSendError(
+      'owner delivery rejected',
+      { deliveryRejected: true },
+    ));
+
+    const request = {
+      originCapability: CAPABILITY,
+      action: 'delete',
+      scope: 'bot',
+      name: 'product-orange-release',
+      reason: 'The shared convention is obsolete.',
+    };
+    const failed = await postManage(request);
+
+    expect(failed.status).toBe(400);
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toEqual([]);
+
+    sendUserMessage.mockImplementation(async (_larkAppId, receiverId) => (
+      receiverId === 'ou_bot_owner' ? 'om_owner_approval' : 'om_requester_status'
+    ));
+    const retried = await postManage(request);
+
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({
+      ok: true,
+      status: 'pending_confirmation',
+    });
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toHaveLength(1);
+  });
+
+  it('retains an approval proposal when its delivery outcome is uncertain', async () => {
+    const scope = { kind: 'bot' as const, larkAppId: 'cli_artifact_bot' };
+    const created = libraryStore.createCapability(dataDir, scope, {
+      type: 'knowledge',
+      name: 'product-orange-release',
+      description: 'Explain the shared orange release convention.',
+      instructions: 'An orange release requires frontend and backend smoke checks.',
+    });
+    mockSession();
+    vi.mocked(libraryStore.listCapabilities).mockReturnValue([created.metadata]);
+    const sendUserMessage = vi.spyOn(larkClient, 'sendUserMessage')
+      .mockImplementation(async (_larkAppId, receiverOpenId) => {
+        if (receiverOpenId === 'ou_bot_owner') {
+          throw new Error('connection closed after request write');
+        }
+        return 'om_requester_status';
+      });
+    const request = {
+      originCapability: CAPABILITY,
+      action: 'delete',
+      scope: 'bot',
+      name: 'product-orange-release',
+      reason: 'The shared convention is obsolete.',
+    };
+
+    const queued = await postManage(request);
+
+    expect(queued.status).toBe(200);
+    expect(await queued.json()).toMatchObject({
+      ok: true,
+      status: 'pending_confirmation',
+      responseMode: 'card_only',
+    });
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toHaveLength(1);
+    await vi.waitFor(() => expect(sendUserMessage.mock.calls.filter(
+      call => call[1] === 'ou_bot_owner',
+    ).length).toBeGreaterThanOrEqual(2));
+
+    const retried = await postManage(request);
+
+    expect(retried.status).toBe(409);
+    expect(await retried.json()).toMatchObject({
+      ok: false,
+      error: 'capability_delete_request_already_pending',
+    });
+    expect(sendUserMessage.mock.calls.filter(
+      call => call[1] === 'ou_bot_owner',
+    ).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('still rejects direct team saves from a non-owner', async () => {
+    mockSession();
+    const sendUserMessage = vi.spyOn(larkClient, 'sendUserMessage')
+      .mockResolvedValue('om_unexpected');
+
+    const response = await postManage({
+      originCapability: CAPABILITY,
+      action: 'save',
+      scope: 'bot',
+      type: 'knowledge',
+      name: 'product-orange-release',
+      description: 'Explain the shared orange release convention.',
+      instructions: 'An orange release requires frontend and backend smoke checks.',
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ ok: false, error: 'bot_owner_required' });
+    expect(sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it('leaves a visible agent fallback when the requester status card fails', async () => {
+    const scope = { kind: 'bot' as const, larkAppId: 'cli_artifact_bot' };
+    const created = libraryStore.createCapability(dataDir, scope, {
+      type: 'knowledge',
+      name: 'product-orange-release',
+      description: 'Explain the shared orange release convention.',
+      instructions: 'An orange release requires frontend and backend smoke checks.',
+    });
+    mockSession();
+    vi.mocked(libraryStore.listCapabilities).mockReturnValue([created.metadata]);
+    vi.spyOn(larkClient, 'sendUserMessage').mockImplementation(async (_appId, receiverId) => {
+      if (receiverId === 'ou_bot_owner') return 'om_owner_approval';
+      throw new Error('requester delivery failed');
+    });
+
+    const response = await postManage({
+      originCapability: CAPABILITY,
+      action: 'delete',
+      scope: 'bot',
+      name: 'product-orange-release',
+      reason: 'The shared convention is obsolete.',
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      responseMode: 'agent_fallback',
+    });
+    expect(existsSync(join(dataDir, 'turn-sends', `${SESSION_ID}.jsonl`))).toBe(false);
+  });
+
   it('returns immediately and starts a new agent turn after Workflow trial approval', async () => {
     const ds = mockSession();
     askBroker.setCanTalkChecker(() => true);
@@ -378,5 +640,93 @@ describe('POST /api/capabilities/manage', () => {
     expect(sendUserMessage.mock.calls[0]?.[2]).toContain(
       'Tested one incident and observed the expected report.',
     );
+  });
+
+  it('restores a Workflow trial ticket when its proposal card cannot be delivered', async () => {
+    mockSession();
+    const sendUserMessage = vi.spyOn(larkClient, 'sendUserMessage')
+      .mockRejectedValueOnce(new LarkMessageSendError(
+        'proposal delivery rejected',
+        { deliveryRejected: true },
+      ))
+      .mockResolvedValue('om_workflow_proposal');
+    const draft = {
+      type: 'workflow' as const,
+      name: 'product-incident-report',
+      description: 'Create a Product incident report.',
+      instructions: '## Inputs\n- issue\n\n## Steps\n1. Inspect.\n\n## Success criteria\n- Reported.',
+    };
+    const trialToken = issueWorkflowTrialTicket({
+      sessionId: SESSION_ID,
+      turnId: TURN_ID,
+      draft,
+    });
+    const request = {
+      originCapability: CAPABILITY,
+      action: 'save',
+      type: 'workflow',
+      trialToken,
+      trialOutcome: 'passed',
+      trialSummary: 'Tested one incident and observed the expected report.',
+    };
+
+    const failed = await postManage(request);
+    expect(failed.status).toBe(400);
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toEqual([]);
+
+    const retried = await postManage(request);
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({
+      ok: true,
+      status: 'pending_confirmation',
+    });
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toHaveLength(1);
+    expect(sendUserMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('consumes a Workflow trial ticket when proposal delivery is uncertain', async () => {
+    mockSession();
+    const sendUserMessage = vi.spyOn(larkClient, 'sendUserMessage')
+      .mockRejectedValue(new Error('connection closed after request write'));
+    const draft = {
+      type: 'workflow' as const,
+      name: 'product-incident-report',
+      description: 'Create a Product incident report.',
+      instructions: '## Inputs\n- issue\n\n## Steps\n1. Inspect.\n\n## Success criteria\n- Reported.',
+    };
+    const trialToken = issueWorkflowTrialTicket({
+      sessionId: SESSION_ID,
+      turnId: TURN_ID,
+      draft,
+    });
+    const request = {
+      originCapability: CAPABILITY,
+      action: 'save',
+      type: 'workflow',
+      trialToken,
+      trialOutcome: 'passed',
+      trialSummary: 'Tested one incident and observed the expected report.',
+    };
+
+    const queued = await postManage(request);
+
+    expect(queued.status).toBe(200);
+    expect(await queued.json()).toMatchObject({
+      ok: true,
+      status: 'pending_confirmation',
+      responseMode: 'card_only',
+    });
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toHaveLength(1);
+    await vi.waitFor(() => expect(sendUserMessage).toHaveBeenCalledTimes(2));
+
+    const retried = await postManage(request);
+
+    expect(retried.status).toBe(400);
+    expect(await retried.json()).toMatchObject({
+      ok: false,
+      error: 'A valid Workflow trial confirmation is required',
+    });
+    expect(listPendingCapabilityProposals(dataDir, 'cli_artifact_bot')).toHaveLength(1);
+    expect(sendUserMessage).toHaveBeenCalledTimes(2);
   });
 });

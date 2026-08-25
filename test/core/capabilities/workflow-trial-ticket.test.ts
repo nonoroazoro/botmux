@@ -5,6 +5,7 @@ import {
   issueWorkflowTrialTicket,
   readWorkflowTrialTicket,
   resetWorkflowTrialTicketsForTest,
+  withWorkflowTrialTicket,
   type CapabilityDraft,
 } from '../../../src/core/capabilities/index.js';
 
@@ -100,5 +101,30 @@ describe('Workflow trial tickets', () => {
       turnId: 'turn-1',
       now: 60 * 60 * 1_000 + 1_001,
     })).toThrow(/trial confirmation/);
+  });
+
+  it('restores a claimed ticket when its operation fails', async () => {
+    const token = issueWorkflowTrialTicket({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      draft,
+      now: 1_000,
+    });
+
+    await expect(withWorkflowTrialTicket({
+      token,
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      now: 2_000,
+    }, async () => {
+      throw new Error('card delivery failed');
+    })).rejects.toThrow('card delivery failed');
+
+    expect(consumeWorkflowTrialTicket({
+      token,
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      now: 2_000,
+    })).toEqual(draft);
   });
 });

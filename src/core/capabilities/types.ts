@@ -79,6 +79,8 @@ export interface CapabilityContentProposal extends CapabilityProposalBase {
 
 export interface CapabilityDeleteProposal extends CapabilityProposalBase {
   operation: 'delete';
+  reason?: string;
+  requesterNotificationState?: 'pending' | 'queued';
   target: {
     artifactId: string;
     revisionId: string;
@@ -89,3 +91,8 @@ export interface CapabilityDeleteProposal extends CapabilityProposalBase {
 }
 
 export type CapabilityProposal = CapabilityContentProposal | CapabilityDeleteProposal;
+
+export type CapabilityProposalDeliveryOutcome =
+  | { state: 'delivered'; messageId: string }
+  | { state: 'inactive' }
+  | { state: 'failed'; error: unknown };

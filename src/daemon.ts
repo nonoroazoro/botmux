@@ -18,6 +18,13 @@ import {
 } from './config.js';
 import { readGlobalConfig, repoPickerScanOptions } from './global-config.js';
 import { buildDashboardUrls } from './core/dashboard-url.js';
+import {
+  CapabilityNotificationOutbox,
+  capabilityRequesterNotificationDispatchUuid,
+  listPendingCapabilityRequesterNotifications,
+  markCapabilityRequesterNotificationQueued,
+} from './core/capabilities/index.js';
+import { buildCapabilityDeleteRequestStatusCard } from './im/lark/capability-card.js';
 import { resolveBotmuxDataDir } from './core/data-dir.js';
 import { reloadExactDaemonBotConfig } from './core/daemon-config-fence.js';
 import { writeHeartbeat } from './core/daemon-heartbeat.js';
@@ -148,7 +155,7 @@ import {
   isSessionTransferring,
   type WorkerSessionReplyOptions,
 } from './core/worker-pool.js';
-import { AbortDeadlineError, hasExactSafeJsonKeys, ipcRoute, isTrustedHostIpcRequest, JsonBodyTooLargeError, jsonRes, readJsonBody, runWithAbortDeadline, setBotName, setLarkAppId, startIpcServer, setBotRenamer, setBotAvatarChanger, armCoreOnlyReadinessGate, setCoreOnlyReady } from './core/dashboard-ipc-server.js';
+import { AbortDeadlineError, cancelCapabilityProposalDelivery, deliverCapabilityProposalCard, hasExactSafeJsonKeys, ipcRoute, isTrustedHostIpcRequest, JsonBodyTooLargeError, jsonRes, readJsonBody, runWithAbortDeadline, setBotName, setLarkAppId, startCapabilityProposalDelivery, startIpcServer, setBotRenamer, setBotAvatarChanger, armCoreOnlyReadinessGate, setCoreOnlyReady } from './core/dashboard-ipc-server.js';
 import { setDeviceIsolationDaemonIdentity } from './core/device-isolation-daemon.js';
 import {
   cancelSessionReadyAck,
@@ -4690,6 +4697,8 @@ const handleCodexNotifierCardAction = createCodexNotifierCardActionHandler({
   logError: message => logger.error(message),
 });
 
+const capabilityNotificationOutboxes = new Map<string, CapabilityNotificationOutbox>();
+
 const cardDeps: CardHandlerDeps = {
   activeSessions,
   sessionReply,
@@ -4740,9 +4749,21 @@ const cardDeps: CardHandlerDeps = {
     resolveOperatorUnionId: async (data, larkAppId) => (
       await resolveCardOperatorUnionId(data, larkAppId)
     ).unionId,
-    sendOwnerCard: (larkAppId, ownerOpenId, card, dispatchUuid) =>
-      sendUserMessage(larkAppId, ownerOpenId, card, 'interactive', dispatchUuid)
-        .then(() => undefined),
+    deliverOwnerProposal: (larkAppId, ownerOpenId, proposal, nonce) =>
+      deliverCapabilityProposalCard({
+        larkAppId,
+        recipientOpenId: ownerOpenId,
+        proposal,
+        nonce,
+      }).then(() => undefined),
+    enqueueRequesterCard: (larkAppId, requesterOpenId, card, dispatchUuid) => {
+      const outbox = capabilityNotificationOutboxes.get(larkAppId);
+      if (!outbox) throw new Error('Capability notification outbox is unavailable');
+      outbox.enqueue({ recipientOpenId: requesterOpenId, card, dispatchUuid });
+    },
+    onDecided: proposal => {
+      cancelCapabilityProposalDelivery(proposal.larkAppId, proposal.proposalId);
+    },
     onAccepted: proposal => {
       const targets = proposal.targetScope.kind === 'bot'
         ? [...activeSessions.values()].filter((ds) => ds.larkAppId === proposal.larkAppId)
@@ -18749,6 +18770,57 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   }
   registerBot(cfg);
   selfDaemonLarkAppId = cfg.larkAppId;
+  capabilityNotificationOutboxes.get(cfg.larkAppId)?.stop();
+  const capabilityNotificationOutbox = new CapabilityNotificationOutbox({
+    dataDir: config.session.dataDir,
+    larkAppId: cfg.larkAppId,
+    send: (recipientOpenId, card, dispatchUuid) =>
+      sendUserMessage(cfg.larkAppId, recipientOpenId, card, 'interactive', dispatchUuid)
+        .then(() => undefined),
+    logger,
+  });
+  capabilityNotificationOutboxes.set(cfg.larkAppId, capabilityNotificationOutbox);
+  try {
+    for (const notification of listPendingCapabilityRequesterNotifications(
+      config.session.dataDir,
+      cfg.larkAppId,
+    )) {
+      if (
+        notification.operation !== 'delete'
+        || (notification.state !== 'accepted' && notification.state !== 'rejected')
+      ) continue;
+      try {
+        capabilityNotificationOutbox.enqueue({
+          recipientOpenId: notification.requesterOpenId,
+          card: buildCapabilityDeleteRequestStatusCard({
+            state: notification.state,
+            type: notification.target.type,
+            name: notification.target.name,
+          }, localeForBot(cfg.larkAppId)),
+          dispatchUuid: capabilityRequesterNotificationDispatchUuid(
+            notification.proposalId,
+            notification.state,
+          ),
+        });
+        markCapabilityRequesterNotificationQueued(
+          config.session.dataDir,
+          notification.proposalId,
+        );
+      } catch (error) {
+        logger.warn(
+          `[capability:${notification.proposalId}] requester notification recovery failed: `
+          + `${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  } catch (error) {
+    logger.warn(
+      `[capability] requester notification recovery failed: `
+      + `${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    capabilityNotificationOutbox.start();
+  }
   // Establish the target-scoped daemon control credential before publishing
   // the daemon descriptor or accepting IPC traffic. Corruption fails startup
   // closed; silently rotating here could strand peers on mismatched tokens.
@@ -19403,64 +19475,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
       );
     });
 
-    void (async () => {
-      const {
-        capabilityProposalDispatchUuid,
-        listPendingCapabilityProposals,
-        rotateCapabilityProposalNonce,
-      } =
-        await import('./core/capabilities/index.js');
-      const { buildCapabilityProposalCard } = await import('./im/lark/capability-card.js');
-      for (const pending of listPendingCapabilityProposals(config.session.dataDir, cfg.larkAppId)) {
-        const recipient = pending.operation === 'contribute'
-          ? getOwnerOpenId(cfg.larkAppId)
-          : pending.requesterOpenId;
-        if (!recipient) continue;
-        let recovered: ReturnType<typeof rotateCapabilityProposalNonce>;
-        try {
-          recovered = rotateCapabilityProposalNonce(
-            config.session.dataDir,
-            pending.proposalId,
-          );
-        } catch (error) {
-          logger.warn(
-            `[capability:${pending.proposalId}] recovery preparation failed: `
-            + `${error instanceof Error ? error.message : String(error)}`,
-          );
-          continue;
-        }
-        const card = buildCapabilityProposalCard(
-          recovered.proposal,
-          recovered.nonce,
-          localeForBot(cfg.larkAppId),
-        );
-        const dispatchUuid = capabilityProposalDispatchUuid(
-          pending.proposalId,
-          recovered.nonce,
-        );
-        const deliver = async (attempt: number): Promise<void> => {
-          try {
-            await sendUserMessage(
-              cfg.larkAppId,
-              recipient,
-              card,
-              'interactive',
-              dispatchUuid,
-            );
-          } catch (error) {
-            logger.warn(
-              `[capability:${pending.proposalId}] recovery attempt ${attempt} failed: ` +
-              `${error instanceof Error ? error.message : String(error)}`,
-            );
-            if (attempt < 3) {
-              const timer = setTimeout(() => void deliver(attempt + 1), attempt * 5_000);
-              timer.unref?.();
-            }
-          }
-        };
-        await deliver(1);
-      }
-    })();
+    startCapabilityProposalDelivery(cfg.larkAppId);
 
     const vcCfg = effectiveVcMeetingAgentConfig(cfg.larkAppId);
     if (vcCfg) restoreVcMeetingRuntimeSessionsForBot(cfg.larkAppId, vcCfg);
