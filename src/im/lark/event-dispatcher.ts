@@ -17,7 +17,6 @@ import { serializeByAnchor } from '../../utils/anchor-serializer.js';
 import { parseForceTopicInvocation } from '../../core/command-handler.js';
 import { shouldAutoStartOnNewTopic } from '../../core/auto-start.js';
 import { resolveNonsupportMessage, stripLeadingMentions, mentionOpenId, mentionAppId, extractMentionIdentities, messageMentionsBot, type MentionIdentity } from './message-parser.js';
-import { messageStartsWithMention } from './leading-mention/index.js';
 import { recordObservedBots, listObservedBots } from '../../services/observed-bots-store.js';
 import { isTeamBot, recordTeamBot } from '../../services/team-bots-store.js';
 import { isTeamGroupChat } from '../../services/team-groups-store.js';
@@ -1058,18 +1057,6 @@ export function isBotMentioned(larkAppId: string, message: any, _senderOpenId: s
   return messageMentionsBot(message, larkAppId, botOpenId);
 }
 
-/**
- * Check whether a group message directly addresses this bot at its start.
- *
- * @param larkAppId The receiving bot application.
- * @param message The inbound Lark message.
- * @returns Whether the first semantic token mentions this bot.
- */
-export function isBotDirectlyAddressed(larkAppId: string, message: any): boolean {
-  const botOpenId = getBot(larkAppId).botOpenId;
-  return messageStartsWithMention(message, { openId: botOpenId, appId: larkAppId });
-}
-
 /** Does this message @mention a *specific other member* (a person or bot that
  *  is NOT this bot)? Used by the 'ambient' mention policy to decide whether to
  *  back off: under 'ambient' the bot answers un-@ messages, but if the user
@@ -1666,14 +1653,14 @@ async function maybeSendGrantRequestCard(
 
 /**
  * Check group message addressing:
- * - 'allowed'     -> the bot is the leading addressee and the sender is allowed
- * - 'not_allowed' -> the bot is the leading addressee but the sender is not allowed
- * - 'ignore'      -> the group lobby message does not directly address the bot
+ * - 'allowed'     -> the message mentions the bot and the sender is allowed
+ * - 'not_allowed' -> the message mentions the bot but the sender is not allowed
+ * - 'ignore'      -> the group lobby message does not mention the bot
  */
 export async function checkGroupMessageAccess(
   larkAppId: string, message: any, chatId: string, senderOpenId: string | undefined, memberUnionId?: string,
 ): Promise<'allowed' | 'not_allowed' | 'ignore'> {
-  const mentioned = isBotDirectlyAddressed(larkAppId, message);
+  const mentioned = isBotMentioned(larkAppId, message, senderOpenId);
   // Group access checks run only on the human sender path. The union identity
   // is evaluated through memberUnionId and never enters bot trust.
   const isAllowed = canTalk(larkAppId, chatId, senderOpenId, undefined, memberUnionId, 'group');
@@ -1934,7 +1921,7 @@ async function pollMessageListenersOnce(larkAppId: string, handlers: EventHandle
         senderOpenId: resolved.senderOpenId,
         senderTypeRaw: rawSender.senderTypeRaw,
         senderIdentityUnverified: resolved.identityUnverified,
-        explicitlyMentionedThisBot: isBotDirectlyAddressed(larkAppId, data.message),
+        explicitlyMentionedThisBot: isBotMentioned(larkAppId, data.message, resolved.senderOpenId),
       });
       if (!match) continue;
 
@@ -2148,7 +2135,7 @@ async function maybeApplySharedTopicSeed(input: {
   // @mentions another specific member (person/bot) without @ing us: that is a
   // redirect to someone else, so we back off (mentionsAnotherMember).
   const seedMentionMode = resolveGroupMentionMode(larkAppId);
-  if (!isBotDirectlyAddressed(larkAppId, message)
+  if (!isBotMentioned(larkAppId, message, senderOpenId)
       && !(seedMentionMode === 'never'
         || (seedMentionMode === 'ambient' && !mentionsAnotherMember(larkAppId, message)))) return undefined;
   const freshMode = routing.scope === 'thread'
@@ -2783,7 +2770,7 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
               senderOpenId,
               senderTypeRaw: sender?.sender_type,
               senderIdentityUnverified,
-              explicitlyMentionedThisBot: isBotDirectlyAddressed(larkAppId, message),
+              explicitlyMentionedThisBot: isBotMentioned(larkAppId, message, senderOpenId),
             })
           : undefined;
         if (botMessageListener) {
@@ -2986,7 +2973,7 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
       );
       // Human union identities use memberUnionId and never enter bot trust.
       const isAllowed = canTalk(larkAppId, chatId, senderOpenId, undefined, humanSenderUnionId, chatType);
-      const directlyAddressedThisBot = isBotDirectlyAddressed(larkAppId, message);
+      const explicitlyMentionedThisBot = isBotMentioned(larkAppId, message, senderOpenId);
       const currentTopicAnchor = message.root_id && message.thread_id
         ? message.root_id
         : undefined;
@@ -3001,14 +2988,14 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
         ? resolveGroupMentionMode(larkAppId)
         : undefined;
       const commandEligible = chatType !== 'group'
-        || directlyAddressedThisBot
+        || explicitlyMentionedThisBot
         || ownsCurrentTopic
         || commandMentionMode === 'never'
         || commandMentionMode === 'ambient';
 
       // Intercept collaboration commands before CLI routing. Group lobby
-      // commands require this bot to be the leading addressee. Commands inside
-      // an owned topic continue without another bot mention.
+      // commands require an explicit mention of this bot. Commands inside an
+      // owned topic continue without another bot mention.
       if (commandEligible && await tryHandleIntroduceCommand(larkAppId, message, senderOpenId)) {
         return;
       }
@@ -3063,7 +3050,6 @@ export function startLarkEventDispatcher(larkAppId: string, larkAppSecret: strin
       if (routing.scope === 'chat' && chatType === 'p2p' && message.root_id && message.thread_id) {
         replyRootId = message.root_id;
       }
-      const explicitlyMentionedThisBot = directlyAddressedThisBot;
       const messageListener = chatType === 'group'
         ? evaluateMessageListener({
             bot: getBot(larkAppId),

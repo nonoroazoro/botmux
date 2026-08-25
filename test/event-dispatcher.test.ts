@@ -148,7 +148,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
 // ─── Imports (must be after mocks) ──────────────────────────────────────────
 
 import { __resetAnchorQueues } from '../src/utils/anchor-serializer.js';
-import { __pollMessageListenersOnceForTest, __resetEventClaimsForTest, canOperate, canTalk, checkGroupMessageAccess, decideRouting, ensureBotOpenId, isBotDirectlyAddressed, isBotMentioned, mentionsAnotherMember, markForwardFollowupsSessionsReady, startLarkEventDispatcher, writeBotInfoFile, type EventHandlers } from '../src/im/lark/event-dispatcher.js';
+import { __pollMessageListenersOnceForTest, __resetEventClaimsForTest, canOperate, canTalk, checkGroupMessageAccess, decideRouting, ensureBotOpenId, isBotMentioned, mentionsAnotherMember, markForwardFollowupsSessionsReady, startLarkEventDispatcher, writeBotInfoFile, type EventHandlers } from '../src/im/lark/event-dispatcher.js';
 import {
   VC_BOT_MEETING_ACTIVITY_EVENT,
   VC_BOT_MEETING_ENDED_EVENT,
@@ -1374,6 +1374,33 @@ describe('isBotMentioned', () => {
     expect(isBotMentioned(MY_APP_ID, message, undefined)).toBe(true);
   });
 
+  it('detects the bot mention after another user mention', () => {
+    const message = {
+      mentions: [
+        { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
+        { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
+      ],
+      content: JSON.stringify({ text: '@_person ask @_bot to handle this' }),
+    };
+    expect(isBotMentioned(MY_APP_ID, message, undefined)).toBe(true);
+  });
+
+  it('detects a post mention whose at node uses a placeholder key', () => {
+    const message = {
+      mentions: [
+        { key: '@_user_1', name: 'BotA', id: MY_OPEN_ID, id_type: 'open_id' },
+      ],
+      content: JSON.stringify({
+        title: '',
+        content: [[
+          { tag: 'at', user_id: '@_user_1', user_name: 'BotA' },
+          { tag: 'text', text: ' inspect this' },
+        ]],
+      }),
+    };
+    expect(isBotMentioned(MY_APP_ID, message, undefined)).toBe(true);
+  });
+
   it('returns false when bot is not mentioned', () => {
     const message = {
       mentions: [{ key: '@_other', name: 'Other', id: { open_id: 'ou_other' } }],
@@ -1388,34 +1415,6 @@ describe('isBotMentioned', () => {
       mentions: [{ key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } }],
     };
     expect(isBotMentioned(MY_APP_ID, message, undefined)).toBe(false);
-  });
-});
-
-describe('isBotDirectlyAddressed', () => {
-  beforeEach(() => {
-    setupBotState();
-  });
-
-  it('accepts the bot as the leading addressee', () => {
-    const message = {
-      mentions: [
-        { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
-        { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
-      ],
-      content: JSON.stringify({ text: '@_bot inspect @_person messages' }),
-    };
-    expect(isBotDirectlyAddressed(MY_APP_ID, message)).toBe(true);
-  });
-
-  it('rejects the bot when another person is the leading addressee', () => {
-    const message = {
-      mentions: [
-        { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
-        { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
-      ],
-      content: JSON.stringify({ text: '@_person ask @_bot to handle this' }),
-    };
-    expect(isBotDirectlyAddressed(MY_APP_ID, message)).toBe(false);
   });
 });
 
@@ -4811,7 +4810,7 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     expect(handlers.handleThreadReply).not.toHaveBeenCalled();
   });
 
-  it('group lobby ignores a bot mention when another member is addressed first', async () => {
+  it('group lobby activates the bot when another member is mentioned first', async () => {
     setupBotState({ allowedUsers: [USER_OPEN_ID] });
     mockGetChatMode.mockResolvedValue('group');
     handlers.isSessionOwner.mockReturnValue(false);
@@ -4830,7 +4829,9 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
     await capturedHandlers['im.message.receive_v1'](event);
     await flushEventWork();
 
-    expect(handlers.handleNewTopic).not.toHaveBeenCalled();
+    expect(handlers.handleNewTopic).toHaveBeenCalledWith(event, expect.objectContaining({
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleThreadReply).not.toHaveBeenCalled();
   });
 
@@ -4847,6 +4848,36 @@ describe('im.message.receive_v1 — bot-to-bot @mention routing', () => {
       mentions: [
         { key: '@_bot', name: 'BotA', id: { open_id: MY_OPEN_ID } },
         { key: '@_person', name: 'Alice', id: { open_id: 'ou_alice' } },
+      ],
+    });
+
+    await capturedHandlers['im.message.receive_v1'](event);
+    await flushEventWork();
+
+    expect(handlers.handleNewTopic).toHaveBeenCalledWith(event, expect.objectContaining({
+      larkAppId: MY_APP_ID,
+    }));
+    expect(handlers.handleThreadReply).not.toHaveBeenCalled();
+  });
+
+  it('group lobby routes a post mention whose at node uses a placeholder key', async () => {
+    setupBotState({ allowedUsers: [USER_OPEN_ID] });
+    mockGetChatMode.mockResolvedValue('group');
+    handlers.isSessionOwner.mockReturnValue(false);
+    const event = makeUserMessageEvent({
+      senderOpenId: USER_OPEN_ID,
+      content: JSON.stringify({
+        title: '',
+        content: [[
+          { tag: 'at', user_id: '@_user_1', user_name: 'BotA' },
+          { tag: 'text', text: ' inspect this' },
+        ]],
+      }),
+      messageId: 'msg-lobby-post-placeholder-mention',
+      chatId: 'chat-lobby-post-placeholder-mention',
+      chatType: 'group',
+      mentions: [
+        { key: '@_user_1', name: 'BotA', id: MY_OPEN_ID, id_type: 'open_id' },
       ],
     });
 
@@ -6975,7 +7006,7 @@ describe('im.message.receive_v1 — /introduce command', () => {
     expect(mockRecordObservedBots).toHaveBeenCalledTimes(1);
   });
 
-  it('does not consume a lobby command when another member is addressed first', async () => {
+  it('routes a later bot mention to the agent without consuming a misplaced command', async () => {
     const event = makeUserMessageEvent({
       senderOpenId: USER_OPEN_ID,
       content: JSON.stringify({ text: '@_person ask @_bot to run /introduce' }),
@@ -6992,7 +7023,9 @@ describe('im.message.receive_v1 — /introduce command', () => {
 
     expect(mockRecordObservedBots).not.toHaveBeenCalled();
     expect(mockReplyMessage).not.toHaveBeenCalled();
-    expect(handlers.handleNewTopic).not.toHaveBeenCalled();
+    expect(handlers.handleNewTopic).toHaveBeenCalledWith(event, expect.objectContaining({
+      larkAppId: MY_APP_ID,
+    }));
     expect(handlers.handleThreadReply).not.toHaveBeenCalled();
   });
 

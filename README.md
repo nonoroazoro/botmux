@@ -27,11 +27,11 @@ only be confirmed by the user who requested it.
 
 ### Feishu conversations behave like conversations
 
-In a group, directly mentioning the bot starts a session. Inside the resulting
-topic, users can continue without mentioning it again. On the first turn, the
-agent can read paginated group or direct-message history when earlier discussion
-is needed. Mentions such as `@Alice` remain part of the request, so the agent can
-decide whether Alice's messages are relevant.
+In a group lobby, an explicit mention of the bot anywhere in the message starts
+a session. Inside the resulting topic, users can continue without mentioning it
+again. On the first turn, the agent can read paginated group or direct-message
+history when earlier discussion is needed. Mentions such as `@Alice` remain part
+of the request, so the agent can decide whether Alice's messages are relevant.
 
 This keeps routing predictable while still allowing requests such as "check the
 bug Alice described above" to work naturally.
