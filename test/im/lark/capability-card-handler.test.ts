@@ -385,7 +385,7 @@ describe('capability card handler', () => {
     expect(zhFields).toContain('**Agent 试运行判断**\n通过，但存在限制');
     expect(zhContent).toContain('**试运行摘要**\nTested the APAC input. The report contained the requested region and metrics; live publication was not attempted.');
     expect(zhButtons).toEqual([
-      '仅保存到个人',
+      '保存到个人',
       '保存到个人并申请共享给团队',
       '取消',
     ]);
@@ -420,7 +420,7 @@ describe('capability card handler', () => {
     expect(enFields).toContain('**Agent trial assessment**\nPassed with limitations');
     expect(enContent).toContain('**Trial summary**\nTested the APAC input. The report contained the requested region and metrics; live publication was not attempted.');
     expect(enButtons).toEqual([
-      'Save only for me',
+      'Save for me',
       'Save for me and request team sharing',
       'Cancel',
     ]);
