@@ -51,7 +51,6 @@ import {
   MAX_MESSAGE_LISTENER_PREVIEW_LIMIT,
   roleKey,
   ROLE_WARN_BYTES,
-  saveInjectMode,
   saveMessageListener,
   saveProfileEntry,
   saveRole,
@@ -66,7 +65,6 @@ import {
   type MessageListenerRunPreviewResult,
   type MessageListenerRunPreviewState,
   type RoleData,
-  type RoleInjectMode,
   type RoleProfileApplyResult,
   type RoleProfileContext,
   type RoleProfileEntry,
@@ -238,12 +236,9 @@ function RolesPage(props: { tab: RolesTab }) {
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<RoleData | null>(null);
   const [editingContent, setEditingContent] = useState('');
-  const [editingInjectMode, setEditingInjectMode] = useState<RoleInjectMode>('every');
   const [roleSaving, setRoleSaving] = useState(false);
   const [roleDeleting, setRoleDeleting] = useState(false);
-  const [injectSaving, setInjectSaving] = useState(false);
   const [roleFlash, setRoleFlash] = useState<FlashState>(null);
-  const [injectFlash, setInjectFlash] = useState<FlashState>(null);
   const [groupEditorSection, setGroupEditorSection] = useState<GroupEditorSection>('role');
   const [selectedListener, setSelectedListener] = useState<MessageListenerData | null>(null);
   const [editingListener, setEditingListener] = useState<MessageListenerData>(() => cloneListener(DEFAULT_LISTENER));
@@ -430,14 +425,12 @@ function RolesPage(props: { tab: RolesTab }) {
     setSelectedGroupId(groupId);
     setSelectedBotId(botId);
     setRoleFlash(null);
-    setInjectFlash(null);
     setListenerFlash(null);
     applyLoadedListener(null);
     const role = await loadRole(botId, groupId);
     if (!alive.current || serial !== selectSerial.current) return;
     setSelectedRole(role);
     setEditingContent(role.content ?? '');
-    setEditingInjectMode(role.injectMode === 'once' ? 'once' : 'every');
     await loadListenerForSelection(botId, groupId, serial);
   }
 
@@ -451,7 +444,6 @@ function RolesPage(props: { tab: RolesTab }) {
       if (!alive.current || serial !== selectSerial.current) return;
       setSelectedRole(role);
       setEditingContent(role.content ?? '');
-      setEditingInjectMode(role.injectMode === 'once' ? 'once' : 'every');
       await loadListenerForSelection(selectedBotId, selectedGroupId, serial);
     }
   }
@@ -460,12 +452,12 @@ function RolesPage(props: { tab: RolesTab }) {
     if (!selectedGroupId || !selectedBotId) return;
     setRoleSaving(true);
     try {
-      const ok = await saveRole(selectedBotId, selectedGroupId, editingContent, editingInjectMode);
+      const ok = await saveRole(selectedBotId, selectedGroupId, editingContent);
       if (!alive.current) return;
       if (ok) {
         const snapshot = await refreshGroups();
         if (!alive.current) return;
-        setSelectedRole(prev => prev ? { ...prev, content: editingContent, hasRole: true, injectMode: editingInjectMode } : prev);
+        setSelectedRole(prev => prev ? { ...prev, content: editingContent, hasRole: true } : prev);
         void refreshRoleContext(snapshot.groups, profiles);
         flash(setRoleFlash, tr('roles.saved'));
       } else {
@@ -490,26 +482,10 @@ function RolesPage(props: { tab: RolesTab }) {
         setSelectedBotId(null);
         setSelectedRole(null);
         setEditingContent('');
-        setEditingInjectMode('every');
         void refreshRoleContext(snapshot.groups, profiles);
       }
     } finally {
       if (alive.current) setRoleDeleting(false);
-    }
-  }
-
-  async function handleInjectModeChange(mode: RoleInjectMode): Promise<void> {
-    if (!selectedGroupId || !selectedBotId) return;
-    const prev = editingInjectMode;
-    setEditingInjectMode(mode);
-    setInjectSaving(true);
-    try {
-      const ok = await saveInjectMode(selectedBotId, selectedGroupId, mode);
-      if (!alive.current) return;
-      if (!ok) setEditingInjectMode(prev);
-      flash(setInjectFlash, ok ? tr('roles.saved') : tr('roles.saveFailed'), !ok);
-    } finally {
-      if (alive.current) setInjectSaving(false);
     }
   }
 
@@ -1066,24 +1042,6 @@ function RolesPage(props: { tab: RolesTab }) {
               </div>
               {groupEditorSection === 'role' ? (
                 <>
-                  <div className="roles-editor-inject">
-                    <span className="roles-field-label">{tr('roles.injectModeLabel')}</span>
-                    <DropdownMenu
-                      id="roles-editor-inject-mode"
-                      className="roles-inline-menu"
-                      ariaLabel={tr('roles.injectModeLabel')}
-                      disabled={injectSaving}
-                      label={editingInjectMode === 'once' ? tr('roles.injectModeOnce') : tr('roles.injectModeEvery')}
-                      value={editingInjectMode}
-                      options={[
-                        { value: 'every', label: tr('roles.injectModeEvery') },
-                        { value: 'once', label: tr('roles.injectModeOnce') },
-                      ]}
-                      onChange={mode => void handleInjectModeChange(mode === 'once' ? 'once' : 'every')}
-                    />
-                    <span className="roles-editor-inject-hint">{tr('roles.injectModeHint')}</span>
-                    <Flash flash={injectFlash} />
-                  </div>
                   <textarea
                     id="roles-editor-textarea"
                     placeholder={tr('roles.editorPlaceholder')}

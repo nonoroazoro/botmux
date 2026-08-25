@@ -64,7 +64,7 @@ import { repoPickerScanOptions } from '../global-config.js';
 import { usageLimitStateKey } from '../utils/cli-usage-limit.js';
 import { t, localeForBot, type Locale } from '../i18n/index.js';
 import { parseWorkingDirList } from '../utils/working-dir.js';
-import { resolveRoleInjection } from './role-resolver.js';
+import { EMPTY_ROLE_REVISION, resolveRoleContext } from './role-resolver.js';
 import { ensureDefaultWhiteboard, getWhiteboard, whiteboardEnabled } from '../services/whiteboard-store.js';
 import { botAutoWorktreeEnabled } from '../services/default-worktree.js';
 import { armSilentScheduledTurn, disarmSilentScheduledTurn } from './silent-schedule-turns.js';
@@ -694,25 +694,53 @@ export function formatAttachmentsHint(attachments?: LarkAttachment[], locale?: L
   return `<attachments hint="${xmlEscape(instruction('attachments.hint'))}">\n${items.join('\n')}\n</attachments>`;
 }
 
-function renderRoleContextBlock(
+function resolveRoleContextDelivery(
   larkAppId: string | undefined,
   chatId: string | undefined,
-  opts?: { followUp?: boolean },
-): string {
+  opts?: {
+    appliedRevision?: string;
+    refreshRequired?: boolean;
+    freshContext?: boolean;
+  },
+): { block: string; fallbackBlock: string; revision?: string } {
   const normalizedAppId = normalizeMetadataText(larkAppId);
   const normalizedChatId = normalizeMetadataText(chatId);
-  if (!normalizedAppId || !normalizedChatId) return '';
+  if (!normalizedAppId || !normalizedChatId) return { block: '', fallbackBlock: '' };
 
-  const { content: roleContent, source: roleSource, injectMode } = resolveRoleInjection(normalizedAppId, normalizedChatId);
-  if (!roleContent?.trim()) return '';
-
-  // "inject once" mode: emit the role only on the opening/refork turn (which
-  // rebuilds the CLI's full context) and skip it on follow-up messages, so a
-  // large persona isn't re-sent every round. Default 'every' keeps re-injecting.
-  if (opts?.followUp && injectMode === 'once') return '';
-
+  const { content: roleContent, source: roleSource, revision } = resolveRoleContext(normalizedAppId, normalizedChatId);
   const ctx = roleSource === 'team' ? 'team' : 'group';
-  return `<role context="${ctx}" chat_id="${xmlEscape(normalizedChatId)}">\n${roleContent}\n</role>`;
+  const fallbackBlock = roleContent?.trim()
+    ? `<role context="${ctx}" chat_id="${xmlEscape(normalizedChatId)}">\n${roleContent}\n</role>`
+    : '';
+  const shouldDeliver = opts?.freshContext === true
+    || opts?.refreshRequired === true
+    || opts?.appliedRevision !== revision;
+  if (!shouldDeliver) return { block: '', fallbackBlock, revision };
+
+  if (!roleContent?.trim()) {
+    const needsReset = opts?.freshContext !== true
+      && !!opts?.appliedRevision
+      && opts.appliedRevision !== EMPTY_ROLE_REVISION;
+    return {
+      block: needsReset
+        ? '<role_reset>The previously supplied role no longer applies. Continue without it.</role_reset>'
+        : '',
+      fallbackBlock: '',
+      revision,
+    };
+  }
+
+  const supersedes = opts?.freshContext !== true
+    && !!opts?.appliedRevision
+    && opts.appliedRevision !== EMPTY_ROLE_REVISION
+    && opts.appliedRevision !== revision
+    ? ' supersedes="previous"'
+    : '';
+  return {
+    block: `<role context="${ctx}" chat_id="${xmlEscape(normalizedChatId)}"${supersedes}>\n${roleContent}\n</role>`,
+    fallbackBlock,
+    revision,
+  };
 }
 
 function resolveBotDescription(
@@ -911,6 +939,7 @@ export function buildNewTopicPrompt(
   locale?: Locale,
   sender?: ResolvedSender,
   opts?: { larkAppId?: string; chatId?: string; whiteboardId?: string; substituteTrigger?: SubstituteTrigger; chatContext?: ChatContext },
+  roleDelivery?: ReturnType<typeof resolveRoleContextDelivery>,
 ): string {
   const adapter = createCliAdapterSync(cliId, cliPathOverride);
   // Non-Claude CLIs receive the botmux routing hints inline via the prompt
@@ -958,7 +987,8 @@ export function buildNewTopicPrompt(
     ].join('\n');
   }
 
-  const roleBlock = renderRoleContextBlock(opts?.larkAppId, opts?.chatId);
+  const roleBlock = (roleDelivery
+    ?? resolveRoleContextDelivery(opts?.larkAppId, opts?.chatId, { freshContext: true })).block;
   const whiteboardBlock = renderWhiteboardBlock({ whiteboardId: opts?.whiteboardId });
   const summaryMemoryBlock = renderSummaryMemoryBlock(opts?.larkAppId);
   const chatContextPolicyBlock = renderChatContextPolicyBlock(opts?.chatContext, locale);
@@ -1069,14 +1099,22 @@ export function buildNewTopicCliInput(
     chatContext?: ChatContext;
   },
 ): CliTurnPayload {
+  const roleDelivery = resolveRoleContextDelivery(opts?.larkAppId, opts?.chatId, { freshContext: true });
   const content = buildNewTopicPrompt(
     userMessage, sessionId, cliId, cliPathOverride, attachments, mentions,
-    availableBots, followUps, botIdentity, locale, sender, opts,
+    availableBots, followUps, botIdentity, locale, sender, opts, roleDelivery,
   );
   // Legacy pending buffers contain enriched strings. Only materialize those as
   // clean input when the caller also preserved their matching raw texts.
-  if (cliId !== 'codex-app' || (followUps && followUps.length > 0 && !opts?.codexAppFollowUps)) return { content };
-  const roleBlock = renderRoleContextBlock(opts?.larkAppId, opts?.chatId);
+  if (cliId !== 'codex-app' || (followUps && followUps.length > 0 && !opts?.codexAppFollowUps)) {
+    return {
+      content,
+      ...(roleDelivery.revision ? { roleContextRevision: roleDelivery.revision } : {}),
+      ...(roleDelivery.fallbackBlock ? { roleContextFallbackBlock: roleDelivery.fallbackBlock } : {}),
+      ...(roleDelivery.block ? { roleContextIncluded: true as const } : {}),
+    };
+  }
+  const roleBlock = roleDelivery.block;
   const botDescription = resolveBotDescription(opts?.larkAppId, botIdentity?.description);
   const identityBlock = renderBotDescriptionIdentity(botDescription);
   const whiteboardBlock = renderWhiteboardBlock({ whiteboardId: opts?.whiteboardId });
@@ -1091,6 +1129,9 @@ export function buildNewTopicCliInput(
   const chatContextBlock = renderChatContextBlock(opts?.chatContext);
   return {
     content,
+    ...(roleDelivery.revision ? { roleContextRevision: roleDelivery.revision } : {}),
+    ...(roleDelivery.fallbackBlock ? { roleContextFallbackBlock: roleDelivery.fallbackBlock } : {}),
+    ...(roleDelivery.block ? { roleContextIncluded: true as const } : {}),
     codexAppInput: buildCodexAppTurnInput({
       text: [opts?.codexAppText ?? userMessage, ...(opts?.codexAppFollowUps ?? [])].join('\n\n'),
       roleBlock: [identityBlock, roleBlock, summaryMemoryBlock].filter(Boolean).join('\n\n'),
@@ -1119,10 +1160,15 @@ export function buildNewTopicCliInput(
 export function buildFollowUpContent(
   content: string,
   sessionId: string,
-  opts?: { attachments?: LarkAttachment[]; mentions?: LarkMention[]; isAdoptMode?: boolean; cliId?: CliId; cliPathOverride?: string; locale?: Locale; sender?: ResolvedSender; larkAppId?: string; chatId?: string; whiteboardId?: string; substituteTrigger?: SubstituteTrigger; codexAppText?: string; codexAppApplicationContext?: string; codexAppMessageContext?: string },
+  opts?: { attachments?: LarkAttachment[]; mentions?: LarkMention[]; isAdoptMode?: boolean; cliId?: CliId; cliPathOverride?: string; locale?: Locale; sender?: ResolvedSender; larkAppId?: string; chatId?: string; whiteboardId?: string; substituteTrigger?: SubstituteTrigger; codexAppText?: string; codexAppApplicationContext?: string; codexAppMessageContext?: string; roleContextRevision?: string; roleContextRefreshRequired?: boolean; freshRoleContext?: boolean },
+  roleDelivery?: ReturnType<typeof resolveRoleContextDelivery>,
 ): string {
   const parts: string[] = [];
-  const roleBlock = renderRoleContextBlock(opts?.larkAppId, opts?.chatId, { followUp: true });
+  const roleBlock = (roleDelivery ?? resolveRoleContextDelivery(opts?.larkAppId, opts?.chatId, {
+    appliedRevision: opts?.roleContextRevision,
+    refreshRequired: opts?.roleContextRefreshRequired,
+    freshContext: opts?.freshRoleContext,
+  })).block;
   const whiteboardBlock = renderWhiteboardBlock({ whiteboardId: opts?.whiteboardId });
   const summaryMemoryBlock = renderSummaryMemoryBlock(opts?.larkAppId);
   const pollPromptHint = renderPollPromptHint(content, opts?.locale);
@@ -1170,11 +1216,23 @@ export function buildFollowUpContent(
 export function buildFollowUpCliInput(
   content: string,
   sessionId: string,
-  opts?: { attachments?: LarkAttachment[]; mentions?: LarkMention[]; isAdoptMode?: boolean; cliId?: CliId; cliPathOverride?: string; locale?: Locale; sender?: ResolvedSender; larkAppId?: string; chatId?: string; whiteboardId?: string; substituteTrigger?: SubstituteTrigger; codexAppText?: string; codexAppApplicationContext?: string; codexAppMessageContext?: string },
+  opts?: { attachments?: LarkAttachment[]; mentions?: LarkMention[]; isAdoptMode?: boolean; cliId?: CliId; cliPathOverride?: string; locale?: Locale; sender?: ResolvedSender; larkAppId?: string; chatId?: string; whiteboardId?: string; substituteTrigger?: SubstituteTrigger; codexAppText?: string; codexAppApplicationContext?: string; codexAppMessageContext?: string; roleContextRevision?: string; roleContextRefreshRequired?: boolean; freshRoleContext?: boolean },
 ): CliTurnPayload {
-  const legacyContent = buildFollowUpContent(content, sessionId, opts);
-  if (opts?.cliId !== 'codex-app' || opts.isAdoptMode) return { content: legacyContent };
-  const roleBlock = renderRoleContextBlock(opts.larkAppId, opts.chatId, { followUp: true });
+  const roleDelivery = resolveRoleContextDelivery(opts?.larkAppId, opts?.chatId, {
+    appliedRevision: opts?.roleContextRevision,
+    refreshRequired: opts?.roleContextRefreshRequired,
+    freshContext: opts?.freshRoleContext,
+  });
+  const promptContent = buildFollowUpContent(content, sessionId, opts, roleDelivery);
+  if (opts?.cliId !== 'codex-app' || opts.isAdoptMode) {
+    return {
+      content: promptContent,
+      ...(roleDelivery.revision ? { roleContextRevision: roleDelivery.revision } : {}),
+      ...(roleDelivery.fallbackBlock ? { roleContextFallbackBlock: roleDelivery.fallbackBlock } : {}),
+      ...(roleDelivery.block ? { roleContextIncluded: true as const } : {}),
+    };
+  }
+  const roleBlock = roleDelivery.block;
   const whiteboardBlock = renderWhiteboardBlock({ whiteboardId: opts.whiteboardId });
   const summaryMemoryBlock = renderSummaryMemoryBlock(opts.larkAppId);
   const senderBlock = renderSenderTag(opts.sender);
@@ -1183,7 +1241,10 @@ export function buildFollowUpCliInput(
   const attachmentBlock = formatAttachmentsHint(opts.attachments, opts.locale);
   const mentionBlock = renderMentionBlock(opts.mentions);
   return {
-    content: legacyContent,
+    content: promptContent,
+    ...(roleDelivery.revision ? { roleContextRevision: roleDelivery.revision } : {}),
+    ...(roleDelivery.fallbackBlock ? { roleContextFallbackBlock: roleDelivery.fallbackBlock } : {}),
+    ...(roleDelivery.block ? { roleContextIncluded: true as const } : {}),
     codexAppInput: buildCodexAppTurnInput({
       text: opts.codexAppText ?? content,
       roleBlock: [roleBlock, summaryMemoryBlock].filter(Boolean).join('\n\n'),
@@ -1334,6 +1395,9 @@ export function buildReforkPrompt(
     larkAppId: ds.larkAppId,
     chatId: ds.session.chatId,
     whiteboardId: ds.session.whiteboardId,
+    roleContextRevision: ds.session.roleContextRevision,
+    roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
+    freshRoleContext: true,
   });
 }
 
@@ -1378,6 +1442,9 @@ export function buildReforkCliInput(
     larkAppId: ds.larkAppId,
     chatId: ds.session.chatId,
     whiteboardId: ds.session.whiteboardId,
+    roleContextRevision: ds.session.roleContextRevision,
+    roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
+    freshRoleContext: true,
     substituteTrigger: opts?.substituteTrigger,
     codexAppText: opts?.codexAppText,
     codexAppApplicationContext: opts?.codexAppApplicationContext,
@@ -1451,6 +1518,13 @@ export function rememberLastCliInput(
   else delete ds.session.lastCodexAppInput;
   ds.session.replyThreadAliases = ds.replyThreadAliases;
   ds.session.currentReplyTarget = ds.currentReplyTarget;
+  sessionStore.updateSession(ds.session);
+}
+
+/** Mark the current native context as needing the effective role again. */
+export function markRoleContextRefreshRequired(ds: DaemonSession): void {
+  if (ds.adoptedFrom || ds.session.roleContextRefreshRequired === true) return;
+  ds.session.roleContextRefreshRequired = true;
   sessionStore.updateSession(ds.session);
 }
 
@@ -2524,13 +2598,15 @@ export async function executeScheduledTask(
       larkAppId,
       chatId: task.chatId,
       whiteboardId: existing.session.whiteboardId,
+      roleContextRevision: existing.session.roleContextRevision,
+      roleContextRefreshRequired: existing.session.roleContextRefreshRequired,
     });
-    rememberLastCliInput(existing, task.prompt, input);
     if (silent) armSilentScheduledTurn(existing, scheduledTurnId);
 
     if (existing.worker && !existing.worker.killed) {
       try {
         if (sendWorkerInput(existing, input, scheduledTurnId)) {
+          rememberLastCliInput(existing, task.prompt, input);
           logger.info(`[scheduler] Task "${task.name}" injected into live session ${existing.session.sessionId}${silent ? ' (silent)' : ''}`);
           return;
         }
@@ -2548,6 +2624,7 @@ export async function executeScheduledTask(
         resume: existing.hasHistory,
         turnId: scheduledTurnId,
       });
+      rememberLastCliInput(existing, task.prompt, input);
     } catch (err) {
       if (silent) disarmSilentScheduledTurn(existing, scheduledTurnId);
       throw err;
@@ -2611,10 +2688,10 @@ export async function executeScheduledTask(
       (winner ? ` to ${winner.session.sessionId}` : ''),
     );
   }
-  rememberLastCliInput(ds, task.prompt, prompt);
   if (silent) armSilentScheduledTurn(ds, scheduledTurnId);
   try {
     forkWorker(ds, prompt, scheduledTurnId);
+    rememberLastCliInput(ds, task.prompt, prompt);
   } catch (err) {
     if (silent) disarmSilentScheduledTurn(ds, scheduledTurnId);
     throw err;
@@ -2724,8 +2801,8 @@ async function forkOrShowRepoCard(ds: DaemonSession, userContent: string): Promi
 
   ensureSessionWhiteboard(ds);
   const prompt = buildPrompt();
-  rememberLastCliInput(ds, userContent, prompt);
   forkWorker(ds, prompt);
+  rememberLastCliInput(ds, userContent, prompt);
   ds.pendingCodexAppText = undefined;
   ds.pendingCodexAppApplicationContext = undefined;
   ds.pendingCodexAppMessageContext = undefined;

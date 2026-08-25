@@ -31,7 +31,6 @@ import { createInvite, deleteInvitesForTeam } from '../services/invite-store.js'
 import { removeTeamFederation, removeDeployment } from '../services/federation-store.js';
 import { loadBotConfigs, registerBot, getBot, type BotConfig } from '../bot-registry.js';
 import { setBotCapability, clearBotCapability } from '../services/bot-profile-store.js';
-import { readTeamRoleInjectMode, writeTeamRoleInjectMode, type RoleInjectMode } from '../core/role-resolver.js';
 import { setBotOwner } from '../services/bot-owner-store.js';
 import { setDeploymentOwner } from '../services/deployment-identity.js';
 import { createPairing, getPairingStatus, consumePairing } from '../services/pairing-store.js';
@@ -367,7 +366,6 @@ export async function handleFederationSpokeApi(
       jsonRes(res, 200, {
         ok: true,
         role: existsSync(fp) ? readFileSync(fp, 'utf-8') : '',
-        injectMode: readTeamRoleInjectMode(larkAppId),
       });
       return true;
     }
@@ -381,13 +379,8 @@ export async function handleFederationSpokeApi(
         const role = String(body?.role ?? '').trim();
         if (role) writeTeamRole(dataDir, larkAppId, role);
         else { try { unlinkSync(teamRolePath(dataDir, larkAppId)); } catch { /* already gone */ } }
-        // Bot-level default injection mode travels with the team role. Only
-        // persist when the caller sends it (older clients omit the field).
-        if (body?.injectMode === 'once' || body?.injectMode === 'every') {
-          writeTeamRoleInjectMode(larkAppId, body.injectMode as RoleInjectMode);
-        }
       }
-      jsonRes(res, 200, { ok: true, injectMode: readTeamRoleInjectMode(larkAppId) });
+      jsonRes(res, 200, { ok: true });
       return true;
     }
     jsonRes(res, 405, { ok: false, error: 'method_not_allowed' });

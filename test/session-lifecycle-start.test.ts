@@ -2,10 +2,11 @@ import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyQueuedCodexAppLegacyFallback } from '../src/core/session-create.js';
 
-const { emitHookEventMock, forkMock, execSyncMock } = vi.hoisted(() => ({
+const { emitHookEventMock, forkMock, execSyncMock, updateSessionMock } = vi.hoisted(() => ({
   emitHookEventMock: vi.fn(),
   forkMock: vi.fn(),
   execSyncMock: vi.fn(),
+  updateSessionMock: vi.fn(),
 }));
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -81,7 +82,7 @@ vi.mock('../src/services/session-store.js', () => ({
   cleanupSessionBridgeSendMarkers: vi.fn(),
   cleanupSessionBridgeSendMarkersNow: vi.fn(),
   closeSession: vi.fn(),
-  updateSession: vi.fn(),
+  updateSession: updateSessionMock,
   updateSessionPid: vi.fn(),
 }));
 
@@ -92,6 +93,10 @@ vi.mock('../src/services/frozen-card-store.js', () => ({
 
 vi.mock('../src/core/session-manager.js', () => ({
   ensureSessionWhiteboard: vi.fn(),
+  markRoleContextRefreshRequired: vi.fn((ds: DaemonSession) => {
+    ds.session.roleContextRefreshRequired = true;
+    updateSessionMock(ds.session);
+  }),
   persistStreamCardState: vi.fn(),
 }));
 
@@ -900,11 +905,17 @@ describe('session.start lifecycle integration', () => {
     ds.session.replyTargets = {
       om_kickoff: { rootMessageId: 'om_dispatch_root', updatedAt: '2026-07-14T09:00:01.000Z' },
     };
+    ds.session.roleContextRevision = 'role-old';
+    ds.session.roleContextRefreshRequired = true;
     forkWorker(ds, 'hello', false);
     const worker = forkMock.mock.results.at(-1)!.value;
     vi.mocked(sessionStore.updateSession).mockClear();
 
-    worker.emit('message', { type: 'turn_input_committed', turnId: 'om_kickoff' });
+    worker.emit('message', {
+      type: 'turn_input_committed',
+      turnId: 'om_kickoff',
+      roleContextRevision: 'role-new',
+    });
     await Promise.resolve();
     expect(ds.session.dispatchInputReceipts?.om_kickoff).toEqual({
       rootMessageId: 'om_dispatch_root',
@@ -912,15 +923,60 @@ describe('session.start lifecycle integration', () => {
       workerGeneration: 1,
     });
     expect(ds.session.workerGeneration).toBe(1);
+    expect(ds.session.roleContextRevision).toBe('role-new');
+    expect(ds.session.roleContextRefreshRequired).toBeUndefined();
     expect(sessionStore.updateSession).toHaveBeenCalledWith(ds.session);
 
     const prior = ds.session.dispatchInputReceipts;
     ds.worker = makeFakeWorker();
     vi.mocked(sessionStore.updateSession).mockClear();
-    worker.emit('message', { type: 'turn_input_committed', turnId: 'om_stale_worker' });
+    worker.emit('message', {
+      type: 'turn_input_committed',
+      turnId: 'om_stale_worker',
+      roleContextRevision: 'role-stale',
+    });
     await Promise.resolve();
     expect(ds.session.dispatchInputReceipts).toBe(prior);
+    expect(ds.session.roleContextRevision).toBe('role-new');
     expect(sessionStore.updateSession).not.toHaveBeenCalled();
+  });
+
+  it('requires role refresh when the worker replaces a native context', async () => {
+    const ds = makeDs();
+    ds.session.roleContextRevision = 'role-current';
+    forkWorker(ds, 'hello', false);
+    const worker = forkMock.mock.results.at(-1)?.value;
+    expect(worker).toBeDefined();
+    vi.mocked(sessionStore.updateSession).mockClear();
+
+    worker?.emit('message', {
+      type: 'context_reset',
+      reason: 'resume_fallback',
+    });
+    await Promise.resolve();
+
+    expect(ds.session.roleContextRevision).toBe('role-current');
+    expect(ds.session.roleContextRefreshRequired).toBe(true);
+    expect(sessionStore.updateSession).toHaveBeenCalledWith(ds.session);
+  });
+
+  it('commits role context for a turn without an external turn id', async () => {
+    const ds = makeDs();
+    ds.session.roleContextRefreshRequired = true;
+    forkWorker(ds, 'hello', false);
+    const worker = forkMock.mock.results.at(-1)?.value;
+    expect(worker).toBeDefined();
+    vi.mocked(sessionStore.updateSession).mockClear();
+
+    worker?.emit('message', {
+      type: 'turn_input_committed',
+      roleContextRevision: 'role-system-turn',
+    });
+    await Promise.resolve();
+
+    expect(ds.session.roleContextRevision).toBe('role-system-turn');
+    expect(ds.session.roleContextRefreshRequired).toBeUndefined();
+    expect(sessionStore.updateSession).toHaveBeenCalledWith(ds.session);
   });
 
   it('does not fork a worker when the generation reservation cannot be persisted', () => {

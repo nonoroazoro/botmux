@@ -3456,10 +3456,8 @@ describe('role profile IPC routes', () => {
 
   it('reports `changed` so the dashboard only invalidates on real hasRole mutations', async () => {
     // The groups-matrix snapshot keys off `changed` to avoid busting its 30s
-    // cache on no-op writes. A content PUT / real DELETE flip hasRole
-    // (changed:true); an injectMode-only PUT and a delete-not-found do NOT
-    // (changed:false) — otherwise the common inject-mode toggle would punch
-    // through the cache and re-fan-out across every daemon.
+    // cache on no-op writes. A content PUT or real DELETE flips hasRole
+    // (changed:true); a delete-not-found does not (changed:false).
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
     const dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-changed-ipc-'));
@@ -3478,14 +3476,14 @@ describe('role profile IPC routes', () => {
       expect(putContent.status).toBe(200);
       expect(await putContent.json()).toMatchObject({ ok: true, changed: true });
 
-      // injectMode-only PUT touches just the .meta.json sidecar → changed:false.
-      const putMode = await fetch(`${base}/api/roles/oc_changed`, {
+      // A PUT without role content is rejected.
+      const putWithoutContent = await fetch(`${base}/api/roles/oc_changed`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ injectMode: 'once' }),
+        body: JSON.stringify({}),
       });
-      expect(putMode.status).toBe(200);
-      expect(await putMode.json()).toMatchObject({ ok: true, changed: false });
+      expect(putWithoutContent.status).toBe(400);
+      expect(await putWithoutContent.json()).toMatchObject({ ok: false, error: 'content_required' });
 
       // DELETE that removed the existing file → changed:true.
       const delExisting = await fetch(`${base}/api/roles/oc_changed`, { method: 'DELETE' });

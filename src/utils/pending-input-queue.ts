@@ -10,6 +10,9 @@ export interface PendingCliInput {
   dispatchAttempt?: number;
   vcMeetingImTurnOrigin?: VcMeetingImTurnOrigin;
   codexAppInput?: CodexAppTurnInput;
+  roleContextRevision?: string;
+  roleContextFallbackBlock?: string;
+  roleContextIncluded?: true;
 }
 
 /**
@@ -71,6 +74,9 @@ export function mergeQueuedCliInput(
     || tail.logicalContent || next.logicalContent) return false;
   tail.content = `${tail.content}\n\n${next.content}`;
   tail.turnId = next.turnId ?? tail.turnId;
+  tail.roleContextRevision = next.roleContextRevision ?? tail.roleContextRevision;
+  tail.roleContextFallbackBlock = next.roleContextFallbackBlock ?? tail.roleContextFallbackBlock;
+  tail.roleContextIncluded = next.roleContextIncluded ?? tail.roleContextIncluded;
   return true;
 }
 

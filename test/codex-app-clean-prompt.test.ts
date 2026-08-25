@@ -488,4 +488,22 @@ describe('Codex App clean prompt sidecar', () => {
     expect(ds.lastCodexAppInput?.text).toBe('visible');
     expect(ds.session.lastCodexAppInput?.text).toBe('visible');
   });
+
+  it('does not commit role delivery while persisting input history', () => {
+    registerBot({ larkAppId: 'role-commit-app', larkAppSecret: 's', cliId: 'codex-app' });
+    const ds: any = {
+      larkAppId: 'role-commit-app',
+      session: {
+        sessionId: 'sid-role-commit',
+        cliId: 'codex-app',
+        roleContextRevision: 'old-revision',
+        roleContextRefreshRequired: true,
+      },
+    };
+    const payload = { content: 'visible', roleContextRevision: 'new-revision' };
+
+    rememberLastCliInput(ds, 'visible', payload);
+    expect(ds.session.roleContextRevision).toBe('old-revision');
+    expect(ds.session.roleContextRefreshRequired).toBe(true);
+  });
 });

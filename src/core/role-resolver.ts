@@ -14,19 +14,17 @@
  */
 
 import { existsSync, readFileSync, statSync, mkdirSync, unlinkSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
 import { join, dirname } from 'node:path';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 
 // Upper bound on a role definition. Raised from the original 4 KB to give room
-// for richer personas; kept as a (generous) safety cap rather than removed
-// outright because the role block is injected into the prompt — by default on
-// every turn — so an accidental mega-paste would bloat every round. The
-// per-chat "inject once" mode (see readRoleInjectMode) offsets the per-turn
-// cost when a large role is intentional. Exported so all role write paths share
-// one limit.
+// for richer personas; kept as a safety cap so an accidental mega-paste cannot
+// bloat the model context. Exported so all role write paths share one limit.
 export const MAX_ROLE_BYTES = 32 * 1024; // 32 KB (~10k CJK chars)
+export const EMPTY_ROLE_REVISION = 'role-context-v1:none';
 const ROLE_CHAT_ID_RE = /^(?:oc|om)_[A-Za-z0-9_-]{1,128}$/;
 
 interface CacheEntry {
@@ -218,111 +216,25 @@ export function resolveRole(larkAppId: string, chatId: string): { content: strin
   return { content: null, source: 'none' };
 }
 
-// ─── Role injection mode (per bot + chat) ──────────────────────────────────
-// Controls how often the resolved <role> block is injected into the CLI prompt
-// for a given chat:
-//   'every' (default) — inject on every turn (unchanged legacy behavior)
-//   'once'            — inject only on the opening / refork turn, skip follow-ups
-// Stored as a small sidecar next to the chat role file so it travels with the
-// rest of session state. It is keyed on (larkAppId, chatId) and applies to
-// whatever role is effective for the chat — a per-chat override OR the team
-// default — because it is a property of *this chat's* injection, not of the
-// role text's source.
-
-export type RoleInjectMode = 'every' | 'once';
-
-/** Absolute path to the per-chat role metadata sidecar. */
-function roleMetaFilePath(larkAppId: string, chatId: string): string {
-  assertRoleChatId(chatId);
-  return join(config.session.dataDir, 'roles', larkAppId, `${chatId}.meta.json`);
-}
-
-/** Absolute path to the bot-level default role metadata sidecar (sits next to
- *  the team role .md, keyed by app only — no chat). */
-function teamRoleMetaFilePath(larkAppId: string): string {
-  return join(config.session.dataDir, 'team-roles', `${larkAppId}.meta.json`);
-}
-
 /**
- * Read the bot-level DEFAULT injection mode (applies to any chat that hasn't set
- * its own). Defaults to 'every' (legacy) when unset/unparseable. This is the
- * fallback consulted by readRoleInjectMode — it lets an operator make the bot's
- * default role inject-once across all its chats from the Bot config page,
- * without touching each chat individually.
+ * Resolve the effective role and a stable revision used by lifecycle-aware
+ * delivery. Source is part of the digest because it changes the rendered
+ * context boundary even when the Markdown bytes are identical.
  */
-export function readTeamRoleInjectMode(larkAppId: string): RoleInjectMode {
-  if (!larkAppId) return 'every';
-  try {
-    const fp = teamRoleMetaFilePath(larkAppId);
-    if (!existsSync(fp)) return 'every';
-    const meta = JSON.parse(readFileSync(fp, 'utf-8')) as { inject?: unknown };
-    return meta?.inject === 'once' ? 'once' : 'every';
-  } catch {
-    return 'every';
-  }
-}
-
-/** Persist the bot-level default injection mode. 'every' removes the sidecar. */
-export function writeTeamRoleInjectMode(larkAppId: string, mode: RoleInjectMode): void {
-  const fp = teamRoleMetaFilePath(larkAppId);
-  if (mode === 'once') {
-    mkdirSync(dirname(fp), { recursive: true });
-    atomicWriteFileSync(fp, JSON.stringify({ inject: 'once' }));
-  } else {
-    try { unlinkSync(fp); } catch { /* already absent */ }
-  }
-  logger.info(`[role] team inject mode app=${larkAppId} => ${mode}`);
-}
-
-/**
- * Read the injection mode for a (bot, chat). A chat that set its own mode via
- * 角色管理 wins (sidecar present ⇒ 'once'); otherwise we fall back to the
- * bot-level default (readTeamRoleInjectMode), which itself defaults to 'every'
- * — so legacy behavior is unchanged until an operator opts a bot into 'once'.
- */
-export function readRoleInjectMode(larkAppId: string, chatId: string): RoleInjectMode {
-  if (!larkAppId || !chatId || !isValidRoleChatId(chatId)) return 'every';
-  try {
-    const fp = roleMetaFilePath(larkAppId, chatId);
-    if (!existsSync(fp)) return readTeamRoleInjectMode(larkAppId);
-    const meta = JSON.parse(readFileSync(fp, 'utf-8')) as { inject?: unknown };
-    return meta?.inject === 'once' ? 'once' : 'every';
-  } catch {
-    return readTeamRoleInjectMode(larkAppId);
-  }
-}
-
-/**
- * Persist the injection mode. 'every' (the default) removes the sidecar so the
- * on-disk state stays clean; 'once' writes it.
- */
-export function writeRoleInjectMode(larkAppId: string, chatId: string, mode: RoleInjectMode): void {
-  const fp = roleMetaFilePath(larkAppId, chatId);
-  if (mode === 'once') {
-    mkdirSync(dirname(fp), { recursive: true });
-    atomicWriteFileSync(fp, JSON.stringify({ inject: 'once' }));
-  } else {
-    try { unlinkSync(fp); } catch { /* already absent */ }
-  }
-  logger.info(`[role] inject mode chat=${chatId} app=${larkAppId} => ${mode}`);
-}
-
-/** Remove the injection-mode sidecar (used when a chat role is deleted). */
-export function deleteRoleInjectMode(larkAppId: string, chatId: string): void {
-  if (!isValidRoleChatId(chatId)) return;
-  try { unlinkSync(roleMetaFilePath(larkAppId, chatId)); } catch { /* already absent */ }
-}
-
-/**
- * Resolve the effective role content + source (like resolveRole) plus the
- * per-chat injection mode. The prompt builder uses this to decide whether to
- * emit the <role> block on follow-up turns.
- */
-export function resolveRoleInjection(
+export function resolveRoleContext(
   larkAppId: string,
   chatId: string,
-): { content: string | null; source: RoleSource; injectMode: RoleInjectMode } {
+): { content: string | null; source: RoleSource; revision: string } {
   const base = resolveRole(larkAppId, chatId);
-  if (!base.content) return { ...base, injectMode: 'every' };
-  return { ...base, injectMode: readRoleInjectMode(larkAppId, chatId) };
+  if (!base.content) return { ...base, revision: EMPTY_ROLE_REVISION };
+  const revision = createHash('sha256')
+    .update('role-context-v1')
+    .update('\0')
+    .update(chatId)
+    .update('\0')
+    .update(base.source)
+    .update('\0')
+    .update(base.content)
+    .digest('hex');
+  return { ...base, revision };
 }

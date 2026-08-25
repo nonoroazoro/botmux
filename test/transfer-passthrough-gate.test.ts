@@ -190,6 +190,8 @@ describe('native new command', () => {
         lastCliInput: 'old input',
         lastCodexAppInput: { text: 'old app input' },
         pendingForkSession: true,
+        roleContextRevision: 'old-role-revision',
+        roleContextRefreshRequired: true,
       },
       worker: null,
       workerPort: null,
@@ -237,6 +239,8 @@ describe('native new command', () => {
     expect(ds.session.lastCodexAppInput).toBeUndefined();
     expect(ds.session.cliSessionId).toBeUndefined();
     expect(ds.session.pendingForkSession).toBeUndefined();
+    expect(ds.session.roleContextRevision).toBeUndefined();
+    expect(ds.session.roleContextRefreshRequired).toBeUndefined();
     expect(ds.session.initialUserTurnPending).toBe(true);
     await vi.waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledOnce());
     expect(mocks.sendMessage.mock.calls[0]?.[2]).toBe('✅ 执行成功，下一条消息将开启新会话。');
@@ -268,6 +272,7 @@ describe('native new command', () => {
         cliId: 'claude-code',
         cliSessionId: 'old-cli-session',
         lastCliInput: 'old input',
+        roleContextRevision: 'old-role-revision',
       },
       worker,
       workerPort: null,
@@ -310,7 +315,73 @@ describe('native new command', () => {
     expect(ds.lastCliInput).toBeUndefined();
     expect(ds.session.lastCliInput).toBeUndefined();
     expect(ds.session.cliSessionId).toBeUndefined();
+    expect(ds.session.roleContextRevision).toBeUndefined();
     expect(ds.session.initialUserTurnPending).toBe(true);
     await vi.waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledOnce());
+  });
+});
+
+describe('native context reset commands', () => {
+  it.each(['/clear', '/compact'])('arms role refresh after forwarding %s', (command) => {
+    const send = vi.fn();
+    const worker = Object.assign(new EventEmitter(), {
+      killed: false,
+      connected: true,
+      exitCode: null,
+      signalCode: null,
+      send,
+      kill: vi.fn(),
+    }) as any;
+    const ds = {
+      session: {
+        sessionId: `session-${command.slice(1)}`,
+        chatId: 'oc_private',
+        rootMessageId: 'om_private',
+        title: 'private chat',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        scope: 'chat',
+        chatType: 'p2p',
+        larkAppId: 'app-transfer-passthrough',
+        ownerOpenId: 'ou_owner',
+        workingDir: '/tmp',
+        cliId: 'claude-code',
+        roleContextRevision: 'current-role-revision',
+      },
+      worker,
+      workerPort: null,
+      workerToken: null,
+      larkAppId: 'app-transfer-passthrough',
+      chatId: 'oc_private',
+      chatType: 'p2p',
+      scope: 'chat',
+      spawnedAt: Date.now(),
+      cliVersion: '1.0.0',
+      lastMessageAt: Date.now(),
+      hasHistory: true,
+      workingDir: '/tmp',
+      lastScreenStatus: 'idle',
+    } as DaemonSession;
+
+    deliverPassthrough(
+      ds,
+      command,
+      command,
+      'oc_private',
+      ds.larkAppId,
+      {
+        messageId: `om_${command.slice(1)}_turn`,
+        senderOpenId: 'ou_owner',
+        senderIsBot: false,
+        substitute: false,
+      },
+    );
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'raw_input',
+      content: command,
+      turnId: `om_${command.slice(1)}_turn`,
+    });
+    expect(ds.session.roleContextRefreshRequired).toBe(true);
   });
 });

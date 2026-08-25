@@ -25,14 +25,11 @@ export interface GroupInfo {
   memberBots: BotInfo[];
 }
 
-export type RoleInjectMode = 'every' | 'once';
-
 export interface RoleData {
   chatId: string;
   content: string | null;
   byteLength: number;
   hasRole: boolean;
-  injectMode?: RoleInjectMode;
   effectiveContent?: string | null;
   effectiveSource?: string;
   hasEffectiveRole?: boolean;
@@ -252,22 +249,11 @@ export async function loadRole(larkAppId: string, chatId: string): Promise<RoleD
   return readJson(r) as Promise<RoleData>;
 }
 
-export async function saveRole(larkAppId: string, chatId: string, content: string, injectMode: RoleInjectMode): Promise<boolean> {
+export async function saveRole(larkAppId: string, chatId: string, content: string): Promise<boolean> {
   const r = await fetch(`/api/roles/${encodeURIComponent(larkAppId)}/${encodeURIComponent(chatId)}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ content, injectMode }),
-  });
-  return r.ok;
-}
-
-/** Persist only the injection mode (no content) — used when toggling the mode
- *  select, which can apply even to a chat whose role comes from the team default. */
-export async function saveInjectMode(larkAppId: string, chatId: string, injectMode: RoleInjectMode): Promise<boolean> {
-  const r = await fetch(`/api/roles/${encodeURIComponent(larkAppId)}/${encodeURIComponent(chatId)}`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ injectMode }),
+    body: JSON.stringify({ content }),
   });
   return r.ok;
 }

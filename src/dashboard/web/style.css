@@ -7102,31 +7102,6 @@ dialog.onboarding-dialog::backdrop {
   color: var(--faint);
   font-family: var(--mono);
 }
-.roles-editor-inject {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 2px 0 -2px;
-}
-.roles-editor-inject > label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg);
-}
-/* Inherit the global themed <select> look (surface bg, border, chevron); only
-   nudge it more compact for this inline control. */
-.roles-editor-inject > select {
-  min-height: 28px;
-  padding: 3px 26px 3px 9px;
-  font-size: 12px;
-}
-.roles-editor-inject-hint {
-  font-size: 11px;
-  color: var(--faint);
-  flex: 1 1 240px;
-  min-width: 160px;
-}
 .roles-editor-switch {
   align-self: flex-start;
 }
@@ -14957,21 +14932,10 @@ main:has(.whiteboards-page) {
   background: color-mix(in srgb, var(--muted) 10%, var(--surface));
 }
 
-.roles-editor-inject {
-  padding: 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--surface-muted) 28%, transparent);
-}
-
 .roles-field-label {
   color: var(--fg);
   font-size: 12px;
   font-weight: 700;
-}
-
-.roles-inline-menu {
-  width: 132px;
 }
 
 .roles-profile-apply-controls .roles-apply-group-menu {
@@ -23170,24 +23134,6 @@ dialog select[multiple]:hover:not(:disabled) {
   margin-top: 10px;
   padding-top: 0;
   border-top: 0;
-}
-
-/* Default-role injection mode selector (once / every) — a compact labelled row
-   between the role textarea and its save button. */
-.bot-defaults-page .bd-role-inject {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.bot-defaults-page .bd-role-inject > .bd-subsection-title {
-  margin: 0;
-}
-
-.bot-defaults-page .bd-role-inject-menu {
-  min-width: 148px;
 }
 
 /* Bot-config toggle-rows all carry a single-line label, so the switch should

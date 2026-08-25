@@ -99,6 +99,8 @@ export function buildDocWatchWarmupTurnInput(args: {
         larkAppId: ds.larkAppId,
         chatId: ds.session.chatId,
         whiteboardId: ds.session.whiteboardId,
+        roleContextRevision: ds.session.roleContextRevision,
+        roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
         codexAppText,
         codexAppApplicationContext: promptContent,
       }),
@@ -233,6 +235,8 @@ export function buildDocCommentTurnInput(args: {
         larkAppId: ds.larkAppId,
         chatId: ds.session.chatId,
         whiteboardId: ds.session.whiteboardId,
+        roleContextRevision: ds.session.roleContextRevision,
+        roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
         ...cleanContext,
       }),
     };

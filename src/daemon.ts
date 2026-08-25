@@ -192,6 +192,7 @@ import {
   executeScheduledTask,
   persistStreamCardState,
   rememberLastCliInput,
+  markRoleContextRefreshRequired,
   ensureTerminalWorkerPort,
   ensureSessionWhiteboard,
 } from './core/session-manager.js';
@@ -4085,9 +4086,9 @@ async function prewarmDocCommentSession(ds: DaemonSession, sub: DocSubscription)
       sender,
       mode: 'live',
     });
-    rememberLastCliInput(ds, promptContent, cliInput);
-    sessionStore.updateSession(ds.session);
-    sendWorkerInput(ds, cliInput, turnId);
+    if (sendWorkerInput(ds, cliInput, turnId)) {
+      rememberLastCliInput(ds, promptContent, cliInput);
+    }
     markSessionActivity(ds);
   } else {
     ensureSessionWhiteboard(ds);
@@ -4100,9 +4101,8 @@ async function prewarmDocCommentSession(ds: DaemonSession, sub: DocSubscription)
       sender,
       mode: 'refork',
     });
-    rememberLastCliInput(ds, promptContent, wrappedInput);
-    sessionStore.updateSession(ds.session);
     forkWorker(ds, wrappedInput, ds.hasHistory);
+    rememberLastCliInput(ds, promptContent, wrappedInput);
   }
   logger.info(`[${tag(ds)}] doc-comment watch prewarm injected file=${sub.fileToken.slice(0, 12)}`);
 }
@@ -15510,6 +15510,8 @@ function prepareNativeNewSession(ds: DaemonSession): void {
   delete ds.session.lastCodexAppInput;
   delete ds.session.cliSessionId;
   delete ds.session.pendingForkSession;
+  delete ds.session.roleContextRevision;
+  delete ds.session.roleContextRefreshRequired;
   ds.hasHistory = false;
 
   const markerWasPending = ds.session.initialUserTurnPending === true;
@@ -15609,6 +15611,9 @@ function deliverPassthroughToExistingSession(
       ds.pendingRawInput = commandContent;
       ds.pendingRawTurnId = turn.messageId;
       forkWorker(ds, '', { resume: ds.hasHistory });
+    }
+    if (cmd === '/clear' || cmd === '/compact') {
+      markRoleContextRefreshRequired(ds);
     }
     if (cmd === '/new') {
       prepareNativeNewSession(ds);
@@ -16397,8 +16402,8 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
     ensureSessionWhiteboard(ds);
     const prompt = buildNewTopicCliInput(promptContent, session.sessionId, botCfg.cliId, botCfg.cliPathOverride, attachments, parsed.mentions, await getAvailableBots(larkAppId, chatId), undefined, { name: selfBot.botName, openId: selfBot.botOpenId }, localeForBot(larkAppId), newTopicSender, { larkAppId, chatId, whiteboardId: ds.session.whiteboardId, substituteTrigger, codexAppText: codexAppVisibleText, codexAppApplicationContext, codexAppMessageContext });
     await noteTurnReceived(ds, messageId, content, newTopicSender, messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
-    rememberLastCliInput(ds, promptContent, prompt);
     forkWorker(ds, prompt, { turnId: messageId });
+    rememberLastCliInput(ds, promptContent, prompt);
     ds.pendingTurnId = undefined;
     const reason = oncallEntry
       ? `oncall-bound chat ${chatId}`
@@ -16430,8 +16435,8 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
     ensureSessionWhiteboard(ds);
     const prompt = buildNewTopicCliInput(promptContent, session.sessionId, botCfg.cliId, botCfg.cliPathOverride, attachments, parsed.mentions, await getAvailableBots(larkAppId, chatId), undefined, { name: selfBot.botName, openId: selfBot.botOpenId }, localeForBot(larkAppId), newTopicSender, { larkAppId, chatId, whiteboardId: ds.session.whiteboardId, substituteTrigger, codexAppText: codexAppVisibleText, codexAppApplicationContext, codexAppMessageContext });
     await noteTurnReceived(ds, messageId, content, newTopicSender, messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
-    rememberLastCliInput(ds, promptContent, prompt);
     forkWorker(ds, prompt, { turnId: messageId });
+    rememberLastCliInput(ds, promptContent, prompt);
     ds.pendingTurnId = undefined;
     logger.info(`Session ${session.sessionId} ready (no projects to select), total active: ${getActiveCount()}`);
   }
@@ -16851,8 +16856,8 @@ async function handleBotAdded(
         return;
       }
       armSharedReplyTarget();
-      rememberLastCliInput(ds, promptBody, prompt);
       forkWorker(ds, prompt, sharedReplyRootId ? { turnId: sharedReplyRootId } : false);
+      rememberLastCliInput(ds, promptBody, prompt);
       ds.pendingTurnId = undefined;
       ds.pendingChatContext = undefined;
       logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 自动开工（${mode}/${scope}），workingDir=${pinnedWorkingDir}`);
@@ -16899,8 +16904,8 @@ async function handleBotAdded(
         return;
       }
       armSharedReplyTarget();
-      rememberLastCliInput(ds, promptBody, prompt);
       forkWorker(ds, prompt, sharedReplyRootId ? { turnId: sharedReplyRootId } : false);
+      rememberLastCliInput(ds, promptBody, prompt);
       ds.pendingTurnId = undefined;
       ds.pendingChatContext = undefined;
       logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 无默认目录且无可选项目，直接开工`);
@@ -17769,8 +17774,8 @@ async function handleThreadReply(
       ensureSessionWhiteboard(newDs);
       const prompt = buildNewTopicCliInput(promptContent, session.sessionId, botCfg.cliId, botCfg.cliPathOverride, attachments, parsed.mentions, await getAvailableBots(larkAppId, autoCreateChatId), undefined, { name: selfBot.botName, openId: selfBot.botOpenId }, localeForBot(larkAppId), autoCreateSender, { larkAppId, chatId: autoCreateChatId, whiteboardId: newDs.session.whiteboardId, substituteTrigger, codexAppText: parsed.content, codexAppApplicationContext, codexAppMessageContext });
       await noteTurnReceived(newDs, parsed.messageId, parsed.content, autoCreateSender, parsed.messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
-      rememberLastCliInput(newDs, promptContent, prompt);
       forkWorker(newDs, prompt, { turnId: parsed.messageId });
+      rememberLastCliInput(newDs, promptContent, prompt);
       newDs.pendingTurnId = undefined;
       const reason = oncallEntry
         ? `oncall-bound chat ${autoCreateChatId}`
@@ -17802,8 +17807,8 @@ async function handleThreadReply(
       ensureSessionWhiteboard(newDs);
       const prompt = buildNewTopicCliInput(promptContent, session.sessionId, botCfg.cliId, botCfg.cliPathOverride, attachments, parsed.mentions, await getAvailableBots(larkAppId, autoCreateChatId), undefined, { name: selfBot.botName, openId: selfBot.botOpenId }, localeForBot(larkAppId), autoCreateSender, { larkAppId, chatId: autoCreateChatId, whiteboardId: newDs.session.whiteboardId, substituteTrigger, codexAppText: parsed.content, codexAppApplicationContext, codexAppMessageContext });
       await noteTurnReceived(newDs, parsed.messageId, parsed.content, autoCreateSender, parsed.messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
-      rememberLastCliInput(newDs, promptContent, prompt);
       forkWorker(newDs, prompt, { turnId: parsed.messageId });
+      rememberLastCliInput(newDs, promptContent, prompt);
       newDs.pendingTurnId = undefined;
     }
 
@@ -17875,6 +17880,8 @@ async function handleThreadReply(
           larkAppId,
           chatId: ds.session.chatId,
           whiteboardId: ds.session.whiteboardId,
+          roleContextRevision: ds.session.roleContextRevision,
+          roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
           substituteTrigger,
           codexAppText: parsed.content,
           codexAppApplicationContext,

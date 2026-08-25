@@ -21,7 +21,7 @@ import {
   isValidProfileId,
   previewMessageListener,
   runMessageListenerPreview,
-  saveInjectMode,
+  saveRole,
   type GroupInfo,
 } from '../src/dashboard/web/roles.js';
 
@@ -148,7 +148,7 @@ describe('roles helpers', () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(saveInjectMode('cli_a', 'oc_chat_a', 'once')).resolves.toBe(true);
+    await expect(saveRole('cli_a', 'oc_chat_a', 'Role content')).resolves.toBe(true);
     await expect(applyRoleProfile({
       profileId: 'main',
       chatId: 'oc_chat_a',
@@ -158,7 +158,7 @@ describe('roles helpers', () => {
     })).resolves.toMatchObject({ larkAppId: 'cli_a', ok: true, status: 200 });
 
     expect(fetchMock.mock.calls[0][0]).toBe('/api/roles/cli_a/oc_chat_a');
-    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ injectMode: 'once' });
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ content: 'Role content' });
     expect(fetchMock.mock.calls[1][0]).toBe('/api/role-profiles/main/apply');
     expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toEqual({
       chatId: 'oc_chat_a',

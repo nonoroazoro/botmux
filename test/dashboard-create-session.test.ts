@@ -92,8 +92,9 @@ vi.mock('../src/core/dashboard-rows.js', () => ({
   composeRowFromActive: vi.fn((ds: DaemonSession) => ({ sessionId: ds.session.sessionId, queued: !!ds.session.queued })),
 }));
 vi.mock('../src/core/role-resolver.js', () => ({
+  EMPTY_ROLE_REVISION: 'role-context-v1:none',
   resolveRole: vi.fn(() => ({ content: null, source: undefined })),
-  resolveRoleInjection: vi.fn(() => ({ content: null, source: undefined, injectMode: 'none' })),
+  resolveRoleContext: vi.fn(() => ({ content: null, source: 'none', revision: 'role-context-v1:none' })),
 }));
 vi.mock('../src/services/whiteboard-store.js', () => ({
   whiteboardEnabled: vi.fn(() => false),

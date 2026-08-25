@@ -288,6 +288,7 @@ import { hookCommandFor } from './adapters/hook-command.js';
 import { findOnlineDaemon, parseDaemonIpcPort } from './utils/daemon-discovery.js';
 import { fetchDaemonIpc } from './core/daemon-ipc-auth.js';
 import { withCodexAppContext } from './utils/codex-app-context.js';
+import { applyRoleContextFallback } from './utils/role-context-fallback.js';
 import { resolveCodexAppFinalTurnIdentity } from './adapters/cli/codex-app-turn.js';
 import { RunnerControlDecoder } from './adapters/cli/runner-control-channel.js';
 import {
@@ -1194,6 +1195,9 @@ let lastSpawnEffectiveCliSessionId: string | undefined;
 let lastSpawnDeferInitialPrompt = false;
 let lastSpawnQueuedInitialPrompt: string | undefined;
 let lastSpawnQueuedInitialPromptLogicalContent: string | undefined;
+/** The native context was replaced without a startup prompt. Attach the role
+ * snapshot carried by the next committed turn before it enters the queue. */
+let roleContextRefreshPending = false;
 // True when this session runs under an outer bwrap supervisor (file sandbox OR
 // Linux credential-only bwrap) — both make getChildPid() the supervisor, not the
 // CLI leaf. credentialOnlyBwrap needs host probes so it can't be recomputed from
@@ -1830,9 +1834,18 @@ async function deliverRawInput(msg: Extract<DaemonToWorker, { type: 'raw_input' 
   // Enter lands. sendToPty also observes commandLineWritesPending, so another
   // raw command's text -> Enter window cannot be interrupted by the follow-up.
   if (sent && msg.followUpContent) {
-    sendToPty(msg.followUpContent, msg.followUpTurnId, {
+    const followUpCommitted = sendToPty(msg.followUpContent, msg.followUpTurnId, {
       codexAppInput: msg.followUpCodexAppInput,
+      roleContextRevision: msg.followUpRoleContextRevision,
+      roleContextFallbackBlock: msg.followUpRoleContextFallbackBlock,
+      roleContextIncluded: msg.followUpRoleContextIncluded,
     });
+    if (followUpCommitted) {
+      acknowledgeTurnInputCommitted(
+        msg.followUpTurnId,
+        msg.followUpRoleContextRevision,
+      );
+    }
     log(`Enqueued follow-up after raw input (${msg.followUpContent.length} chars)`);
   }
   // A pending /rename may have been held by the command-write mutex. It still
@@ -7013,6 +7026,9 @@ async function flushPending(): Promise<void> {
     while (pendingMessages.length > 0 && backend && cliAdapter) {
       const item = freshnessInputQueue.takeNormal();
       if (!item) break;
+      if (applyPendingRoleContextToInput(item)) {
+        acknowledgeTurnInputCommitted(undefined, item.roleContextRevision);
+      }
       const isCyberPolicyRecovery = item === codexCyberPolicyRecoveryInput;
       const durableWrite = item.dispatchAttempt !== undefined;
       const msg = item.content;
@@ -7284,6 +7300,21 @@ async function flushPending(): Promise<void> {
   }
 }
 
+function applyPendingRoleContextToInput(item: PendingCliInput): boolean {
+  if (!roleContextRefreshPending || item.roleContextRevision === undefined) return false;
+  const applied = applyRoleContextFallback(
+    item.content,
+    item.codexAppInput,
+    item.roleContextFallbackBlock,
+    item.roleContextIncluded,
+  );
+  item.content = applied.prompt;
+  item.codexAppInput = applied.codexAppInput;
+  roleContextRefreshPending = false;
+  log('Attached role context to the first turn after native context reset');
+  return true;
+}
+
 function sendToPty(
   content: string,
   turnId?: string,
@@ -7291,6 +7322,9 @@ function sendToPty(
     codexAppInput?: CodexAppTurnInput;
     dispatchAttempt?: number;
     vcMeetingImTurnOrigin?: VcMeetingImTurnOrigin;
+    roleContextRevision?: string;
+    roleContextFallbackBlock?: string;
+    roleContextIncluded?: true;
   } = {},
 ): boolean {
   const next: PendingCliInput = {
@@ -7301,7 +7335,15 @@ function sendToPty(
     ...(opts.vcMeetingImTurnOrigin
       ? { vcMeetingImTurnOrigin: opts.vcMeetingImTurnOrigin }
       : {}),
+    ...(opts.roleContextRevision
+      ? { roleContextRevision: opts.roleContextRevision }
+      : {}),
+    ...(opts.roleContextFallbackBlock
+      ? { roleContextFallbackBlock: opts.roleContextFallbackBlock }
+      : {}),
+    ...(opts.roleContextIncluded ? { roleContextIncluded: true } : {}),
   };
+  applyPendingRoleContextToInput(next);
   // During an exact lease-fenced CLI restart the worker stays alive while the
   // backend is rebuilt. Preserve incoming attempt N+1 in the worker queue; the
   // old early-return silently dropped it after receiver had already persisted
@@ -8615,6 +8657,23 @@ async function spawnCli(
     effectiveResume = false;
     effectiveCliSessionId = undefined;
     effectiveAdapterSessionId = cfg.sessionId;
+    if (cfg.prompt) {
+      const roleFallback = applyRoleContextFallback(
+        cfg.prompt,
+        cfg.promptCodexAppInput,
+        cfg.promptRoleContextFallbackBlock,
+        cfg.promptRoleContextIncluded,
+      );
+      cfg.prompt = roleFallback.prompt;
+      cfg.promptCodexAppInput = roleFallback.codexAppInput;
+      roleContextRefreshPending = false;
+    } else {
+      roleContextRefreshPending = true;
+    }
+    send({
+      type: 'context_reset',
+      reason: 'resume_fallback',
+    });
     // Recompute the claude-family JSONL path: it now targets the FRESH
     // sessionId (fresh spawn creates <newSid>.jsonl, not the old one).
     if (claudeDataDir) {
@@ -11795,10 +11854,17 @@ function send(msg: WorkerToDaemon): void {
   process.send?.(payload);
 }
 
-function acknowledgeTurnInputCommitted(turnId?: string): void {
-  if (!turnId) return;
-  ordinaryImTurnDedupe.commit(turnId);
-  send({ type: 'turn_input_committed', turnId });
+function acknowledgeTurnInputCommitted(
+  turnId?: string,
+  roleContextRevision?: string,
+): void {
+  if (!turnId && roleContextRevision === undefined) return;
+  if (turnId) ordinaryImTurnDedupe.commit(turnId);
+  send({
+    type: 'turn_input_committed',
+    ...(turnId ? { turnId } : {}),
+    ...(roleContextRevision !== undefined ? { roleContextRevision } : {}),
+  });
 }
 
 function acknowledgeTurnInputReceived(turnId?: string): void {
@@ -12116,6 +12182,9 @@ process.on('message', async (raw: unknown) => {
             dispatchAttempt: msg.dispatchAttempt,
             vcMeetingImTurnOrigin: msg.vcMeetingImTurnOrigin,
             codexAppInput: msg.promptCodexAppInput,
+            roleContextRevision: msg.promptRoleContextRevision,
+            roleContextFallbackBlock: msg.promptRoleContextFallbackBlock,
+            roleContextIncluded: msg.promptRoleContextIncluded,
           });
           initialInputCommitted = true;
         } else if (msg.prompt) {
@@ -12127,7 +12196,12 @@ process.on('message', async (raw: unknown) => {
         // argv/RPC startup path. Only now may an early idle edge drain
         // follow-ups that arrived while init was awaiting slow startup work.
         initialInputOwnershipPending = false;
-        if (initialInputCommitted) acknowledgeTurnInputCommitted(msg.turnId);
+        if (initialInputCommitted) {
+          acknowledgeTurnInputCommitted(
+            msg.turnId,
+            msg.promptRoleContextRevision,
+          );
+        }
 
         // A backend may become prompt-ready before spawnCli() returns. The
         // initial prompt is queued only afterwards, so the earlier
@@ -12340,7 +12414,10 @@ process.on('message', async (raw: unknown) => {
                   );
                 }
               } else {
-                acknowledgeTurnInputCommitted(msg.turnId);
+                acknowledgeTurnInputCommitted(
+                  msg.turnId,
+                  msg.roleContextRevision,
+                );
               }
             } catch (err: any) {
               recoveryFailureReason = err instanceof SubmissionWriteError
@@ -12417,7 +12494,10 @@ process.on('message', async (raw: unknown) => {
                   recoveryFailureReason,
                 );
               }
-              acknowledgeTurnInputCommitted(msg.turnId);
+              acknowledgeTurnInputCommitted(
+                msg.turnId,
+                msg.roleContextRevision,
+              );
             } catch (err: any) {
               recoveryFailureReason = err instanceof SubmissionWriteError
                 ? err.recoveryFailureReason
@@ -12472,7 +12552,10 @@ process.on('message', async (raw: unknown) => {
           } else {
             prepareAdoptWrite();
             backend.write(content + '\r');
-            acknowledgeTurnInputCommitted(msg.turnId);
+            acknowledgeTurnInputCommitted(
+              msg.turnId,
+              msg.roleContextRevision,
+            );
           }
           isPromptReady = false;
           idleDetector?.reset();
@@ -12487,8 +12570,16 @@ process.on('message', async (raw: unknown) => {
           codexAppInput,
           dispatchAttempt: msg.dispatchAttempt,
           vcMeetingImTurnOrigin: msg.vcMeetingImTurnOrigin,
+          roleContextRevision: msg.roleContextRevision,
+          roleContextFallbackBlock: msg.roleContextFallbackBlock,
+          roleContextIncluded: msg.roleContextIncluded,
         });
-        if (inputCommitted) acknowledgeTurnInputCommitted(msg.turnId);
+        if (inputCommitted) {
+          acknowledgeTurnInputCommitted(
+            msg.turnId,
+            msg.roleContextRevision,
+          );
+        }
         else if (ordinaryImTurnId) rejectOrdinaryImTurn(ordinaryImTurnId, 'cli_input_unavailable');
       }
       break;

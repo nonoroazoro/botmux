@@ -6,7 +6,7 @@
  * buildNewTopicPrompt injects a <role> block when given { larkAppId, chatId }.
  * Run: pnpm vitest run test/role-resolver.test.ts
  */
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -72,67 +72,114 @@ describe('role-resolver storage', () => {
   });
 });
 
-describe('role injection mode', () => {
-  it('defaults to "every" and round-trips "once" / back to "every"', async () => {
-    const { readRoleInjectMode, writeRoleInjectMode } = await fresh();
-    expect(readRoleInjectMode('app1', 'oc_m')).toBe('every');
-    writeRoleInjectMode('app1', 'oc_m', 'once');
-    expect(readRoleInjectMode('app1', 'oc_m')).toBe('once');
-    writeRoleInjectMode('app1', 'oc_m', 'every'); // removes the sidecar
-    expect(readRoleInjectMode('app1', 'oc_m')).toBe('every');
+describe('role context delivery', () => {
+  it('computes stable revisions for the effective role', async () => {
+    const { EMPTY_ROLE_REVISION, resolveRoleContext, writeRoleFile } = await fresh();
+    expect(resolveRoleContext('app1', 'oc_r')).toEqual({ content: null, source: 'none', revision: EMPTY_ROLE_REVISION });
+    writeRoleFile('app1', 'oc_r', 'PERSONA');
+    const first = resolveRoleContext('app1', 'oc_r');
+    const second = resolveRoleContext('app1', 'oc_r');
+    expect(first.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(second.revision).toBe(first.revision);
   });
 
-  it('resolveRoleInjection carries the mode alongside the effective role', async () => {
-    const { writeRoleFile, writeTeamRoleFile, writeRoleInjectMode, resolveRoleInjection } = await fresh();
-    // No role → injectMode is 'every' regardless.
-    expect(resolveRoleInjection('app1', 'oc_r')).toEqual({ content: null, source: 'none', injectMode: 'every' });
-    // Mode applies to the team default too (per-chat setting, not per-source).
-    writeTeamRoleFile('app1', 'TEAM');
-    writeRoleInjectMode('app1', 'oc_r', 'once');
-    expect(resolveRoleInjection('app1', 'oc_r')).toEqual({ content: 'TEAM', source: 'team', injectMode: 'once' });
-    // A per-chat override wins for content; mode is unchanged.
-    writeRoleFile('app1', 'oc_r', 'CHAT');
-    expect(resolveRoleInjection('app1', 'oc_r')).toEqual({ content: 'CHAT', source: 'chat', injectMode: 'once' });
+  it('includes the chat identity in the effective role revision', async () => {
+    const { resolveRoleContext, writeTeamRoleFile } = await fresh();
+    writeTeamRoleFile('app1', 'SHARED_TEAM_PERSONA');
+    const first = resolveRoleContext('app1', 'oc_first');
+    const second = resolveRoleContext('app1', 'oc_second');
+    expect(first.content).toBe(second.content);
+    expect(first.source).toBe(second.source);
+    expect(first.revision).not.toBe(second.revision);
   });
 
-  it('falls back to the bot-level default injection mode when a chat has none', async () => {
-    const { readRoleInjectMode, readTeamRoleInjectMode, writeTeamRoleInjectMode, writeRoleInjectMode } = await fresh();
-    // bot-level default itself defaults to 'every' (legacy).
-    expect(readTeamRoleInjectMode('appB')).toBe('every');
-    expect(readRoleInjectMode('appB', 'oc_x')).toBe('every');
-    // Opt the whole bot into 'once' → any chat without its own sidecar inherits it.
-    writeTeamRoleInjectMode('appB', 'once');
-    expect(readTeamRoleInjectMode('appB')).toBe('once');
-    expect(readRoleInjectMode('appB', 'oc_x')).toBe('once');
-    expect(readRoleInjectMode('appB', 'oc_y')).toBe('once');
-    // A per-chat sidecar still wins over the bot default.
-    writeRoleInjectMode('appB', 'oc_x', 'once');   // explicit once (same value)
-    expect(readRoleInjectMode('appB', 'oc_x')).toBe('once');
-    // Clearing the bot default returns unset chats to 'every'.
-    writeTeamRoleInjectMode('appB', 'every');       // removes the meta sidecar
-    expect(readRoleInjectMode('appB', 'oc_y')).toBe('every');
-  });
+  it('injects at opening, skips an unchanged follow-up, and re-injects a changed role', async () => {
+    await fresh();
+    const { writeRoleFile } = await import('../src/core/role-resolver.js');
+    const { buildFollowUpCliInput, buildNewTopicCliInput } = await import('../src/core/session-manager.js');
+    writeRoleFile('app1', 'oc_auto', 'PERSONA_V1');
 
-  it('buildFollowUpContent omits the <role> block when mode is "once", keeps it on "every"', async () => {    await fresh();
-    const { writeRoleFile, writeRoleInjectMode } = await import('../src/core/role-resolver.js');
-    writeRoleFile('app1', 'oc_once', 'ONCE_PERSONA');
-    const { buildNewTopicPrompt, buildFollowUpContent } = await import('../src/core/session-manager.js');
-
-    // every (default): role present in both opening + follow-up
-    expect(buildFollowUpContent('hi', 's1', { larkAppId: 'app1', chatId: 'oc_once' })).toContain('ONCE_PERSONA');
-
-    // once: opening keeps it, follow-up drops it
-    writeRoleInjectMode('app1', 'oc_once', 'once');
-    const opening = buildNewTopicPrompt(
+    const opening = buildNewTopicCliInput(
       'hi', 's1', 'claude-code', undefined,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-      { larkAppId: 'app1', chatId: 'oc_once' },
+      { larkAppId: 'app1', chatId: 'oc_auto' },
     );
-    expect(opening).toContain('ONCE_PERSONA');
-    const followUp = buildFollowUpContent('hi again', 's1', { larkAppId: 'app1', chatId: 'oc_once' });
-    expect(followUp).not.toContain('ONCE_PERSONA');
-    expect(followUp).not.toContain('<role');
+    expect(opening.content).toContain('PERSONA_V1');
+    expect(opening.roleContextFallbackBlock).toContain('PERSONA_V1');
+    expect(opening.roleContextIncluded).toBe(true);
+
+    const unchanged = buildFollowUpCliInput('again', 's1', {
+      larkAppId: 'app1',
+      chatId: 'oc_auto',
+      roleContextRevision: opening.roleContextRevision,
+    });
+    expect(unchanged.content).not.toContain('<role');
+    expect(unchanged.roleContextFallbackBlock).toContain('PERSONA_V1');
+    expect(unchanged.roleContextFallbackBlock).toContain('chat_id="oc_auto"');
+    expect(unchanged.roleContextIncluded).toBeUndefined();
+
+    writeRoleFile('app1', 'oc_auto', 'PERSONA_V2');
+    const changed = buildFollowUpCliInput('again', 's1', {
+      larkAppId: 'app1',
+      chatId: 'oc_auto',
+      roleContextRevision: opening.roleContextRevision,
+    });
+    expect(changed.content).toContain('PERSONA_V2');
+    expect(changed.content).toContain('supersedes="previous"');
+    expect(changed.roleContextRevision).not.toBe(opening.roleContextRevision);
+    expect(changed.roleContextFallbackBlock).toContain('PERSONA_V2');
+    expect(changed.roleContextIncluded).toBe(true);
   });
+
+  it('re-injects after a context refresh and resets a removed role', async () => {
+    await fresh();
+    const { deleteRoleFile, EMPTY_ROLE_REVISION, writeRoleFile } = await import('../src/core/role-resolver.js');
+    const { buildFollowUpCliInput, buildNewTopicCliInput } = await import('../src/core/session-manager.js');
+    writeRoleFile('app1', 'oc_refresh', 'REFRESH_PERSONA');
+    const opening = buildNewTopicCliInput(
+      'hi', 's1', 'claude-code', undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { larkAppId: 'app1', chatId: 'oc_refresh' },
+    );
+
+    const refreshed = buildFollowUpCliInput('after compact', 's1', {
+      larkAppId: 'app1',
+      chatId: 'oc_refresh',
+      roleContextRevision: opening.roleContextRevision,
+      roleContextRefreshRequired: true,
+    });
+    expect(refreshed.content).toContain('REFRESH_PERSONA');
+
+    deleteRoleFile('app1', 'oc_refresh');
+    const reset = buildFollowUpCliInput('after delete', 's1', {
+      larkAppId: 'app1',
+      chatId: 'oc_refresh',
+      roleContextRevision: opening.roleContextRevision,
+      roleContextRefreshRequired: true,
+    });
+    expect(reset.content).toContain('<role_reset>');
+    expect(reset.roleContextRevision).toBe(EMPTY_ROLE_REVISION);
+  });
+
+  it('re-injects the effective role into a refork context', async () => {
+    await fresh();
+    const { resolveRoleContext, writeRoleFile } = await import('../src/core/role-resolver.js');
+    const { buildReforkCliInput } = await import('../src/core/session-manager.js');
+    writeRoleFile('app1', 'oc_refork', 'REFORK_PERSONA');
+    const revision = resolveRoleContext('app1', 'oc_refork').revision;
+    const ds = {
+      larkAppId: 'app1',
+      session: {
+        sessionId: 's-refork',
+        chatId: 'oc_refork',
+        roleContextRevision: revision,
+      },
+    } as any;
+    const refork = buildReforkCliInput(ds, 'continue', { cliId: 'claude-code', locale: 'en' });
+    expect(refork.content).toContain('REFORK_PERSONA');
+    expect(refork.roleContextRevision).toBe(revision);
+  });
+
 });
 
 describe('buildNewTopicPrompt role injection', () => {

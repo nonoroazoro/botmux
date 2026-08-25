@@ -53,10 +53,8 @@ function optionalTrimmedString(value: unknown): string | undefined {
  * groups card, so a stale snapshot leaves the badge wrong for up to the 30s TTL
  * — and the refresh button can't fix it (it hits `/api/groups` without
  * `refresh=1`). We invalidate on every successful write EXCEPT when the daemon
- * reports `changed: false`, which means the role FILE was not touched:
- *   - `apply` preview mode, and no-op / refused applies;
- *   - an injectMode-only PUT (writes just the `.meta.json` sidecar — `hasRole`
- *     is unchanged, so the common inject-mode toggle must not bust the cache);
+ * reports `changed: false`, which means the role file was not touched:
+ *   - `apply` preview mode, and no-op or refused applies;
  *   - a DELETE that removed nothing (`existed:false`).
  * Invalidating in those cases would punch through the 30s snapshot and undo the
  * fan-out savings this cache exists to provide. Responses that omit `changed`
@@ -68,8 +66,8 @@ export function roleWriteShouldInvalidate(upstreamOk: boolean, body: unknown): b
   if (body && typeof body === "object" && !Array.isArray(body)) {
     const rec = body as Record<string, unknown>;
     if (rec.ok === false) return false;
-    // changed:false = daemon confirmed the role file was untouched (preview /
-    // injectMode-only / delete-not-found). Absent field (undefined !== false)
+    // changed:false = daemon confirmed the role file was untouched (preview or
+    // delete-not-found). Absent field (undefined !== false)
     // → still invalidate, keeping the fail-safe "refresh when unsure" default.
     if (rec.changed === false) return false;
   }

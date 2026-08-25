@@ -133,9 +133,7 @@ describe("roleWriteShouldInvalidate", () => {
 
   // ── do NOT invalidate: nothing changed → busting the cache would just
   //    punch through the 30s snapshot on a common no-op ─────────────────────
-  it("does not invalidate an injectMode-only PUT (changed:false, hasRole untouched)", () => {
-    // saveInjectMode() sends {injectMode} with no content → daemon writes only
-    // the .meta.json sidecar and reports changed:false.
+  it("does not invalidate a confirmed no-op write", () => {
     expect(roleWriteShouldInvalidate(true, { ok: true, changed: false })).toBe(false);
   });
 

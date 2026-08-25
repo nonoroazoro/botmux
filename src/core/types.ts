@@ -141,6 +141,9 @@ export interface DaemonSession {
     cliInput: string;
     turnId?: string;
     codexAppInput?: CodexAppTurnInput;
+    roleContextRevision?: string;
+    roleContextFallbackBlock?: string;
+    roleContextIncluded?: true;
     /** The clean-input feature gate was evaluated when this follow-up was
      * staged; prompt_ready must not re-read a later config value. */
     codexAppInputGateFrozen?: true;

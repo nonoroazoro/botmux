@@ -1547,6 +1547,13 @@ export async function handleCommand(
                   : pendingPrompt || ds!.pendingFollowUps?.join('\n\n') || '',
                 cliInput: wrappedInput.content,
                 ...(ds!.pendingFollowUpTurnId ? { turnId: ds!.pendingFollowUpTurnId } : {}),
+                ...(wrappedInput.roleContextRevision
+                  ? { roleContextRevision: wrappedInput.roleContextRevision }
+                  : {}),
+                ...(wrappedInput.roleContextFallbackBlock
+                  ? { roleContextFallbackBlock: wrappedInput.roleContextFallbackBlock }
+                  : {}),
+                ...(wrappedInput.roleContextIncluded ? { roleContextIncluded: true as const } : {}),
                 ...((ds!.session.cliId ?? botCfg.cliId) === 'codex-app' && botCfg.codexAppCleanInput === true && wrappedInput.codexAppInput
                   ? { codexAppInput: wrappedInput.codexAppInput }
                   : {}),

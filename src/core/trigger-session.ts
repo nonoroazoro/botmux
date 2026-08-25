@@ -264,6 +264,8 @@ function buildExistingSessionContent(
     larkAppId,
     chatId,
     whiteboardId: ds.session.whiteboardId,
+    roleContextRevision: ds.session.roleContextRevision,
+    roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
     codexAppText,
     codexAppApplicationContext,
     // Only data enters untrusted structured context; connector-owner task and
@@ -791,7 +793,9 @@ export async function triggerSessionTurn(
     armLoudFinalSuppression(newDs);
     forkWorker(newDs, promptInput, loudTurnId);
   }
-  else forkWorker(newDs, promptInput);
+  else {
+    forkWorker(newDs, promptInput);
+  }
 
   return {
     ok: true,

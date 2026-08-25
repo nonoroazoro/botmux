@@ -24,7 +24,7 @@ import {
   markMessageListenerRunPreviewReplied,
   markMessageListenerRunPreviewRunning,
 } from '../services/message-listener-run-preview-store.js';
-import { persistStreamCardState, rememberLastCliInput } from './session-manager.js';
+import { markRoleContextRefreshRequired, persistStreamCardState, rememberLastCliInput } from './session-manager.js';
 import { fallbackTurnId, isSubstituteTurn } from './reply-target.js';
 import { updateMessage, deleteMessage, sendEphemeralCard, sendUserMessage, addReaction, removeReaction, MessageWithdrawnError } from '../im/lark/client.js';
 import { buildStreamingCard, buildPrivateSnapshotCard, buildSessionCard, buildTuiPromptCard, buildTuiPromptResolvedCard, buildTuiPromptFailedCard, buildRelayedFrozenCard, getCliDisplayName } from '../im/lark/card-builder.js';
@@ -4212,6 +4212,11 @@ export async function forkSession(
   const fkw = opts?.forkWorkerImpl ?? forkWorker;
   try {
     const initialPrompt = opts?.buildInitialPrompt?.(childSession.sessionId) ?? '';
+    fkw(
+      childDs,
+      initialPrompt,
+      opts?.turnId ? { resume: true, turnId: opts.turnId } : true,
+    );
     if (initialPrompt) {
       rememberLastCliInput(
         childDs,
@@ -4219,11 +4224,6 @@ export async function forkSession(
         initialPrompt,
       );
     }
-    fkw(
-      childDs,
-      initialPrompt,
-      opts?.turnId ? { resume: true, turnId: opts.turnId } : true,
-    );
   } catch (err) {
     logger.error(
       `[${childSession.sessionId.substring(0, 8)}] fork child worker spawn failed: `
@@ -4321,6 +4321,13 @@ export function sendWorkerInput(
     type: 'message',
     content: normalized.content,
     ...(codexAppInput ? { codexAppInput } : {}),
+    ...(normalized.roleContextRevision
+      ? { roleContextRevision: normalized.roleContextRevision }
+      : {}),
+    ...(normalized.roleContextFallbackBlock
+      ? { roleContextFallbackBlock: normalized.roleContextFallbackBlock }
+      : {}),
+    ...(normalized.roleContextIncluded ? { roleContextIncluded: true } : {}),
     ...(nativeSessionTitle ? { nativeSessionTitle } : {}),
     ...(nativeSessionTitlePrompt ? { nativeSessionTitlePrompt } : {}),
     ...(turnId ? { turnId } : {}),
@@ -4775,6 +4782,13 @@ export function forkWorker(
     ...(nativeSessionTitlePrompt ? { nativeSessionTitlePrompt } : {}),
     prompt,
     ...(promptCodexAppInput ? { promptCodexAppInput } : {}),
+    ...(promptPayload.roleContextRevision
+      ? { promptRoleContextRevision: promptPayload.roleContextRevision }
+      : {}),
+    ...(promptPayload.roleContextFallbackBlock
+      ? { promptRoleContextFallbackBlock: promptPayload.roleContextFallbackBlock }
+      : {}),
+    ...(promptPayload.roleContextIncluded ? { promptRoleContextIncluded: true } : {}),
     resume,
     // One-shot native fork intent (see Session.pendingForkSession). Only the
     // child's FIRST spawn resumes the SOURCE transcript (cliSessionId still
@@ -5163,6 +5177,11 @@ function setupWorkerHandlers(
         sessionStore.updateSession(ds.session);
         break;
       }
+      case 'context_reset': {
+        markRoleContextRefreshRequired(ds);
+        logger.info(`[${t}] Native context reset (${msg.reason}); role refresh armed`);
+        break;
+      }
       case 'turn_input_received': {
         if (
           ds.worker !== worker
@@ -5201,15 +5220,24 @@ function setupWorkerHandlers(
         }
         // Compatibility/fallback: a commit also proves receipt if the earlier
         // receipt ACK was delayed or dropped on the reverse IPC channel.
-        completeOrdinaryImDelivery(ds, msg.turnId, workerGeneration);
-        if (recordDispatchInputCommit(ds.session, msg.turnId, workerGeneration)) {
-          sessionStore.updateSession(ds.session);
-          if (msg.turnId.startsWith('mlrp_turn_')) {
-            markMessageListenerRunPreviewRunning(msg.turnId);
-          }
-        } else {
-          logger.warn(`[${t}] Ignored unbound input commit turn=${msg.turnId.slice(0, 16)}`);
+        if (msg.turnId) completeOrdinaryImDelivery(ds, msg.turnId, workerGeneration);
+        let sessionChanged = false;
+        if (msg.roleContextRevision !== undefined) {
+          ds.session.roleContextRevision = msg.roleContextRevision;
+          ds.session.roleContextRefreshRequired = undefined;
+          sessionChanged = true;
         }
+        if (msg.turnId) {
+          if (recordDispatchInputCommit(ds.session, msg.turnId, workerGeneration)) {
+            sessionChanged = true;
+            if (msg.turnId.startsWith('mlrp_turn_')) {
+              markMessageListenerRunPreviewRunning(msg.turnId);
+            }
+          } else {
+            logger.warn(`[${t}] Ignored unbound input commit turn=${msg.turnId.slice(0, 16)}`);
+          }
+        }
+        if (sessionChanged) sessionStore.updateSession(ds.session);
         break;
       }
       case 'session_ready_ack': {
@@ -5587,11 +5615,25 @@ function setupWorkerHandlers(
             followUpContent: followUp?.cliInput,
             ...(followUp?.turnId ? { followUpTurnId: followUp.turnId } : {}),
             ...(followUpCodexAppInput ? { followUpCodexAppInput } : {}),
+            ...(followUp?.roleContextRevision
+              ? { followUpRoleContextRevision: followUp.roleContextRevision }
+              : {}),
+            ...(followUp?.roleContextFallbackBlock
+              ? { followUpRoleContextFallbackBlock: followUp.roleContextFallbackBlock }
+              : {}),
+            ...(followUp?.roleContextIncluded ? { followUpRoleContextIncluded: true } : {}),
           });
           logger.info(`[${t}] Sent pending raw input after prompt_ready: ${rawInput.substring(0, 80)}${followUp ? ` (+follow-up ${followUp.cliInput.length} chars)` : ''}`);
           if (followUp) rememberLastCliInput(ds, followUp.userPrompt, {
             content: followUp.cliInput,
             ...(followUpCodexAppInput ? { codexAppInput: followUpCodexAppInput } : {}),
+            ...(followUp.roleContextRevision
+              ? { roleContextRevision: followUp.roleContextRevision }
+              : {}),
+            ...(followUp.roleContextFallbackBlock
+              ? { roleContextFallbackBlock: followUp.roleContextFallbackBlock }
+              : {}),
+            ...(followUp.roleContextIncluded ? { roleContextIncluded: true as const } : {}),
           }, { codexAppInputAccepted: !!followUpCodexAppInput });
         }
         // CLI reached its prompt — any previously posted stuck warning is stale.

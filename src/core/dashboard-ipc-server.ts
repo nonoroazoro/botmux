@@ -79,7 +79,7 @@ import { parseApiMessage, cardContentHasUpgradeFallback, resolveMergedCardConten
 import { listMessageHistoryPage } from '../im/lark/message-history-page/index.js';
 import { expandMergeForward } from '../im/lark/merge-forward.js';
 import { renderQuotedMessage } from '../cli/quoted-render.js';
-import { buildFollowUpCliInput, persistStreamCardState, resumeSession, spawnDashboardSession, activateQueuedSession, closeCliMismatchedSessionsForBot, suspendActiveSessionsForBot, downloadResources } from './session-manager.js';
+import { buildFollowUpCliInput, persistStreamCardState, rememberLastCliInput, resumeSession, spawnDashboardSession, activateQueuedSession, closeCliMismatchedSessionsForBot, suspendActiveSessionsForBot, downloadResources } from './session-manager.js';
 import { parseSpawnRequest } from './session-create.js';
 import { cleanupMaterializedDashboardImages, materializeDashboardImages } from './dashboard-images.js';
 import { locateLimiter } from './dashboard-locate.js';
@@ -87,7 +87,7 @@ import { resolveIsolatedAttachmentDir } from './resolve-isolated-attachment-dir.
 import { buildTerminalUrl } from './terminal-url.js';
 import { dashboardEventBus } from './dashboard-events.js';
 import { validateWorkingDir } from './working-dir.js';
-import { isValidRoleChatId, resolveRole, resolveRoleFile, writeRoleFile, deleteRoleFile, readRoleInjectMode, writeRoleInjectMode, deleteRoleInjectMode, type RoleInjectMode } from './role-resolver.js';
+import { isValidRoleChatId, resolveRole, resolveRoleFile, writeRoleFile, deleteRoleFile } from './role-resolver.js';
 import {
   deleteRoleProfileEntry,
   deleteRoleProfileIfEmpty,
@@ -1128,6 +1128,8 @@ async function dispatchCapabilityInteractionTurnUnlocked(input: {
     larkAppId: ds.larkAppId,
     chatId: ds.chatId,
     whiteboardId: ds.session.whiteboardId,
+    roleContextRevision: ds.session.roleContextRevision,
+    roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
     codexAppText: input.content,
   });
   beginReplyTargetTurn(ds, undefined, input.turnId, new Date().toISOString(), {
@@ -1145,12 +1147,16 @@ async function dispatchCapabilityInteractionTurnUnlocked(input: {
   persistStreamCardState(ds);
   sessionStore.updateSession(ds.session);
   if (ds.worker && !ds.worker.killed) {
-    if (sendWorkerInput(ds, cliInput, input.turnId)) return;
+    if (sendWorkerInput(ds, cliInput, input.turnId)) {
+      rememberLastCliInput(ds, input.content, cliInput);
+      return;
+    }
   }
   forkWorker(ds, cliInput, {
     resume: ds.hasHistory,
     turnId: input.turnId,
   });
+  rememberLastCliInput(ds, input.content, cliInput);
 }
 
 ipcRoute('POST', '/api/capabilities/manage', async (req, res) => {
@@ -3410,9 +3416,9 @@ ipcRoute('DELETE', '/api/oncall/:chatId', async (_req, res, p) => {
 
 // ─── Role management (dashboard) ───────────────────────────────────────────
 // POST   /api/roles/batch   body: {chatIds: string[]} → role snapshots
-// GET    /api/roles/:chatId  → { chatId, content, byteLength, injectMode, effectiveContent, effectiveSource }
-// PUT    /api/roles/:chatId  body: {content?, injectMode?} → write role file and/or injection mode
-// DELETE /api/roles/:chatId  → remove role file (and injection-mode sidecar)
+// GET    /api/roles/:chatId  → { chatId, content, byteLength, effectiveContent, effectiveSource }
+// PUT    /api/roles/:chatId  body: {content} → write role file
+// DELETE /api/roles/:chatId  → remove role file
 
 const MAX_ROLE_BATCH_CHAT_IDS = 1_000;
 
@@ -3424,7 +3430,6 @@ function dashboardRolePayload(larkAppId: string, chatId: string): Record<string,
     content,
     byteLength: content ? Buffer.byteLength(content, 'utf-8') : 0,
     hasRole: content !== null,
-    injectMode: readRoleInjectMode(larkAppId, chatId),
     effectiveContent: effective.content,
     effectiveSource: effective.source,
     effectiveByteLength: effective.content ? Buffer.byteLength(effective.content, 'utf-8') : 0,
@@ -3457,29 +3462,16 @@ ipcRoute('GET', '/api/roles/:chatId', async (_req, res, p) => {
 ipcRoute('PUT', '/api/roles/:chatId', async (req, res, p) => {
   if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
   if (!isValidRoleChatId(p.chatId)) return jsonRes(res, 400, { ok: false, error: 'invalid_chat_id' });
-  let body: { content?: unknown; injectMode?: unknown };
-  try { body = await readJsonBody<{ content?: string; injectMode?: string }>(req); }
+  let body: { content?: unknown };
+  try { body = await readJsonBody<{ content?: string }>(req); }
   catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
-  // injectMode is a per-chat setting that can be updated on its own (no content)
-  // — e.g. toggling "inject once" for a chat whose effective role is the team
-  // default. Only 'every'/'once' are accepted; anything else is ignored.
-  const injectMode: RoleInjectMode | undefined =
-    body.injectMode === 'once' ? 'once' : body.injectMode === 'every' ? 'every' : undefined;
   const hasContentField = typeof body.content === 'string';
   const content = hasContentField ? (body.content as string).trim() : '';
-  if (!hasContentField && injectMode === undefined) {
-    return jsonRes(res, 400, { ok: false, error: 'content_or_inject_mode_required' });
-  }
+  if (!hasContentField) return jsonRes(res, 400, { ok: false, error: 'content_required' });
   if (hasContentField && !content) return jsonRes(res, 400, { ok: false, error: 'content_required' });
   try {
-    if (hasContentField) writeRoleFile(cachedLarkAppId, p.chatId, content);
-    if (injectMode !== undefined) writeRoleInjectMode(cachedLarkAppId, p.chatId, injectMode);
-    // `changed` reflects whether the role FILE (→ hasRole in the groups matrix)
-    // was written. An injectMode-only PUT touches just the .meta.json sidecar and
-    // leaves hasRole untouched, so it reports changed:false — the dashboard uses
-    // this to avoid needlessly busting its 30s groups-matrix snapshot on the
-    // common inject-mode toggle.
-    jsonRes(res, 200, { ok: true, changed: hasContentField });
+    writeRoleFile(cachedLarkAppId, p.chatId, content);
+    jsonRes(res, 200, { ok: true, changed: true });
   } catch (e) {
     jsonRes(res, 500, { ok: false, error: String(e) });
   }
@@ -3489,7 +3481,6 @@ ipcRoute('DELETE', '/api/roles/:chatId', async (_req, res, p) => {
   if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
   if (!isValidRoleChatId(p.chatId)) return jsonRes(res, 400, { ok: false, error: 'invalid_chat_id' });
   const existed = deleteRoleFile(cachedLarkAppId, p.chatId);
-  deleteRoleInjectMode(cachedLarkAppId, p.chatId);
   // `changed` mirrors `existed`: a DELETE that removed nothing didn't flip
   // hasRole, so the dashboard skips invalidating its groups-matrix snapshot.
   jsonRes(res, 200, { ok: true, existed, changed: existed });
