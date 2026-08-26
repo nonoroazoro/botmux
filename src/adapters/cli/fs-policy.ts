@@ -112,6 +112,9 @@ export interface FsPolicyContext {
   mandatoryDenyPaths?: readonly string[];
   mandatoryDenyRegexes?: readonly string[];
   mandatoryReadOnlyPaths?: readonly string[];
+  /** Host-owned state that the model must never read or write. Any nested
+   *  allow rule is suppressed, then the roots are emitted as mandatory denies. */
+  hostOnlyPaths?: readonly string[];
   net?: boolean;
   /** Seatbelt write-allow regex passthrough (see FsPolicy.writeRegexes). */
   writeRegexes?: readonly string[];
@@ -400,7 +403,11 @@ function linuxBaseline(h: string, isolatedUserHome = false): FsRule[] {
  * fail-closed, never fail-open (codex P1). Carries `.kind` so callers/tests can
  * branch without string-matching the message. */
 export class FsPolicyConfigError extends Error {
-  readonly kind: 'external-bots-config' | 'working-dir-is-authority' | 'bots-config-in-carveout';
+  readonly kind:
+    | 'external-bots-config'
+    | 'working-dir-is-authority'
+    | 'working-dir-is-host-only'
+    | 'bots-config-in-carveout';
   constructor(kind: FsPolicyConfigError['kind'], message: string) {
     super(message);
     this.name = 'FsPolicyConfigError';
@@ -460,9 +467,26 @@ export function computeNoTransportAuthorityRoots(input: {
  */
 export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
   const candidates: FsRule[] = [];
-  const push = (paths: readonly string[] | undefined, access: FsAccess, source: FsRuleSource) => {
-    for (const p of paths ?? []) candidates.push({ path: p, access, source });
+  const hostOnlyPaths = (ctx.hostOnlyPaths ?? [])
+    .map(normalizeFsPath)
+    .filter((path): path is string => path !== null);
+  const insideHostOnly = (path: string): boolean => {
+    const normalized = normalizeFsPath(path);
+    return normalized !== null && hostOnlyPaths.some(root => coversPath(root, normalized));
   };
+  const push = (paths: readonly string[] | undefined, access: FsAccess, source: FsRuleSource) => {
+    for (const p of paths ?? []) {
+      if (access !== 'deny' && insideHostOnly(p)) continue;
+      candidates.push({ path: p, access, source });
+    }
+  };
+
+  if (insideHostOnly(ctx.workingDir)) {
+    throw new FsPolicyConfigError(
+      'working-dir-is-host-only',
+      `sandbox refuses workingDir ${ctx.workingDir}: it lives inside host-only state`,
+    );
+  }
 
   // No-Lark-transport credential profile: a core-only (apiOnly) bot or HTTP
   // virtual session must never be handed any Feishu credential, even under a
@@ -524,7 +548,7 @@ export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
   const baseline = ctx.platform === 'darwin'
     ? darwinBaseline(ctx.homeDir, ctx.isolatedUserHome)
     : linuxBaseline(ctx.homeDir, ctx.isolatedUserHome);
-  candidates.push(...baseline);
+  candidates.push(...baseline.filter(rule => rule.access === 'deny' || !insideHostOnly(rule.path)));
 
   // Adapter-declared surfaces.
   push(ctx.execPaths, 'readOnly', 'adapter');
@@ -702,6 +726,7 @@ export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
   push(ctx.userPaths?.deny, 'deny', 'user');
   push(ctx.mandatoryDenyPaths, 'deny', 'mandatory');
   push(ctx.mandatoryReadOnlyPaths, 'readOnly', 'mandatory');
+  push(hostOnlyPaths, 'deny', 'mandatory');
 
   // No-Lark-transport HOST-AUTHORITY denies + minimal carve-out (codex escalation
   // fix). We DENY THE WHOLE authority ROOT(s) — not exact credential files, which

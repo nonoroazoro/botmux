@@ -11,6 +11,7 @@ import * as quotedRender from '../src/cli/quoted-render.js';
 import * as larkClient from '../src/im/lark/client.js';
 import * as messageHistoryPage from '../src/im/lark/message-history-page/index.js';
 import * as messageParser from '../src/im/lark/message-parser.js';
+import * as sessionStore from '../src/services/session-store.js';
 
 const CAPABILITY = 'a11ce123'.repeat(8);
 const APP_ID = 'cli_test';
@@ -27,7 +28,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function post(operation: 'lark-history' | 'lark-quoted', body: Record<string, unknown>): Promise<Response> {
+async function post(operation: 'lark-history' | 'lark-quoted' | 'react', body: Record<string, unknown>): Promise<Response> {
   if (!handle) {
     setIpcAuthSecret(HOST_SECRET);
     handle = await startIpcServer({
@@ -148,5 +149,71 @@ describe('session-scoped Lark read IPC', () => {
       messageId: 'om_local',
       content: 'quoted context',
     });
+  });
+});
+
+describe('current-turn reaction IPC', () => {
+  it('reacts only to the capability-bound inbound message and records idempotency', async () => {
+    const turnId = 'om_current';
+    const ds = {
+      session: {
+        sessionId: SESSION_ID,
+        larkAppId: APP_ID,
+        chatId: CHAT_ID,
+        rootMessageId: CHAT_ID,
+        scope: 'chat',
+        replyTargets: {
+          [turnId]: { updatedAt: '2026-08-25T00:00:00.000Z', senderOpenId: 'ou_user' },
+        },
+        personalityReactionLedger: {},
+      },
+      larkAppId: APP_ID,
+      chatId: CHAT_ID,
+      rootMessageId: CHAT_ID,
+      managedTurnOrigin: { capability: CAPABILITY, turnId },
+    };
+    vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue(ds as any);
+    vi.spyOn(botRegistry, 'getBot').mockReturnValue({
+      config: { larkAppId: APP_ID, larkAppSecret: 'host-only', cliId: 'codex' },
+    } as any);
+    vi.spyOn(sessionStore, 'updateSession').mockImplementation(() => {});
+    const add = vi.spyOn(larkClient, 'addReaction').mockResolvedValue('reaction-1');
+
+    const response = await post('react', { emoji: 'done' });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, status: 'created', emoji: 'done' });
+    expect(add).toHaveBeenCalledWith(APP_ID, turnId, 'DONE', { timeoutMs: 5_000 });
+    expect(ds.session.personalityReactionLedger[turnId]).toMatchObject({
+      emoji: 'done',
+      reactionId: 'reaction-1',
+    });
+
+    const conflict = await post('react', { emoji: 'like' });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({ ok: false, error: 'already_reacted' });
+    expect(add).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a stale capability instead of accepting caller-selected routing', async () => {
+    const turnId = 'om_current';
+    vi.spyOn(workerPool, 'findActiveBySessionId').mockReturnValue({
+      session: {
+        sessionId: SESSION_ID,
+        larkAppId: APP_ID,
+        chatId: CHAT_ID,
+        replyTargets: { [turnId]: { updatedAt: '2026-08-25T00:00:00.000Z' } },
+      },
+      larkAppId: APP_ID,
+      managedTurnOrigin: { capability: CAPABILITY, turnId },
+    } as any);
+
+    const response = await post('react', {
+      emoji: 'yes',
+      originCapability: 'stale'.repeat(16),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ ok: false, error: 'origin_unproven' });
   });
 });

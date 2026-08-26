@@ -832,7 +832,7 @@ describe('resumeSession', () => {
         clientUserMessageId: 'om_round_27',
         additionalContext: {
           botmux_sender: { kind: 'untrusted', value: '<sender name="晓雪" />' },
-          botmux_role: { kind: 'application', value: '<role>reviewer</role>' },
+          botmux_agent_context: { kind: 'application', value: '<role>reviewer</role>' },
         },
       };
       sessionStore.updateSession(closed);

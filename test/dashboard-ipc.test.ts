@@ -2611,6 +2611,40 @@ describe('GET /api/groups (Phase B)', () => {
   });
 });
 
+describe('personality reaction settings', () => {
+  it('reports reactions unavailable and rejects enabling them for apiOnly bots', async () => {
+    const appId = 'core-only-personality';
+    setLarkAppId(appId);
+    registerBot({
+      larkAppId: appId,
+      larkAppSecret: '',
+      cliId: 'codex',
+      apiOnly: true,
+    });
+    handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
+
+    const read = await fetch(`http://127.0.0.1:${handle.port}/api/bot-soul`);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({
+      ok: true,
+      reactionsEnabled: false,
+      reactionsAvailable: false,
+    });
+
+    const write = await fetch(`http://127.0.0.1:${handle.port}/api/bot-personality-reactions`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(write.status).toBe(409);
+    expect(await write.json()).toMatchObject({
+      ok: false,
+      error: 'no_feishu_transport',
+      reactionsEnabled: false,
+    });
+  });
+});
+
 describe('PUT/DELETE /api/oncall/:chatId', () => {
   it('rejects PUT without workingDir', async () => {
     setLarkAppId('test-app');

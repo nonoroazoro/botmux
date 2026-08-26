@@ -44,7 +44,7 @@ describe('Codex App clean prompt sidecar', () => {
       { larkAppId: 'identity-description-app' },
     );
 
-    expect(built.codexAppInput?.additionalContext?.botmux_role).toEqual({
+    expect(built.codexAppInput?.additionalContext?.botmux_agent_context).toEqual({
       kind: 'application',
       value: '<identity>\n  <description>Example assistant for &lt;engineering&gt; &amp; product tasks.</description>\n</identity>',
     });
@@ -191,6 +191,40 @@ describe('Codex App clean prompt sidecar', () => {
     expect(built.codexAppInput?.additionalContext?.botmux_attachments.value).toContain('/tmp/readme.md');
   });
 
+  it('keeps the compact reaction gate in trusted follow-up context', () => {
+    registerBot({
+      larkAppId: 'reaction-reminder-app',
+      larkAppSecret: 'secret',
+      cliId: 'codex-app',
+    });
+    const opening = buildNewTopicCliInput(
+      'Start',
+      'sid-reaction-reminder',
+      'codex-app',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'en',
+      undefined,
+      { larkAppId: 'reaction-reminder-app', chatId: 'oc_reaction_reminder' },
+    );
+    const followUp = buildFollowUpCliInput('2 + 2 = 5, right?', 'sid-reaction-reminder', {
+      cliId: 'codex-app',
+      larkAppId: 'reaction-reminder-app',
+      chatId: 'oc_reaction_reminder',
+      agentContextRevision: opening.agentContextRevision,
+    });
+
+    expect(followUp.content).not.toContain('<agent_context>');
+    expect(followUp.codexAppInput?.additionalContext?.botmux_reaction_reminder).toEqual({
+      kind: 'application',
+      value: expect.stringContaining('must first use `botmux react no`'),
+    });
+  });
+
   it('injects conservative summary.md reuse rules when summary memory is enabled', () => {
     registerBot({
       larkAppId: 'summary-memory-prompt',
@@ -213,9 +247,9 @@ describe('Codex App clean prompt sidecar', () => {
     expect(opening.content).toContain('<summary_memory>');
     expect(opening.content).toContain('only when every required match condition');
     expect(opening.content).toContain('docs/incident-summary.md');
-    expect(opening.codexAppInput?.additionalContext?.botmux_role.value).toContain('<summary_memory>');
+    expect(JSON.stringify(opening.codexAppInput?.additionalContext)).toContain('<summary_memory>');
     expect(followUp.content).toContain('<summary_memory>');
-    expect(followUp.codexAppInput?.additionalContext?.botmux_role.value).toContain('only as diagnostic reference');
+    expect(JSON.stringify(followUp.codexAppInput?.additionalContext)).toContain('only as diagnostic reference');
   });
 
   it('allows an absolute summary memory path in the prompt contract', () => {
@@ -489,21 +523,21 @@ describe('Codex App clean prompt sidecar', () => {
     expect(ds.session.lastCodexAppInput?.text).toBe('visible');
   });
 
-  it('does not commit role delivery while persisting input history', () => {
+  it('does not commit agent context delivery while persisting input history', () => {
     registerBot({ larkAppId: 'role-commit-app', larkAppSecret: 's', cliId: 'codex-app' });
     const ds: any = {
       larkAppId: 'role-commit-app',
       session: {
         sessionId: 'sid-role-commit',
         cliId: 'codex-app',
-        roleContextRevision: 'old-revision',
-        roleContextRefreshRequired: true,
+        agentContextRevision: 'old-revision',
+        agentContextRefreshRequired: true,
       },
     };
-    const payload = { content: 'visible', roleContextRevision: 'new-revision' };
+    const payload = { content: 'visible', agentContextRevision: 'new-revision' };
 
     rememberLastCliInput(ds, 'visible', payload);
-    expect(ds.session.roleContextRevision).toBe('old-revision');
-    expect(ds.session.roleContextRefreshRequired).toBe(true);
+    expect(ds.session.agentContextRevision).toBe('old-revision');
+    expect(ds.session.agentContextRefreshRequired).toBe(true);
   });
 });

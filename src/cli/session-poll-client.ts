@@ -24,8 +24,6 @@ export async function requestSessionPoll(input: {
     body: JSON.stringify({
       ...input.body,
       originCapability: claim?.capability,
-      originTurnId: claim?.turnId,
-      originDispatchAttempt: claim?.dispatchAttempt,
     }),
   } satisfies RequestInit;
   let hostSecret: string | undefined;

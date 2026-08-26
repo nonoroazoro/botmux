@@ -51,7 +51,7 @@ import {
 } from './core/cli-runtime-update.js';
 import { sendRestartReportIfPending } from './core/restart-report.js';
 import { statSync } from 'node:fs';
-import { addReaction, deleteMessage, getChatContext, getChatMode, getChatNameAndMode, getMessageChatId, listChatMemberOpenIds, MessageWithdrawnError, replyMessage, resolveAllowedUsersWithMap, sendMessage, sendUserMessage, updateMessage, type EntryResolveStatus } from './im/lark/client.js';
+import { deleteMessage, getChatContext, getChatMode, getChatNameAndMode, getMessageChatId, listChatMemberOpenIds, MessageWithdrawnError, replyMessage, resolveAllowedUsersWithMap, sendMessage, sendUserMessage, updateMessage, type EntryResolveStatus } from './im/lark/client.js';
 import { resolveGroupJoinPrompt, waitForAllowedUserInChat } from './core/auto-start.js';
 import {
   loadBotConfigAtIndex,
@@ -121,7 +121,6 @@ import { buildQuotaExhaustedCard, buildRepoSelectCard, buildStreamingCard, getCl
 import { codexServiceTierBadge } from './services/codex-service-tier.js';
 import { sessionConfiguredRuntimeDisplayName } from './core/cli-runtime-display.js';
 import { isLocalCliOpenReady } from './services/local-cli-opener.js';
-import { RECEIVED_REACTION_EMOJI_TYPE, SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE } from './core/pending-response.js';
 import { t as tr, botLocale, localeForBot } from './i18n/index.js';
 import { createCliAdapterSync } from './adapters/cli/registry.js';
 import {
@@ -192,7 +191,7 @@ import {
   executeScheduledTask,
   persistStreamCardState,
   rememberLastCliInput,
-  markRoleContextRefreshRequired,
+  markAgentContextRefreshRequired,
   ensureTerminalWorkerPort,
   ensureSessionWhiteboard,
 } from './core/session-manager.js';
@@ -2811,32 +2810,6 @@ function startMemoryDiagnostics(): ReturnType<typeof setInterval> | undefined {
  * Lark message ids start with `om_` and chat ids with `oc_`, so the two
  * address spaces never collide; the lookup just tries both.
  */
-function streamingCardDisabledFor(ds: DaemonSession, turnId?: string): boolean {
-  if (ds.streamingCardForced) return false;
-  try {
-    const cfg = getBot(ds.larkAppId).config;
-    return cfg.disableStreamingCard === true
-      || (!!ds.chatId && !!cfg.noCardChats?.includes(ds.chatId))
-      // Substitute (avatar-style) turns hide the streaming card per-turn: the
-      // shared chat-scope session serves substitute AND direct @bot turns, so a
-      // session-level latch would permanently kill cards for normal turns too.
-      // Callers with a turnId (turn reactions) get an exact per-turn answer.
-      || isSubstituteTurn(ds, turnId);
-  } catch { return false; }
-}
-
-function silentTurnReactionsFor(ds: DaemonSession): boolean {
-  try {
-    return getBot(ds.larkAppId).config.silentTurnReactions === true;
-  } catch { return false; }
-}
-
-function receivedReactionEmojiFor(ds: DaemonSession): string {
-  try {
-    return getBot(ds.larkAppId).config.receivedReactionEmoji || RECEIVED_REACTION_EMOJI_TYPE;
-  } catch { return RECEIVED_REACTION_EMOJI_TYPE; }
-}
-
 function readSessionFreshFromDisk(sessionId: string, larkAppId: string): import('./types.js').Session | undefined {
   const paths = [
     join(config.session.dataDir, `sessions-${larkAppId}.json`),
@@ -2850,53 +2823,6 @@ function readSessionFreshFromDisk(sessionId: string, larkAppId: string): import(
     } catch { /* ignore corrupt/racing session file */ }
   }
   return undefined;
-}
-
-export async function noteTurnReceived(
-  ds: DaemonSession,
-  triggerMessageId: string,
-  _prompt?: string,
-  _sender?: { name?: string },
-  _turnId?: string,
-  receivedReactionEmoji?: string,
-): Promise<void> {
-  // Replaces the old 「处理中」 placeholder card. That card existed only to be
-  // PATCHed with the final answer, and `im.v1.message.patch` is silent (no Feishu
-  // notification / unread) — so card-off answers could land unseen. The
-  // placeholder + patch-delivery was removed; answers now always go out as a
-  // fresh message (deliverFinalOutput / `botmux send`).
-  //
-  // This call site is the per-message acceptance point, so it also drives the
-  // two-phase turn reaction. It's auto-enabled exactly for card-off sessions
-  // (streaming card disabled): those have no live status card, so the ✋→✅ on
-  // the user's message is the only lightweight progress signal. Bots can opt
-  // out via silentTurnReactions for low-noise observer scenarios.
-  // React 冲! on the triggering message the instant it's accepted. Binding to the
-  // message — not a worker status edge — means type-ahead / busy-batched messages
-  // each get their own ✋. `finishTurnReactions` flips every pending ✋ to ✅ when
-  // the worker next goes idle.
-  if (ds.session.vcMeetingReceiver) return;
-  // Turn-exact card-off check: the reaction ack belongs to THIS message's turn,
-  // not to whichever turn most recently overwrote currentReplyTarget.
-  if (!streamingCardDisabledFor(ds, triggerMessageId)) return;
-  if (silentTurnReactionsFor(ds)) return;
-  // Only Lark messages carry reactions — doc-comment ids / chat anchors can't.
-  if (!triggerMessageId.startsWith('om_')) return;
-  if ((ds.pendingAckReactions ??= []).some(a => a.messageId === triggerMessageId)) return;
-  // Add the ✋ FIRST, register the entry only after it lands. If we pushed the
-  // entry before awaiting addReaction, a previous turn's idle edge
-  // (finishTurnReactions) could detach this half-formed entry mid-flight —
-  // DONE-ing a message that hasn't even reached the worker yet and orphaning its
-  // reactionId. Callers await this before dispatching the message to the worker,
-  // so a registered entry is always in place before its own turn can go idle.
-  let reactionId: string;
-  try {
-    reactionId = await addReaction(ds.larkAppId, triggerMessageId, receivedReactionEmoji ?? receivedReactionEmojiFor(ds));
-  } catch (err) {
-    logger.debug(`[reaction] received add failed for ${triggerMessageId}: ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  }
-  (ds.pendingAckReactions ??= []).push({ messageId: triggerMessageId, reactionId });
 }
 
 async function sessionReply(
@@ -5203,23 +5129,14 @@ ipcRoute('POST', '/api/asks', async (req, res) => {
     const body = raw && typeof raw === 'object' && !Array.isArray(raw)
       ? raw as Record<string, unknown>
       : {};
-    const claimedAttempt = typeof body.originDispatchAttempt === 'number'
-      && Number.isSafeInteger(body.originDispatchAttempt)
-      && body.originDispatchAttempt > 0
-      ? body.originDispatchAttempt
-      : undefined;
     const verified = authorizeSessionScopedIpc({
       trustedHost: false,
-      sessionExists: !!askSession,
       receiverSession: !!askSession?.session.vcMeetingReceiver,
       allowReceiver: false,
-      sessionId: parsed.sessionId,
       liveOrigin: askSession?.managedTurnOrigin,
       claimedCapability: typeof body.originCapability === 'string'
         ? body.originCapability
         : undefined,
-      claimedTurnId: typeof body.originTurnId === 'string' ? body.originTurnId : undefined,
-      claimedDispatchAttempt: claimedAttempt,
     });
     if (!verified.ok) {
       return jsonRes(res, 403, {
@@ -5343,8 +5260,6 @@ ipcRoute('POST', '/api/attention', async (req, res) => {
     sessionId?: unknown;
     kind?: unknown;
     reason?: unknown;
-    originTurnId?: unknown;
-    originDispatchAttempt?: unknown;
     originCapability?: unknown;
   };
   try {
@@ -5360,23 +5275,14 @@ ipcRoute('POST', '/api/attention', async (req, res) => {
     if (s.session.sessionId === sessionId) { ds = s; break; }
   }
   if (!isTrustedHostIpcRequest(req)) {
-    const claimedAttempt = typeof raw.originDispatchAttempt === 'number'
-      && Number.isSafeInteger(raw.originDispatchAttempt)
-      && raw.originDispatchAttempt > 0
-      ? raw.originDispatchAttempt
-      : undefined;
     const verified = authorizeSessionScopedIpc({
       trustedHost: false,
-      sessionExists: !!ds,
       receiverSession: !!ds?.session.vcMeetingReceiver,
       allowReceiver: false,
-      sessionId,
       liveOrigin: ds?.managedTurnOrigin,
       claimedCapability: typeof raw.originCapability === 'string'
         ? raw.originCapability
         : undefined,
-      claimedTurnId: typeof raw.originTurnId === 'string' ? raw.originTurnId : undefined,
-      claimedDispatchAttempt: claimedAttempt,
     });
     if (!verified.ok) {
       return jsonRes(res, 403, { ok: false, error: verified.error });
@@ -5407,8 +5313,6 @@ ipcRoute('POST', '/api/session-ready', async (req, res) => {
     sessionId?: unknown;
     source?: unknown;
     originCapability?: unknown;
-    originTurnId?: unknown;
-    originDispatchAttempt?: unknown;
   };
   try {
     raw = await readJsonBody(req);
@@ -5424,23 +5328,14 @@ ipcRoute('POST', '/api/session-ready', async (req, res) => {
     if (s.session.sessionId === sessionId) { ds = s; break; }
   }
   if (!isTrustedHostIpcRequest(req)) {
-    const claimedAttempt = typeof raw.originDispatchAttempt === 'number'
-      && Number.isSafeInteger(raw.originDispatchAttempt)
-      && raw.originDispatchAttempt > 0
-      ? raw.originDispatchAttempt
-      : undefined;
     const verified = authorizeSessionScopedIpc({
       trustedHost: false,
-      sessionExists: !!ds,
       receiverSession: !!ds?.session.vcMeetingReceiver,
       allowReceiver: true,
-      sessionId,
       liveOrigin: ds?.managedTurnOrigin,
       claimedCapability: typeof raw.originCapability === 'string'
         ? raw.originCapability
         : undefined,
-      claimedTurnId: typeof raw.originTurnId === 'string' ? raw.originTurnId : undefined,
-      claimedDispatchAttempt: claimedAttempt,
     });
     if (!verified.ok) {
       return jsonRes(res, 403, {
@@ -5590,15 +5485,11 @@ ipcRoute('POST', '/api/hooks/emit', async (req, res) => {
     event,
     payload,
     sessionId,
-    originTurnId,
-    originDispatchAttempt,
     originCapability,
   } = raw as {
     event?: unknown;
     payload?: unknown;
     sessionId?: unknown;
-    originTurnId?: unknown;
-    originDispatchAttempt?: unknown;
     originCapability?: unknown;
   };
   if (typeof event !== 'string' || !(HOOK_EVENTS as readonly string[]).includes(event)) {
@@ -5611,21 +5502,12 @@ ipcRoute('POST', '/api/hooks/emit', async (req, res) => {
   if (!isTrustedHostIpcRequest(req)) {
     const sid = typeof sessionId === 'string' ? sessionId : '';
     const ds = sid ? findActiveBySessionId(sid) : undefined;
-    const claimedAttempt = typeof originDispatchAttempt === 'number'
-      && Number.isSafeInteger(originDispatchAttempt)
-      && originDispatchAttempt > 0
-      ? originDispatchAttempt
-      : undefined;
     const verified = authorizeSessionScopedIpc({
       trustedHost: false,
-      sessionExists: !!ds,
       receiverSession: !!ds?.session.vcMeetingReceiver,
       allowReceiver: false,
-      sessionId: sid,
       liveOrigin: ds?.managedTurnOrigin,
       claimedCapability: typeof originCapability === 'string' ? originCapability : undefined,
-      claimedTurnId: typeof originTurnId === 'string' ? originTurnId : undefined,
-      claimedDispatchAttempt: claimedAttempt,
     });
     if (!verified.ok) {
       return jsonRes(res, 403, { ok: false, error: verified.error });
@@ -5817,11 +5699,6 @@ ipcRoute('POST', '/api/vc-meetings/action-request', async (req, res) => {
       error: 'managed action origin is not a dedicated meeting receiver session',
     });
   }
-  const claimedAttempt = typeof body.originDispatchAttempt === 'number'
-    && Number.isSafeInteger(body.originDispatchAttempt)
-    && body.originDispatchAttempt > 0
-    ? body.originDispatchAttempt
-    : undefined;
   const liveImOrigin = resolveVcMeetingImTurnOrigin(
     ds.session,
     ds.managedTurnOrigin?.turnId,
@@ -5831,8 +5708,6 @@ ipcRoute('POST', '/api/vc-meetings/action-request', async (req, res) => {
     currentImTurnOrigin: liveImOrigin,
     liveOrigin: ds.managedTurnOrigin,
     claimedCapability: typeof body.originCapability === 'string' ? body.originCapability : undefined,
-    claimedTurnId: typeof body.originTurnId === 'string' ? body.originTurnId : undefined,
-    claimedDispatchAttempt: claimedAttempt,
   });
   if (!verified.ok) return jsonRes(res, 403, verified);
   const channel = body.channel === 'text' || body.channel === 'voice' ? body.channel : undefined;
@@ -15414,10 +15289,10 @@ function willAutoWorktree(larkAppId: string, pinnedWorkingDir: string | undefine
  * session, and surface it on the dashboard immediately (`announcePendingRepoSession`
  * — otherwise the row is invisible until the worktree's git fetch completes). Shared
  * by every daemon new-session spawn path (passthrough / new-topic / group-join /
- * safety-net). Does NOT `noteTurnReceived` (no ✋ ack): the turn only truly starts
- * when runAutoWorktreeCommit → commitRepoSelection forks, and forking may not happen
- * (build fails / user /closes) — an early ✋ would be orphaned. The pending dashboard
- * row is announced inside runAutoWorktreeCommit (one place for all callers). */
+ * safety-net). The turn only truly starts when runAutoWorktreeCommit calls
+ * commitRepoSelection, and forking may not happen if the build fails or the
+ * user closes it. The pending dashboard row is announced inside
+ * runAutoWorktreeCommit for all callers. */
 function startAutoWorktreePending(ds: DaemonSession, args: {
   anchor: string; baseDir: string; title?: string; prompt: string; operatorOpenId?: string;
 }): void {
@@ -15510,8 +15385,8 @@ function prepareNativeNewSession(ds: DaemonSession): void {
   delete ds.session.lastCodexAppInput;
   delete ds.session.cliSessionId;
   delete ds.session.pendingForkSession;
-  delete ds.session.roleContextRevision;
-  delete ds.session.roleContextRefreshRequired;
+  delete ds.session.agentContextRevision;
+  delete ds.session.agentContextRefreshRequired;
   ds.hasHistory = false;
 
   const markerWasPending = ds.session.initialUserTurnPending === true;
@@ -15613,7 +15488,7 @@ function deliverPassthroughToExistingSession(
       forkWorker(ds, '', { resume: ds.hasHistory });
     }
     if (cmd === '/clear' || cmd === '/compact') {
-      markRoleContextRefreshRequired(ds);
+      markAgentContextRefreshRequired(ds);
     }
     if (cmd === '/new') {
       prepareNativeNewSession(ds);
@@ -16401,7 +16276,6 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
     const selfBot = getBot(larkAppId);
     ensureSessionWhiteboard(ds);
     const prompt = buildNewTopicCliInput(promptContent, session.sessionId, botCfg.cliId, botCfg.cliPathOverride, attachments, parsed.mentions, await getAvailableBots(larkAppId, chatId), undefined, { name: selfBot.botName, openId: selfBot.botOpenId }, localeForBot(larkAppId), newTopicSender, { larkAppId, chatId, whiteboardId: ds.session.whiteboardId, substituteTrigger, codexAppText: codexAppVisibleText, codexAppApplicationContext, codexAppMessageContext });
-    await noteTurnReceived(ds, messageId, content, newTopicSender, messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
     forkWorker(ds, prompt, { turnId: messageId });
     rememberLastCliInput(ds, promptContent, prompt);
     ds.pendingTurnId = undefined;
@@ -16434,7 +16308,6 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
     const selfBot = getBot(larkAppId);
     ensureSessionWhiteboard(ds);
     const prompt = buildNewTopicCliInput(promptContent, session.sessionId, botCfg.cliId, botCfg.cliPathOverride, attachments, parsed.mentions, await getAvailableBots(larkAppId, chatId), undefined, { name: selfBot.botName, openId: selfBot.botOpenId }, localeForBot(larkAppId), newTopicSender, { larkAppId, chatId, whiteboardId: ds.session.whiteboardId, substituteTrigger, codexAppText: codexAppVisibleText, codexAppApplicationContext, codexAppMessageContext });
-    await noteTurnReceived(ds, messageId, content, newTopicSender, messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
     forkWorker(ds, prompt, { turnId: messageId });
     rememberLastCliInput(ds, promptContent, prompt);
     ds.pendingTurnId = undefined;
@@ -16850,11 +16723,6 @@ async function handleBotAdded(
         withdrawSharedReplySeed();
         return;
       }
-      await noteTurnReceived(ds, anchor, promptBody);
-      if (joinBootstrapWasTakenOver()) {
-        withdrawSharedReplySeed();
-        return;
-      }
       armSharedReplyTarget();
       forkWorker(ds, prompt, sharedReplyRootId ? { turnId: sharedReplyRootId } : false);
       rememberLastCliInput(ds, promptBody, prompt);
@@ -16894,11 +16762,6 @@ async function handleBotAdded(
       ds.pendingRepo = false;
       ensureSessionWhiteboard(ds);
       const prompt = await buildPrompt();
-      if (joinBootstrapWasTakenOver()) {
-        withdrawSharedReplySeed();
-        return;
-      }
-      await noteTurnReceived(ds, anchor, promptBody);
       if (joinBootstrapWasTakenOver()) {
         withdrawSharedReplySeed();
         return;
@@ -17773,7 +17636,6 @@ async function handleThreadReply(
       const selfBot = getBot(larkAppId);
       ensureSessionWhiteboard(newDs);
       const prompt = buildNewTopicCliInput(promptContent, session.sessionId, botCfg.cliId, botCfg.cliPathOverride, attachments, parsed.mentions, await getAvailableBots(larkAppId, autoCreateChatId), undefined, { name: selfBot.botName, openId: selfBot.botOpenId }, localeForBot(larkAppId), autoCreateSender, { larkAppId, chatId: autoCreateChatId, whiteboardId: newDs.session.whiteboardId, substituteTrigger, codexAppText: parsed.content, codexAppApplicationContext, codexAppMessageContext });
-      await noteTurnReceived(newDs, parsed.messageId, parsed.content, autoCreateSender, parsed.messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
       forkWorker(newDs, prompt, { turnId: parsed.messageId });
       rememberLastCliInput(newDs, promptContent, prompt);
       newDs.pendingTurnId = undefined;
@@ -17806,7 +17668,6 @@ async function handleThreadReply(
       const selfBot = getBot(larkAppId);
       ensureSessionWhiteboard(newDs);
       const prompt = buildNewTopicCliInput(promptContent, session.sessionId, botCfg.cliId, botCfg.cliPathOverride, attachments, parsed.mentions, await getAvailableBots(larkAppId, autoCreateChatId), undefined, { name: selfBot.botName, openId: selfBot.botOpenId }, localeForBot(larkAppId), autoCreateSender, { larkAppId, chatId: autoCreateChatId, whiteboardId: newDs.session.whiteboardId, substituteTrigger, codexAppText: parsed.content, codexAppApplicationContext, codexAppMessageContext });
-      await noteTurnReceived(newDs, parsed.messageId, parsed.content, autoCreateSender, parsed.messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
       forkWorker(newDs, prompt, { turnId: parsed.messageId });
       rememberLastCliInput(newDs, promptContent, prompt);
       newDs.pendingTurnId = undefined;
@@ -17880,15 +17741,14 @@ async function handleThreadReply(
           larkAppId,
           chatId: ds.session.chatId,
           whiteboardId: ds.session.whiteboardId,
-          roleContextRevision: ds.session.roleContextRevision,
-          roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
+          agentContextRevision: ds.session.agentContextRevision,
+          agentContextRefreshRequired: ds.session.agentContextRefreshRequired,
           substituteTrigger,
           codexAppText: parsed.content,
           codexAppApplicationContext,
           codexAppMessageContext,
         });
     beginNewTurn(ds, parsed.content);
-    await noteTurnReceived(ds, parsed.messageId, parsed.content, turnSender, parsed.messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
     let accepted = false;
     try {
       accepted = sendWorkerInput(ds, cliInput, parsed.messageId);
@@ -18032,7 +17892,6 @@ async function handleThreadReply(
         },
       );
     }
-    await noteTurnReceived(ds, parsed.messageId, parsed.content, reforkSender, parsed.messageId, substituteTrigger ? SUBSTITUTE_RECEIVED_REACTION_EMOJI_TYPE : undefined);
     try {
       // Adopt sessions must re-fork via forkAdoptWorker, NOT forkWorker: the
       // latter would spawn a fresh botmux-managed bmx-* CLI in the adopt cwd,
@@ -18357,10 +18216,8 @@ async function handleDocComment(ctx: DocCommentContext): Promise<boolean> {
         // rememberLastCliInput persists both the exact comment target and the
         // structured sidecar before any worker-visible delivery can occur.
         rememberLastCliInput(ds, promptContent, cliInput);
-        await noteTurnReceived(ds, commentId, text, sender, turnId);
-        ensureCurrentRoutingGeneration(generation, 'comment:live-note');
         if (ds.worker !== targetWorker || targetWorker.killed) {
-          throw new Error('worker generation changed during comment:live-note');
+          throw new Error('worker generation changed during comment delivery');
         }
         if (!sendWorkerInput(ds, cliInput, turnId)) {
           throw new Error('worker became unavailable during comment:live-send');
@@ -18394,10 +18251,8 @@ async function handleDocComment(ctx: DocCommentContext): Promise<boolean> {
       });
       (ds.session.docCommentTargets ??= {})[turnId] = docTarget; // per-turn map，不覆盖其他并发轮
       rememberLastCliInput(ds, promptContent, wrappedInput);
-      await noteTurnReceived(ds, commentId, text, sender, turnId);
-      ensureCurrentRoutingGeneration(generation, 'comment:refork-note');
       if (ds.worker && !ds.worker.killed) {
-        throw new Error('worker became active during comment:refork-note');
+        throw new Error('worker became active during comment refork');
       }
       sessionStore.updateSession(ds.session);
       if (ds.adoptedFrom) {

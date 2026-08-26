@@ -5,7 +5,6 @@ import { config } from '../config.js';
 import { findOnlineDaemon } from '../utils/daemon-discovery.js';
 import { logger } from '../utils/logger.js';
 import { fetchDaemonIpc, loadDaemonIpcSecret } from '../core/daemon-ipc-auth.js';
-import { resolveSessionContext } from '../core/session-marker.js';
 import { readManagedOriginCapability } from '../core/managed-origin-capability.js';
 
 export const HOOK_EVENTS = [
@@ -461,13 +460,11 @@ async function forwardEmitToDaemon(event: HookEvent, payload: HookPayload, larkA
     timer.unref();
     try {
       const sessionId = process.env.BOTMUX_SESSION_ID;
-      const origin = resolveSessionContext(config.session.dataDir, sessionId);
       const originCapability = readManagedOriginCapability(
         config.session.dataDir,
         sessionId,
         process.env.BOTMUX_SEND_RELAY,
       )?.capability;
-      const envAttempt = Number(process.env.BOTMUX_DISPATCH_ATTEMPT);
       const request = {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -476,9 +473,6 @@ async function forwardEmitToDaemon(event: HookEvent, payload: HookPayload, larkA
           payload,
           sessionId,
           originCapability,
-          originTurnId: origin?.turnId ?? process.env.BOTMUX_TURN_ID,
-          originDispatchAttempt: origin?.dispatchAttempt
-            ?? (Number.isSafeInteger(envAttempt) && envAttempt > 0 ? envAttempt : undefined),
         }),
         signal: ctrl.signal,
       } satisfies RequestInit;

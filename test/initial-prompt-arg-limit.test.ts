@@ -9,7 +9,6 @@ import { shouldQueueInitialPrompt } from '../src/codex-rpc-lifecycle.js';
 import {
   resolveInitialPromptDelivery,
   shouldArmSpawnArgvInitialPromptBusy,
-  shouldTrackArgvBakedFirstPrompt,
   shouldDeferInitialPromptForArgLimit,
 } from '../src/utils/pending-input-queue.js';
 import { PI_INITIAL_PROMPT_COMMAND } from '../src/adapters/cli/pi-initial-prompt-extension.js';
@@ -28,7 +27,7 @@ describe('shouldArmSpawnArgvInitialPromptBusy (PR #633 CR)', () => {
     })).toBe(true);
   });
 
-  it('does not arm for quiescence-only argv adapters (Pi / Gemini) but still tracks argv seed', () => {
+  it('does not arm for quiescence-only argv adapters (Pi / Gemini)', () => {
     for (const adapter of [createPiAdapter('/bin/pi'), createGeminiAdapter('/bin/gemini')]) {
       expect(adapter.passesInitialPromptViaArgs).toBe(true);
       expect(adapter.injectsReadyHook).toBeFalsy();
@@ -37,8 +36,6 @@ describe('shouldArmSpawnArgvInitialPromptBusy (PR #633 CR)', () => {
         preparedInitialPrompt: 'do something',
         queuedInitialPrompt: undefined as string | undefined,
       };
-      // Track seed so markPromptReady can publish working→idle for card-off.
-      expect(shouldTrackArgvBakedFirstPrompt(base)).toBe(true);
       // Must NOT hold busy across first ready (first ready IS turn end).
       expect(shouldArmSpawnArgvInitialPromptBusy({
         ...base,

@@ -19,7 +19,6 @@ import { loadBotConfigs, registerBot } from '../bot-registry.js';
 import { config } from '../config.js';
 import { listVcMeetingRuntimeSessions } from '../services/vc-meeting-runtime-store.js';
 import { findOnlineDaemon } from '../utils/daemon-discovery.js';
-import { resolveSessionContext } from '../core/session-marker.js';
 import { fetchDaemonIpc } from '../core/daemon-ipc-auth.js';
 import { readManagedOriginCapability } from '../core/managed-origin-capability.js';
 import type { NormalizedVcMeetingItem } from '../vc-agent/types.js';
@@ -291,7 +290,6 @@ async function cmdRequestOutput(args: string[]): Promise<void> {
   const receiverSessionId = process.env.BOTMUX_SESSION_ID;
   const receiverAppId = process.env.BOTMUX_LARK_APP_ID;
   const receiverPortRaw = Number(process.env.BOTMUX_DAEMON_IPC_PORT);
-  const liveOrigin = resolveSessionContext(config.session.dataDir, receiverSessionId);
   const relayDir = process.env.BOTMUX_SEND_RELAY;
   const originCapability = readManagedOriginCapability(
     config.session.dataDir,
@@ -314,10 +312,6 @@ async function cmdRequestOutput(args: string[]): Promise<void> {
         content,
         ...(reason ? { reason } : {}),
         ...(fallbackText ? { fallbackText } : {}),
-        ...(liveOrigin?.turnId ? { originTurnId: liveOrigin.turnId } : {}),
-        ...(liveOrigin?.dispatchAttempt !== undefined
-          ? { originDispatchAttempt: liveOrigin.dispatchAttempt }
-          : {}),
         ...(originCapability ? { originCapability } : {}),
       }),
     });

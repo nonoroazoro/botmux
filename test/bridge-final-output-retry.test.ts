@@ -837,8 +837,6 @@ describe('Bridge final_output delivery (P2 retry)', () => {
 
     expect(sessionReply).toHaveBeenCalledTimes(1);
     expect(updateMessageMock).not.toHaveBeenCalled();
-    // Turn reactions are driven off message acceptance (noteTurnReceived) and
-    // the idle edge (finishTurnReactions), not the bridge final-output path.
     expect(addReactionMock).not.toHaveBeenCalled();
     expect(ds.lastBridgeEmittedUuid).toBe(SCOPED_DEDUPE_KEY);
   });

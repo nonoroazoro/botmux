@@ -22,6 +22,7 @@ import {
   type SubstituteTargetResolution,
 } from './bot-defaults.js';
 import { mountReactPage, type PageDisposer } from './react-mount.js';
+import { previewMarkdownHtml } from './preview-markdown.js';
 import { useT } from './react-hooks.js';
 import { store } from './store.js';
 import {
@@ -480,7 +481,6 @@ function patchCardPrefsFromBody(bot: BotDefaultsRow, body: any): BotDefaultsRow 
     ...bot,
     usageDisplay: body.usageDisplay,
     disableStreamingCard: body.disableStreamingCard,
-    silentTurnReactions: body.silentTurnReactions,
     codexAppCleanInput: body.codexAppCleanInput,
     writableTerminalLinkInCard: body.writableTerminalLinkInCard,
     privateCard: body.privateCard,
@@ -775,6 +775,7 @@ function BotDefaultsCard(props: {
             <section className="bd-tile">
               <WorkingDirSection bot={bot} patchBot={patchBot} putCardPref={putCardPref} />
             </section>
+            <section className="bd-tile"><SoulSection bot={bot} /></section>
             <section className="bd-tile"><RoleSection bot={bot} patchBot={patchBot} /></section>
           </BdTabGrid>
         </div>
@@ -2325,6 +2326,142 @@ function BackendTypeSection(props: { bot: BotDefaultsRow; patchBot: PatchBot }) 
   );
 }
 
+function SoulSection(props: { bot: BotDefaultsRow }) {
+  const tr = useT();
+  const [loaded, setLoaded] = useState(false);
+  const [source, setSource] = useState<'default' | 'custom'>('default');
+  const [customError, setCustomError] = useState<string | null>(null);
+  const [content, setContent] = useState('');
+  const [reactionsEnabled, setReactionsEnabled] = useState(true);
+  const [reactionsAvailable, setReactionsAvailable] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<StatusMessage>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoaded(false);
+    setStatus(null);
+    void (async () => {
+      try {
+        const response = await fetch(`/api/bots/${encodeURIComponent(props.bot.larkAppId)}/soul`);
+        const body = await response.json().catch(() => ({}));
+        if (!active) return;
+        if (!response.ok || body.ok === false) throw new Error(String(body.error ?? response.status));
+        setSource(body.soul?.source === 'custom' ? 'custom' : 'default');
+        setCustomError(typeof body.soul?.customError === 'string' ? body.soul.customError : null);
+        setContent(typeof body.soul?.content === 'string' ? body.soul.content : '');
+        setReactionsEnabled(body.reactionsEnabled !== false);
+        setReactionsAvailable(body.reactionsAvailable !== false);
+        setLoaded(true);
+      } catch (error) {
+        if (active) setStatus({ text: `✗ ${tr('botDefaults.soulLoadFailed', { error: caughtErrorText(error) })}` });
+      }
+    })();
+    return () => { active = false; };
+  }, [props.bot.larkAppId, tr]);
+
+  async function saveSoul(): Promise<void> {
+    if (!content.trim()) {
+      setStatus({ text: `✗ ${tr('botDefaults.soulEmpty')}` });
+      return;
+    }
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await sendJson('PUT', `/api/bots/${encodeURIComponent(props.bot.larkAppId)}/soul`, { content });
+      if (!response.ok) throw new Error(responseErrorText(response));
+      setSource('custom');
+      setCustomError(null);
+      setContent(String(response.body.soul?.content ?? content));
+      setStatus({ text: `✓ ${tr('botDefaults.soulSaved')}`, ok: true });
+    } catch (error) {
+      setStatus({ text: `✗ ${caughtErrorText(error)}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetToDefault(): Promise<void> {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await sendJson('DELETE', `/api/bots/${encodeURIComponent(props.bot.larkAppId)}/soul`);
+      if (!response.ok) throw new Error(responseErrorText(response));
+      setSource('default');
+      setCustomError(null);
+      setContent(String(response.body.soul?.content ?? ''));
+      setStatus({ text: `✓ ${tr('botDefaults.soulReset')}`, ok: true });
+    } catch (error) {
+      setStatus({ text: `✗ ${caughtErrorText(error)}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setReactions(next: boolean): Promise<void> {
+    const previous = reactionsEnabled;
+    setReactionsEnabled(next);
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await sendJson(
+        'PUT',
+        `/api/bots/${encodeURIComponent(props.bot.larkAppId)}/personality-reactions`,
+        { enabled: next },
+      );
+      if (!response.ok) throw new Error(responseErrorText(response));
+      setStatus({ text: `✓ ${tr('botDefaults.reactionsSaved')}`, ok: true });
+    } catch (error) {
+      setReactionsEnabled(previous);
+      setStatus({ text: `✗ ${caughtErrorText(error)}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="bd-section">
+      <h3 className="bd-section-title">
+        <FieldTitle help={tr('botDefaults.soulHelp')}>{tr('botDefaults.sectionSoul')}</FieldTitle>
+      </h3>
+      <p className="bd-inline-note">
+        {customError
+          ? tr('botDefaults.soulSourceInvalid', { error: customError })
+          : tr(source === 'custom' ? 'botDefaults.soulSourceCustom' : 'botDefaults.soulSourceDefault')}
+      </p>
+      {props.bot.sandbox !== true && !props.bot.multiUserIsolation?.enabled ? (
+        <p className="bd-inline-note">{tr('botDefaults.soulSandboxWarning')}</p>
+      ) : null}
+      <textarea
+        data-input="soul"
+        rows={10}
+        disabled={!loaded || busy}
+        value={content}
+        onChange={event => setContent(event.currentTarget.value)}
+      />
+      <div className="actions">
+        <button type="button" className="primary" disabled={!loaded || busy} onClick={() => void saveSoul()}>{tr('botDefaults.soulSave')}</button>
+        <button type="button" disabled={!loaded || busy || (source === 'default' && !customError)} onClick={() => void resetToDefault()}>{tr('botDefaults.soulResetAction')}</button>
+      </div>
+      <details className="bd-profile-role-entry">
+        <summary>{tr('botDefaults.soulPreview')}</summary>
+        <div className="bd-profile-role-content session-card-exchange-md">
+          <Html as="div" html={previewMarkdownHtml(content)} />
+        </div>
+      </details>
+      <ToggleRow
+        checked={reactionsEnabled}
+        disabled={!loaded || busy || !reactionsAvailable}
+        dataAction="personality-reactions"
+        title={tr('botDefaults.reactionsEnabled')}
+        help={tr(reactionsAvailable ? 'botDefaults.reactionsHelp' : 'botDefaults.reactionsUnavailable')}
+        onChange={next => void setReactions(next)}
+      />
+      <StatusSpan status={status} attr={{ 'data-soul-status': '' }} />
+    </section>
+  );
+}
+
 function RoleSection(props: { bot: BotDefaultsRow; patchBot: PatchBot }) {
   const tr = useT();
   const { bot, patchBot } = props;
@@ -2505,7 +2642,6 @@ export function CardBehaviorSection(props: { bot: BotDefaultsRow; putCardPref(pa
   const { bot, putCardPref } = props;
   const [usageDisplay, setUsageDisplay] = useState<'streaming' | 'footer' | 'off'>(bot.usageDisplay ?? 'streaming');
   const [disableStreaming, setDisableStreaming] = useState(bot.disableStreamingCard === true);
-  const [silentReactions, setSilentReactions] = useState(bot.silentTurnReactions === true);
   const [writableLink, setWritableLink] = useState(bot.writableTerminalLinkInCard === true);
   const [privateCard, setPrivateCard] = useState(bot.privateCard === true);
   const [status, setStatus] = useState<StatusMessage>(null);
@@ -2514,10 +2650,9 @@ export function CardBehaviorSection(props: { bot: BotDefaultsRow; putCardPref(pa
   useEffect(() => {
     setUsageDisplay(bot.usageDisplay ?? 'streaming');
     setDisableStreaming(bot.disableStreamingCard === true);
-    setSilentReactions(bot.silentTurnReactions === true);
     setWritableLink(bot.writableTerminalLinkInCard === true);
     setPrivateCard(bot.privateCard === true);
-  }, [bot.disableStreamingCard, bot.privateCard, bot.usageDisplay, bot.silentTurnReactions, bot.writableTerminalLinkInCard]);
+  }, [bot.disableStreamingCard, bot.privateCard, bot.usageDisplay, bot.writableTerminalLinkInCard]);
 
   async function savePatch(patch: CardPrefPatch, key: string, rollback?: () => void): Promise<void> {
     setBusy(key);
@@ -2580,17 +2715,6 @@ export function CardBehaviorSection(props: { bot: BotDefaultsRow; putCardPref(pa
           onChange={checked => {
             setDisableStreaming(checked);
             void savePatch({ disableStreamingCard: checked }, 'streaming');
-          }}
-        />
-        <ToggleRow
-          checked={silentReactions}
-          disabled={!disableStreaming || busy === 'silent'}
-          dataAction="toggle-silent-reactions"
-          title={tr('botDefaults.silentTurnReactions')}
-          help={tr('botDefaults.silentTurnReactionsHelp')}
-          onChange={checked => {
-            setSilentReactions(checked);
-            void savePatch({ silentTurnReactions: checked }, 'silent');
           }}
         />
         <ToggleRow

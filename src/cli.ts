@@ -32,6 +32,7 @@ import { createRequire } from 'node:module';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { validateWorkingDir } from './core/working-dir.js';
 import { resolveSessionContext } from './core/session-marker.js';
+import { isPersonalityReaction } from './core/personality/index.js';
 import { resolveBotmuxDataDir } from './core/data-dir.js';
 import { createDefaultMultiUserIsolationConfig } from './core/multi-user-isolation-defaults.js';
 import { dashboardSecretPath } from './core/dashboard-secret.js';
@@ -4587,8 +4588,6 @@ async function postSessionCliIpc(
     );
     if (claim) {
       requestBody.originCapability = claim.capability;
-      if (claim.turnId) requestBody.originTurnId = claim.turnId;
-      if (claim.dispatchAttempt !== undefined) requestBody.originDispatchAttempt = claim.dispatchAttempt;
     }
   }
   const path = `/api/sessions/${encodeURIComponent(sessionId)}/${route}`;
@@ -5611,6 +5610,7 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
                                        --with-card-json 为每张卡片附原始结构化 JSON（消息均带 resources 附件 key）
   quoted <message_id> [--raw]          按消息 id 拉取单条消息 (JSON) 并下载附件到本地；id 取自引用提示行或 history 输出，
                                        --raw 附原始内容（卡片 → cardJson，其它 → rawContent）
+  react <yes|no|heart|like|done>        给触发当前轮次的用户消息添加一个表情；每轮最多一次
   ask buttons --options "a,b" "<问题>"  把选择题做成按钮卡片抛给飞书，等用户点选后返回其选择
                                        （无 hook 的 CLI 用它把决策引到人；也可省略 buttons 走裸别名）
   skill list                           列出本会话可用的技能（用户自定义 + botmux 内置）及其描述
@@ -6549,6 +6549,27 @@ async function cmdQuoted(rest: string[]): Promise<void> {
     console.log(JSON.stringify(rendered, null, 2));
   } catch (err: any) {
     console.error(`获取被引用消息失败: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+async function cmdReact(rest: string[]): Promise<void> {
+  assertTurnTransportOrExit('react');
+  const emoji = rest.length === 1 ? rest[0]?.trim().toLowerCase() : undefined;
+  if (!emoji || !isPersonalityReaction(emoji)) {
+    console.error('用法: botmux react <yes|no|heart|like|done>');
+    process.exit(1);
+  }
+  try {
+    const response = await requestSessionLarkProxy({
+      operation: 'react',
+      body: { emoji },
+    });
+    const payload = { ...response };
+    delete payload.ok;
+    console.log(JSON.stringify(payload));
+  } catch (error) {
+    console.error(`添加表情失败: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
 }
@@ -8300,8 +8321,6 @@ async function cmdSend(rest: string[]): Promise<void> {
             kind: attention.kind,
             reason: text.trim(),
             originCapability,
-            originTurnId: liveMarkerCtx?.turnId,
-            originDispatchAttempt: liveMarkerCtx?.dispatchAttempt,
           }),
         } satisfies RequestInit;
         let secret: string | undefined;
@@ -9550,7 +9569,6 @@ async function cmdAsk(sub: string, rest: string[]): Promise<void> {
 
   const larkAppId = process.env.BOTMUX_LARK_APP_ID!;
   const askSessionId = process.env.BOTMUX_SESSION_ID!;
-  const liveAskOrigin = resolveSessionContext(resolveDataDir(), askSessionId);
   const askRelayDir = process.env.BOTMUX_SEND_RELAY;
   const askOriginCapability = readManagedOriginCapability(
     resolveDataDir(),
@@ -9569,10 +9587,6 @@ async function cmdAsk(sub: string, rest: string[]): Promise<void> {
     // on daemon restart), so mark it non-hook: the broker won't persist/handoff
     // it and can never confuse it with a hook ask's card (codex P1-4/P1-3).
     originKind: 'explicit',
-    ...(liveAskOrigin?.turnId ? { originTurnId: liveAskOrigin.turnId } : {}),
-    ...(liveAskOrigin?.dispatchAttempt !== undefined
-      ? { originDispatchAttempt: liveAskOrigin.dispatchAttempt }
-      : {}),
     ...(askOriginCapability ? { originCapability: askOriginCapability } : {}),
   };
 
@@ -9731,10 +9745,6 @@ async function cmdArtifact(rest: string[], commandLabel = 'artifact'): Promise<v
     ...(query ? { query, limit } : {}),
     ...(instructions ? { instructions } : {}),
     ...(interactionRequestId ? { requestId: interactionRequestId } : {}),
-    ...(liveOrigin?.turnId ? { originTurnId: liveOrigin.turnId } : {}),
-    ...(liveOrigin?.dispatchAttempt !== undefined
-      ? { originDispatchAttempt: liveOrigin.dispatchAttempt }
-      : {}),
     ...(claim?.capability ? { originCapability: claim.capability } : {}),
   };
   let discoveredPort: number | undefined;
@@ -10035,11 +10045,6 @@ async function cmdSessionReady(): Promise<void> {
         sessionId,
         relayDir,
       )?.capability;
-      const liveOrigin = resolveSessionContext(resolveDataDir(), sessionId);
-      const envAttempt = Number(process.env.BOTMUX_DISPATCH_ATTEMPT);
-      const originTurnId = liveOrigin?.turnId ?? process.env.BOTMUX_TURN_ID;
-      const originDispatchAttempt = liveOrigin?.dispatchAttempt
-        ?? (Number.isSafeInteger(envAttempt) && envAttempt > 0 ? envAttempt : undefined);
       const init = {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -10047,8 +10052,6 @@ async function cmdSessionReady(): Promise<void> {
           sessionId,
           source,
           originCapability,
-          originTurnId,
-          originDispatchAttempt,
         }),
       } satisfies RequestInit;
       let hostSecret: string | undefined;
@@ -11419,6 +11422,7 @@ switch (command) {
   case 'preset':   await cmdPreset(process.argv[3] ?? '', process.argv.slice(4)); break;
   case 'history':  await cmdHistory(process.argv.slice(3)); break;
   case 'quoted':   await cmdQuoted(process.argv.slice(3)); break;
+  case 'react':    await cmdReact(process.argv.slice(3)); break;
   case 'lang':     await cmdLang(process.argv.slice(3)); break;
   case 'voice':    await cmdVoiceSetup(process.argv.slice(3)); break;
   case 'vc-agent': {

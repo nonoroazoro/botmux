@@ -107,6 +107,19 @@ vi.mock('../src/utils/logger.js', () => ({
   logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('../src/core/personality/index.js', () => ({
+  isPersonalityReaction: vi.fn(() => false),
+  reactToCurrentTurn: vi.fn(),
+  resetSoul: vi.fn(),
+  resolveAgentContext: vi.fn(() => ({
+    block: '',
+    reactionReminder: '',
+    revision: 'agent-context-v1:test',
+  })),
+  resolveSoul: vi.fn(),
+  writeSoul: vi.fn(),
+}));
+
 const mockRecordObservedBots = vi.fn();
 const mockListObservedBots = vi.fn(() => [] as any[]);
 vi.mock('../src/services/observed-bots-store.js', () => ({

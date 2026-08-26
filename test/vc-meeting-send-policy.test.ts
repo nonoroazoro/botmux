@@ -22,6 +22,8 @@ import type { VcMeetingImTurnOrigin } from '../src/types.js';
 
 let dir: string;
 const memberKey = { listenerAppId: 'listener', meetingId: 'meeting', memberId: 'member', memberEpoch: 1 };
+const CURRENT_CAPABILITY = 'ab'.repeat(32);
+const STALE_CAPABILITY = 'cd'.repeat(32);
 const imOrigin: VcMeetingImTurnOrigin = {
   ...memberKey,
   agentAppId: 'agent',
@@ -311,9 +313,9 @@ describe('evaluateVcMeetingManagedSend', () => {
 
   it('authorizes daemon-mediated exits only from the worker live origin', () => {
     seed('listener_thread');
-    const liveOrigin = { capability: 'cap-current', turnId: 'delivery-key', dispatchAttempt: 1 };
+    const liveOrigin = { capability: CURRENT_CAPABILITY, turnId: 'delivery-key', dispatchAttempt: 1 };
     expect(evaluateVcMeetingManagedOriginClaim(dir, {
-      receiverSessionId: 'receiver-session', liveOrigin, claimedCapability: 'cap-current',
+      receiverSessionId: 'receiver-session', liveOrigin, claimedCapability: CURRENT_CAPABILITY,
     })).toEqual({
       ok: true,
       kind: 'listener_thread',
@@ -322,7 +324,7 @@ describe('evaluateVcMeetingManagedSend', () => {
       meetingOwner: { listenerAppId: 'listener', meetingId: 'meeting', memberId: 'member', memberEpoch: 1 },
     });
     expect(evaluateVcMeetingManagedOriginClaim(dir, {
-      receiverSessionId: 'receiver-session', liveOrigin, claimedCapability: 'cap-old',
+      receiverSessionId: 'receiver-session', liveOrigin, claimedCapability: STALE_CAPABILITY,
     })).toMatchObject({ ok: false, errorCode: 'origin_unproven' });
   });
 
@@ -330,18 +332,18 @@ describe('evaluateVcMeetingManagedSend', () => {
     seed('silent');
     expect(evaluateVcMeetingManagedOriginClaim(dir, {
       receiverSessionId: 'receiver-session',
-      liveOrigin: { capability: 'cap-silent', turnId: 'delivery-key', dispatchAttempt: 1 },
-      claimedCapability: 'cap-silent',
+      liveOrigin: { capability: CURRENT_CAPABILITY, turnId: 'delivery-key', dispatchAttempt: 1 },
+      claimedCapability: CURRENT_CAPABILITY,
     })).toMatchObject({ ok: false, errorCode: 'silent_delivery' });
   });
 
   it('proves the live origin independently from sink response policy', () => {
     seed('silent');
-    const liveOrigin = { capability: 'cap-action', turnId: 'delivery-key', dispatchAttempt: 1 };
+    const liveOrigin = { capability: CURRENT_CAPABILITY, turnId: 'delivery-key', dispatchAttempt: 1 };
     expect(verifyVcMeetingManagedOriginClaim({
       receiverSessionId: 'receiver-session',
       liveOrigin,
-      claimedCapability: 'cap-action',
+      claimedCapability: CURRENT_CAPABILITY,
     })).toEqual({
       ok: true,
       origin: {
@@ -355,8 +357,7 @@ describe('evaluateVcMeetingManagedSend', () => {
     expect(verifyVcMeetingManagedOriginClaim({
       receiverSessionId: 'receiver-session',
       liveOrigin,
-      claimedTurnId: 'delivery-key',
-      claimedDispatchAttempt: 1,
+      claimedCapability: STALE_CAPABILITY,
     })).toMatchObject({ ok: false, errorCode: 'origin_unproven' });
   });
 });

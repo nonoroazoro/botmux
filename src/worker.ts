@@ -68,7 +68,6 @@ import {
   pendingInputAllowsTypeAhead,
   resolveInitialPromptDelivery,
   shouldArmSpawnArgvInitialPromptBusy,
-  shouldTrackArgvBakedFirstPrompt,
   shouldDeferArgsBakedDurablePrompt,
   shouldDeferInitialPromptForArgLimit,
   shouldStopPendingBatch,
@@ -288,7 +287,8 @@ import { hookCommandFor } from './adapters/hook-command.js';
 import { findOnlineDaemon, parseDaemonIpcPort } from './utils/daemon-discovery.js';
 import { fetchDaemonIpc } from './core/daemon-ipc-auth.js';
 import { withCodexAppContext } from './utils/codex-app-context.js';
-import { applyRoleContextFallback } from './utils/role-context-fallback.js';
+import { applyAgentContextFallback } from './utils/agent-context-fallback.js';
+import { soulStoreRoot } from './core/personality/index.js';
 import { resolveCodexAppFinalTurnIdentity } from './adapters/cli/codex-app-turn.js';
 import { RunnerControlDecoder } from './adapters/cli/runner-control-channel.js';
 import {
@@ -1195,9 +1195,9 @@ let lastSpawnEffectiveCliSessionId: string | undefined;
 let lastSpawnDeferInitialPrompt = false;
 let lastSpawnQueuedInitialPrompt: string | undefined;
 let lastSpawnQueuedInitialPromptLogicalContent: string | undefined;
-/** The native context was replaced without a startup prompt. Attach the role
+/** The native context was replaced without a startup prompt. Attach the Agent Context
  * snapshot carried by the next committed turn before it enters the queue. */
-let roleContextRefreshPending = false;
+let agentContextRefreshPending = false;
 // True when this session runs under an outer bwrap supervisor (file sandbox OR
 // Linux credential-only bwrap) — both make getChildPid() the supervisor, not the
 // CLI leaf. credentialOnlyBwrap needs host probes so it can't be recomputed from
@@ -1210,12 +1210,6 @@ let lastSpawnOuterBwrapActive = false;
  * for queue-after-spawn and for quiescence-only argv adapters.
  */
 let spawnArgvInitialPromptBusy = false;
-/**
- * True when spawn baked first prompt into argv (any such adapter, incl. Pi /
- * Gemini). Card-off reactions need a working→idle edge: Grok uses the busy
- * arm above; quiescence argv adapters seed working then idle at first ready.
- */
-let spawnArgvNeedsWorkingSeed = false;
 let idleDetector: IdleDetector | null = null;
 let isTmuxMode = false;
 /** True once a crash diagnostic tmux shell (bmx-diag-<sid>) is live. */
@@ -1836,14 +1830,14 @@ async function deliverRawInput(msg: Extract<DaemonToWorker, { type: 'raw_input' 
   if (sent && msg.followUpContent) {
     const followUpCommitted = sendToPty(msg.followUpContent, msg.followUpTurnId, {
       codexAppInput: msg.followUpCodexAppInput,
-      roleContextRevision: msg.followUpRoleContextRevision,
-      roleContextFallbackBlock: msg.followUpRoleContextFallbackBlock,
-      roleContextIncluded: msg.followUpRoleContextIncluded,
+      agentContextRevision: msg.followUpAgentContextRevision,
+      agentContextFallbackBlock: msg.followUpAgentContextFallbackBlock,
+      agentContextIncluded: msg.followUpAgentContextIncluded,
     });
     if (followUpCommitted) {
       acknowledgeTurnInputCommitted(
         msg.followUpTurnId,
-        msg.followUpRoleContextRevision,
+        msg.followUpAgentContextRevision,
       );
     }
     log(`Enqueued follow-up after raw input (${msg.followUpContent.length} chars)`);
@@ -6289,14 +6283,11 @@ function markPromptReadyFromPty(observedBackend: SessionBackend): void {
 }
 
 /**
- * Push a coarse screen status to the daemon without waiting for the 2s sampler.
- * Used so card-off reactions see working→idle even on short turns.
+ * Push a coarse screen status to the daemon without waiting for the sampler.
  *
  * @param force - When true, send `status` as-is and skip classifyScreenUsageLimit.
- *   Synthetic "working" seeds for card-off reactions MUST force: if the first
- *   screen already shows a rate-limit banner, classify would rewrite working→
- *   limited and the seed collapses to limited→limited (no working edge →
- *   finishTurnReactions never runs). Review: PR #633 third round.
+ *   Synthetic working transitions use this when a visible rate-limit banner
+ *   must not rewrite the explicit state to limited.
  */
 function publishScreenStatus(status: 'working' | 'idle', opts?: { force?: boolean }): void {
   if (!renderer) return;
@@ -6440,14 +6431,12 @@ function markPromptReady(): void {
       log('prompt-ready with no backend installed — deferring restart success receipt');
     }
   }
-  // Send an immediate status snapshot so Lark card / card-off reactions track
-  // real work. Skip pure idle when:
+  // Send an immediate status snapshot so Lark tracks real work. Skip pure idle when:
   //  - messages are pending — flushPending() will immediately make the CLI
   //    busy (avoids a false "就绪" flash on daemon restart);
   //  - Grok-class argv+SessionStart arming: first ready is pre-execution, so
   //    park as working until assistant_final/fireIdle;
-  //  - quiescence argv CLIs (Pi/Gemini/MTR/OpenCode): first ready IS turn end
-  //    — seed working then idle so card-off gets working→idle (review P2).
+  //  - quiescence argv CLIs (Pi/Gemini/MTR/OpenCode): first ready is turn end.
   const hasPendingWork =
     pendingMessages.length > 0
     || pendingRawInputs.length > 0
@@ -6456,32 +6445,18 @@ function markPromptReady(): void {
   if (renderer && !hasPendingWork) {
     if (spawnArgvInitialPromptBusy) {
       spawnArgvInitialPromptBusy = false;
-      spawnArgvNeedsWorkingSeed = false;
       // Stay non-ready so the next genuine end-of-turn idle is a real edge.
       isPromptReady = false;
       idleDetector?.reset();
       // force: rate-limit banner must not rewrite synthetic working → limited
       publishScreenStatus('working', { force: true });
-      log('Spawn argv initial prompt still in flight — reporting working (not idle) so turn reactions can settle later');
-    } else if (spawnArgvNeedsWorkingSeed) {
-      // First ready = true completion for quiescence argv adapters. Seed a
-      // working edge before idle/limited so daemon finishTurnReactions (gated
-      // on working→idle|limited) still flips card-off GoGoGo on cold-start
-      // one-shots — including when the terminal already shows a rate-limit
-      // banner (classify would otherwise collapse both seeds to limited).
-      spawnArgvNeedsWorkingSeed = false;
-      publishScreenStatus('working', { force: true });
-      // Second tick may classify to limited when the banner is visible — that
-      // is fine: gate allows working→limited.
-      publishScreenStatus('idle');
-      log('Argv-baked first prompt completed — seeded working→idle for card-off reactions');
+      log('Spawn argv initial prompt still in flight; reporting working until terminal evidence arrives');
     } else {
       publishScreenStatus('idle');
     }
   } else if (hasPendingWork) {
-    // Queued path will flip busy via flushPending; drop argv seed flags.
+    // Queued path will flip busy via flushPending.
     spawnArgvInitialPromptBusy = false;
-    spawnArgvNeedsWorkingSeed = false;
   }
   // barrier 注入必须先于本次 pending 用户消息落地（现存发送方均 barrier=false，
   // 该分支目前不触发；机制保留见 pendingInjections 声明处注释）。跳过本次
@@ -6950,10 +6925,8 @@ async function flushPending(): Promise<void> {
   if (isPromptReady) {
     isPromptReady = false;
     idleDetector?.reset();
-    // Immediate working for card-off reaction settle (PR #633 P2): the screen
-    // sampler is 2s — without this a short turn can complete before any
-    // working status is observed, leaving idle→idle and GoGoGo uncleared.
-    // force: same rate-limit rewrite trap as argv seed (review third round).
+    // Publish working immediately so short turns do not complete between
+    // sampler ticks without ever exposing a busy state.
     publishScreenStatus('working', { force: true });
   }
 
@@ -7026,8 +6999,8 @@ async function flushPending(): Promise<void> {
     while (pendingMessages.length > 0 && backend && cliAdapter) {
       const item = freshnessInputQueue.takeNormal();
       if (!item) break;
-      if (applyPendingRoleContextToInput(item)) {
-        acknowledgeTurnInputCommitted(undefined, item.roleContextRevision);
+      if (applyPendingAgentContextToInput(item)) {
+        acknowledgeTurnInputCommitted(undefined, item.agentContextRevision);
       }
       const isCyberPolicyRecovery = item === codexCyberPolicyRecoveryInput;
       const durableWrite = item.dispatchAttempt !== undefined;
@@ -7152,13 +7125,10 @@ async function flushPending(): Promise<void> {
         if (recoveryFailureReason) {
           result = { ...result, submitted: false };
         }
-        // Transcript-backed CLIs (Grok/Codex/… reliableTurnTerminal) own idle via
-        // assistant_final → fireIdle. Their busyPattern is often missing for
-        // several seconds after submit (or never matches the current TUI chrome),
-        // so a post-submit "busy marker absent" probe falsely marks prompt ready
-        // and the card-off DONE reaction lands while the turn is still running
-        // (seen live on Grok: GoGoGo → +7s post-submit probe → DONE, then
-        // deferred recheck still saw active PTY output).
+        // Transcript-backed CLIs own idle via assistant_final → fireIdle. Their
+        // busyPattern is often missing for several seconds after submit or never
+        // matches the current TUI chrome, so a post-submit "busy marker absent"
+        // probe could falsely mark the prompt ready while the turn is running.
         if (cliAdapter.reliableTurnTerminal !== true) {
           scheduleBusyPatternIdleProbe(`${cliName()} post-submit`);
         }
@@ -7300,18 +7270,18 @@ async function flushPending(): Promise<void> {
   }
 }
 
-function applyPendingRoleContextToInput(item: PendingCliInput): boolean {
-  if (!roleContextRefreshPending || item.roleContextRevision === undefined) return false;
-  const applied = applyRoleContextFallback(
+function applyPendingAgentContextToInput(item: PendingCliInput): boolean {
+  if (!agentContextRefreshPending || item.agentContextRevision === undefined) return false;
+  const applied = applyAgentContextFallback(
     item.content,
     item.codexAppInput,
-    item.roleContextFallbackBlock,
-    item.roleContextIncluded,
+    item.agentContextFallbackBlock,
+    item.agentContextIncluded,
   );
   item.content = applied.prompt;
   item.codexAppInput = applied.codexAppInput;
-  roleContextRefreshPending = false;
-  log('Attached role context to the first turn after native context reset');
+  agentContextRefreshPending = false;
+  log('Attached agent context to the first turn after native context reset');
   return true;
 }
 
@@ -7322,9 +7292,9 @@ function sendToPty(
     codexAppInput?: CodexAppTurnInput;
     dispatchAttempt?: number;
     vcMeetingImTurnOrigin?: VcMeetingImTurnOrigin;
-    roleContextRevision?: string;
-    roleContextFallbackBlock?: string;
-    roleContextIncluded?: true;
+    agentContextRevision?: string;
+    agentContextFallbackBlock?: string;
+    agentContextIncluded?: true;
   } = {},
 ): boolean {
   const next: PendingCliInput = {
@@ -7335,15 +7305,15 @@ function sendToPty(
     ...(opts.vcMeetingImTurnOrigin
       ? { vcMeetingImTurnOrigin: opts.vcMeetingImTurnOrigin }
       : {}),
-    ...(opts.roleContextRevision
-      ? { roleContextRevision: opts.roleContextRevision }
+    ...(opts.agentContextRevision
+      ? { agentContextRevision: opts.agentContextRevision }
       : {}),
-    ...(opts.roleContextFallbackBlock
-      ? { roleContextFallbackBlock: opts.roleContextFallbackBlock }
+    ...(opts.agentContextFallbackBlock
+      ? { agentContextFallbackBlock: opts.agentContextFallbackBlock }
       : {}),
-    ...(opts.roleContextIncluded ? { roleContextIncluded: true } : {}),
+    ...(opts.agentContextIncluded ? { agentContextIncluded: true } : {}),
   };
-  applyPendingRoleContextToInput(next);
+  applyPendingAgentContextToInput(next);
   // During an exact lease-fenced CLI restart the worker stays alive while the
   // backend is rebuilt. Preserve incoming attempt N+1 in the worker queue; the
   // old early-return silently dropped it after receiver had already persisted
@@ -8658,17 +8628,17 @@ async function spawnCli(
     effectiveCliSessionId = undefined;
     effectiveAdapterSessionId = cfg.sessionId;
     if (cfg.prompt) {
-      const roleFallback = applyRoleContextFallback(
+      const agentContextFallback = applyAgentContextFallback(
         cfg.prompt,
         cfg.promptCodexAppInput,
-        cfg.promptRoleContextFallbackBlock,
-        cfg.promptRoleContextIncluded,
+        cfg.promptAgentContextFallbackBlock,
+        cfg.promptAgentContextIncluded,
       );
-      cfg.prompt = roleFallback.prompt;
-      cfg.promptCodexAppInput = roleFallback.codexAppInput;
-      roleContextRefreshPending = false;
+      cfg.prompt = agentContextFallback.prompt;
+      cfg.promptCodexAppInput = agentContextFallback.codexAppInput;
+      agentContextRefreshPending = false;
     } else {
-      roleContextRefreshPending = true;
+      agentContextRefreshPending = true;
     }
     send({
       type: 'context_reset',
@@ -8775,16 +8745,12 @@ async function spawnCli(
   preparedInitialPrompt = initialPromptDelivery.argvPrompt;
   lastSpawnQueuedInitialPrompt = initialPromptDelivery.queuedContent;
   lastSpawnQueuedInitialPromptLogicalContent = initialPromptDelivery.logicalContent;
-  // Argv-baked first prompt tracking (PR #633 P2 / second-round review):
-  //  - needsWorkingSeed: any argv CLI (Pi/Gemini/MTR/OpenCode/Grok) so card-off
-  //    reactions can form working→idle (seeded at first ready or Grok arm).
-  //  - busy arm: only Grok-class SessionStart (first ready ≠ turn end).
+  // Only Grok-class SessionStart requires the first ready event to remain busy.
   const argvBakedOpts = {
     passesInitialPromptViaArgs: cliAdapter.passesInitialPromptViaArgs === true,
     preparedInitialPrompt,
     queuedInitialPrompt: lastSpawnQueuedInitialPrompt,
   };
-  spawnArgvNeedsWorkingSeed = shouldTrackArgvBakedFirstPrompt(argvBakedOpts);
   spawnArgvInitialPromptBusy = shouldArmSpawnArgvInitialPromptBusy({
     ...argvBakedOpts,
     injectsReadyHook: cliAdapter.injectsReadyHook === true,
@@ -9419,6 +9385,7 @@ async function spawnCli(
       mandatoryDenyPaths,
       mandatoryDenyRegexes,
       mandatoryReadOnlyPaths,
+      hostOnlyPaths: [soulStoreRoot(canonical(dataDir))],
       net: cfg.sandboxNetwork !== false,
       // Claude Code saves ~/.claude.json atomically via a PID/random-suffixed
       // sibling — only relevant when the data dir is NOT redirected to BOT_HOME.
@@ -11856,14 +11823,14 @@ function send(msg: WorkerToDaemon): void {
 
 function acknowledgeTurnInputCommitted(
   turnId?: string,
-  roleContextRevision?: string,
+  agentContextRevision?: string,
 ): void {
-  if (!turnId && roleContextRevision === undefined) return;
+  if (!turnId && agentContextRevision === undefined) return;
   if (turnId) ordinaryImTurnDedupe.commit(turnId);
   send({
     type: 'turn_input_committed',
     ...(turnId ? { turnId } : {}),
-    ...(roleContextRevision !== undefined ? { roleContextRevision } : {}),
+    ...(agentContextRevision !== undefined ? { agentContextRevision } : {}),
   });
 }
 
@@ -12182,9 +12149,9 @@ process.on('message', async (raw: unknown) => {
             dispatchAttempt: msg.dispatchAttempt,
             vcMeetingImTurnOrigin: msg.vcMeetingImTurnOrigin,
             codexAppInput: msg.promptCodexAppInput,
-            roleContextRevision: msg.promptRoleContextRevision,
-            roleContextFallbackBlock: msg.promptRoleContextFallbackBlock,
-            roleContextIncluded: msg.promptRoleContextIncluded,
+            agentContextRevision: msg.promptAgentContextRevision,
+            agentContextFallbackBlock: msg.promptAgentContextFallbackBlock,
+            agentContextIncluded: msg.promptAgentContextIncluded,
           });
           initialInputCommitted = true;
         } else if (msg.prompt) {
@@ -12199,7 +12166,7 @@ process.on('message', async (raw: unknown) => {
         if (initialInputCommitted) {
           acknowledgeTurnInputCommitted(
             msg.turnId,
-            msg.promptRoleContextRevision,
+            msg.promptAgentContextRevision,
           );
         }
 
@@ -12416,7 +12383,7 @@ process.on('message', async (raw: unknown) => {
               } else {
                 acknowledgeTurnInputCommitted(
                   msg.turnId,
-                  msg.roleContextRevision,
+                  msg.agentContextRevision,
                 );
               }
             } catch (err: any) {
@@ -12496,7 +12463,7 @@ process.on('message', async (raw: unknown) => {
               }
               acknowledgeTurnInputCommitted(
                 msg.turnId,
-                msg.roleContextRevision,
+                msg.agentContextRevision,
               );
             } catch (err: any) {
               recoveryFailureReason = err instanceof SubmissionWriteError
@@ -12554,7 +12521,7 @@ process.on('message', async (raw: unknown) => {
             backend.write(content + '\r');
             acknowledgeTurnInputCommitted(
               msg.turnId,
-              msg.roleContextRevision,
+              msg.agentContextRevision,
             );
           }
           isPromptReady = false;
@@ -12570,14 +12537,14 @@ process.on('message', async (raw: unknown) => {
           codexAppInput,
           dispatchAttempt: msg.dispatchAttempt,
           vcMeetingImTurnOrigin: msg.vcMeetingImTurnOrigin,
-          roleContextRevision: msg.roleContextRevision,
-          roleContextFallbackBlock: msg.roleContextFallbackBlock,
-          roleContextIncluded: msg.roleContextIncluded,
+          agentContextRevision: msg.agentContextRevision,
+          agentContextFallbackBlock: msg.agentContextFallbackBlock,
+          agentContextIncluded: msg.agentContextIncluded,
         });
         if (inputCommitted) {
           acknowledgeTurnInputCommitted(
             msg.turnId,
-            msg.roleContextRevision,
+            msg.agentContextRevision,
           );
         }
         else if (ordinaryImTurnId) rejectOrdinaryImTurn(ordinaryImTurnId, 'cli_input_unavailable');

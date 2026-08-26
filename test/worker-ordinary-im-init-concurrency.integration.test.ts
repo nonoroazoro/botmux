@@ -170,7 +170,7 @@ setInterval(() => {}, 1_000);
       cliPathOverride: fakePi,
       backendType: 'pty',
       prompt: 'initial turn',
-      promptRoleContextRevision: 'role-initial',
+      promptAgentContextRevision: 'role-initial',
       larkAppId: 'app_test',
       larkAppSecret: 'secret',
       turnId: 'om_initial',
@@ -178,7 +178,7 @@ setInterval(() => {}, 1_000);
     child.send({
       type: 'message',
       content: 'follow-up during init',
-      roleContextRevision: 'role-followup',
+      agentContextRevision: 'role-followup',
       turnId: 'om_followup',
     } satisfies DaemonToWorker);
 
@@ -190,8 +190,8 @@ setInterval(() => {}, 1_000);
     expect(messages).toEqual(expect.arrayContaining([
       { type: 'turn_input_received', turnId: 'om_initial' },
       { type: 'turn_input_received', turnId: 'om_followup' },
-      { type: 'turn_input_committed', turnId: 'om_initial', roleContextRevision: 'role-initial' },
-      { type: 'turn_input_committed', turnId: 'om_followup', roleContextRevision: 'role-followup' },
+      { type: 'turn_input_committed', turnId: 'om_initial', agentContextRevision: 'role-initial' },
+      { type: 'turn_input_committed', turnId: 'om_followup', agentContextRevision: 'role-followup' },
     ]));
     expect(messages).not.toContainEqual(expect.objectContaining({
       type: 'turn_input_rejected',
@@ -201,17 +201,17 @@ setInterval(() => {}, 1_000);
     child.send({
       type: 'message',
       content: 'system turn without external id',
-      roleContextRevision: 'role-system',
+      agentContextRevision: 'role-system',
     } satisfies DaemonToWorker);
     await waitFor(() => messages.some(message =>
       message.type === 'turn_input_committed'
       && message.turnId === undefined
-      && message.roleContextRevision === 'role-system'), logs);
+      && message.agentContextRevision === 'role-system'), logs);
 
     child.send({
       type: 'message',
       content: 'duplicate follow-up',
-      roleContextRevision: 'role-retry-changed',
+      agentContextRevision: 'role-retry-changed',
       turnId: 'om_followup',
     } satisfies DaemonToWorker);
     await waitFor(() => messages.filter(message =>

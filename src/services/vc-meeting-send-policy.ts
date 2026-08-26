@@ -8,6 +8,10 @@ import type {
   VcMeetingListenerOutputPlacement,
 } from '../types.js';
 import type { VcMeetingListenerOutputProtocol } from './vc-meeting-listener-output-protocol.js';
+import {
+  authenticateManagedTurnOrigin,
+  type ManagedTurnOrigin,
+} from '../core/managed-turn-origin/index.js';
 
 /** Resolve explicit-IM authority by the worker's live turn id. The latest
  * quote target is presentation state only: message B may already be queued
@@ -57,12 +61,6 @@ export type VcMeetingManagedSendDecision =
     }
   | { ok: false; errorCode: 'origin_unproven' | 'receipt_not_found' | 'origin_mismatch' | 'silent_delivery'; error: string };
 
-export interface VcMeetingLiveManagedOrigin {
-  capability: string;
-  turnId?: string;
-  dispatchAttempt?: number;
-}
-
 export type VcMeetingManagedOriginVerification =
   | {
       ok: true;
@@ -88,17 +86,14 @@ export function isTrustedVcMeetingHostRelayParent(
 }
 
 /** Authorize a daemon-mediated exit (ask/action relay) against the worker's
- * live origin registry. Only the rotating capability proves authority; the
- * visible turn tuple is routing/diagnostic context and is never a credential. */
+ * live origin registry. Only the rotating capability proves authority. */
 export function evaluateVcMeetingManagedOriginClaim(
   dataDir: string,
   input: {
     receiverSessionId: string;
     currentImTurnOrigin?: VcMeetingImTurnOrigin;
-    liveOrigin?: VcMeetingLiveManagedOrigin;
+    liveOrigin?: ManagedTurnOrigin;
     claimedCapability?: string;
-    claimedTurnId?: string;
-    claimedDispatchAttempt?: number;
   },
 ): VcMeetingManagedSendDecision {
   const verified = verifyVcMeetingManagedOriginClaim(input);
@@ -121,24 +116,23 @@ export function verifyVcMeetingManagedOriginClaim(
   input: {
     receiverSessionId: string;
     currentImTurnOrigin?: VcMeetingImTurnOrigin;
-    liveOrigin?: VcMeetingLiveManagedOrigin;
+    liveOrigin?: ManagedTurnOrigin;
     claimedCapability?: string;
-    claimedTurnId?: string;
-    claimedDispatchAttempt?: number;
   },
 ): VcMeetingManagedOriginVerification {
-  const live = input.liveOrigin;
-  const capabilityMatches = !!live && !!input.claimedCapability
-    && input.claimedCapability === live.capability;
-  if (!live || !capabilityMatches) {
+  const origin = authenticateManagedTurnOrigin(
+    input.liveOrigin,
+    input.claimedCapability,
+  );
+  if (!origin) {
     return { ok: false, errorCode: 'origin_unproven', error: 'managed origin claim is stale or missing' };
   }
   return {
     ok: true,
     origin: {
       receiverSessionId: input.receiverSessionId,
-      turnId: live.turnId,
-      dispatchAttempt: live.dispatchAttempt,
+      turnId: origin.turnId,
+      dispatchAttempt: origin.dispatchAttempt,
       currentImTurnId: input.currentImTurnOrigin?.larkMessageId,
       currentImTurnOrigin: input.currentImTurnOrigin,
     },

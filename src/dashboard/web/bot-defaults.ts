@@ -80,7 +80,6 @@ export type BotDefaultsRow = {
   usageDisplay?: 'streaming' | 'footer' | 'off';
   usageSupported?: boolean;
   disableStreamingCard?: boolean;
-  silentTurnReactions?: boolean;
   codexAppCleanInput?: boolean;
   writableTerminalLinkInCard?: boolean;
   privateCard?: boolean;

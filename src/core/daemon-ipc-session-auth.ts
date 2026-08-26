@@ -1,10 +1,11 @@
 import {
-  verifyVcMeetingManagedOriginClaim,
-  type VcMeetingLiveManagedOrigin,
-} from '../services/vc-meeting-send-policy.js';
+  authenticateManagedTurnOrigin,
+  type AuthenticatedTurnOrigin,
+  type ManagedTurnOrigin,
+} from './managed-turn-origin/index.js';
 
 export type SessionScopedIpcAuthDecision =
-  | { ok: true }
+  | { ok: true; origin?: Readonly<AuthenticatedTurnOrigin> }
   | { ok: false; error: 'origin_unproven' | 'managed_action_required' };
 
 export interface SessionScopedIpcIdentity {
@@ -27,35 +28,37 @@ export function bindSessionScopedIpcIdentity<T extends object>(
  * Narrow fallback for commands that legitimately originate inside a
  * read-isolated CLI and therefore cannot read the host IPC HMAC secret.
  *
- * The daemon resolves `liveOrigin` from the exact body session id; callers must
- * present that session's current rotating capability. The visible turn/attempt
- * tuple is never accepted as proof. Receiver sessions are denied unless the
- * endpoint is explicitly non-observable (currently SessionStart readiness).
+ * The daemon resolves `liveOrigin` from its active session registry; callers must
+ * present that session's current rotating capability. A successful decision
+ * carries an immutable snapshot of the daemon-owned origin. Callers never
+ * submit or choose the authenticated turn. Receiver sessions are denied unless
+ * the endpoint is explicitly non-observable (currently SessionStart readiness).
  */
 export function authorizeSessionScopedIpc(input: {
   trustedHost: boolean;
-  sessionExists: boolean;
   receiverSession: boolean;
   allowReceiver: boolean;
-  sessionId: string;
-  liveOrigin?: VcMeetingLiveManagedOrigin;
+  liveOrigin?: ManagedTurnOrigin;
   claimedCapability?: string;
-  claimedTurnId?: string;
-  claimedDispatchAttempt?: number;
 }): SessionScopedIpcAuthDecision {
-  if (input.trustedHost) return { ok: true };
-  if (!input.sessionExists || !input.sessionId) return { ok: false, error: 'origin_unproven' };
+  if (input.trustedHost) {
+    return {
+      ok: true,
+      ...(input.liveOrigin ? {
+        origin: {
+          ...(input.liveOrigin.turnId ? { turnId: input.liveOrigin.turnId } : {}),
+          ...(input.liveOrigin.dispatchAttempt !== undefined
+            ? { dispatchAttempt: input.liveOrigin.dispatchAttempt }
+            : {}),
+        },
+      } : {}),
+    };
+  }
   if (input.receiverSession && !input.allowReceiver) {
     return { ok: false, error: 'managed_action_required' };
   }
-  const verified = verifyVcMeetingManagedOriginClaim({
-    receiverSessionId: input.sessionId,
-    liveOrigin: input.liveOrigin,
-    claimedCapability: input.claimedCapability,
-    claimedTurnId: input.claimedTurnId,
-    claimedDispatchAttempt: input.claimedDispatchAttempt,
-  });
-  return verified.ok
-    ? { ok: true }
+  const origin = authenticateManagedTurnOrigin(input.liveOrigin, input.claimedCapability);
+  return origin
+    ? { ok: true, origin }
     : { ok: false, error: 'origin_unproven' };
 }

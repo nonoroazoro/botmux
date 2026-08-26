@@ -24,9 +24,9 @@ import {
   markMessageListenerRunPreviewReplied,
   markMessageListenerRunPreviewRunning,
 } from '../services/message-listener-run-preview-store.js';
-import { markRoleContextRefreshRequired, persistStreamCardState, rememberLastCliInput } from './session-manager.js';
+import { markAgentContextRefreshRequired, persistStreamCardState, rememberLastCliInput } from './session-manager.js';
 import { fallbackTurnId, isSubstituteTurn } from './reply-target.js';
-import { updateMessage, deleteMessage, sendEphemeralCard, sendUserMessage, addReaction, removeReaction, MessageWithdrawnError } from '../im/lark/client.js';
+import { updateMessage, deleteMessage, sendEphemeralCard, sendUserMessage, MessageWithdrawnError } from '../im/lark/client.js';
 import { buildStreamingCard, buildPrivateSnapshotCard, buildSessionCard, buildTuiPromptCard, buildTuiPromptResolvedCard, buildTuiPromptFailedCard, buildRelayedFrozenCard, getCliDisplayName } from '../im/lark/card-builder.js';
 import { buildSafeRecoveryExecutionCard } from '../im/lark/safe-recovery-card.js';
 import { codexServiceTierBadge } from '../services/codex-service-tier.js';
@@ -236,7 +236,6 @@ import type {
   SafeRecoveryExecutionStatus,
 } from '../types.js';
 import { activeSessionKey, sessionKey, sessionAnchorId, storedSessionAnchorId, isDocNativeSession, larkTransportEnabled, type DaemonSession } from './types.js';
-import { DONE_REACTION_EMOJI_TYPE } from './pending-response.js';
 import { buildTerminalUrl } from './terminal-url.js';
 import { prependBotmuxBin, resolveBotmuxWrapperBinDir } from './botmux-wrapper.js';
 import { usageLimitStateKey, type CliUsageLimitState } from '../utils/cli-usage-limit.js';
@@ -836,18 +835,6 @@ function streamingCardDisabled(ds: DaemonSession, turnId?: string): boolean {
       // Callers with a turnId (screen updates) get an exact per-turn answer.
       || isSubstituteTurn(ds, turnId);
   } catch { return false; }
-}
-
-function silentTurnReactions(ds: DaemonSession): boolean {
-  try {
-    return getBot(ds.larkAppId).config.silentTurnReactions === true;
-  } catch { return false; }
-}
-
-function doneReactionEmojiFor(ds: DaemonSession): string {
-  try {
-    return getBot(ds.larkAppId).config.doneReactionEmoji || DONE_REACTION_EMOJI_TYPE;
-  } catch { return DONE_REACTION_EMOJI_TYPE; }
 }
 
 /** Worker lifecycle readiness is independent from Web Terminal availability.
@@ -4321,13 +4308,13 @@ export function sendWorkerInput(
     type: 'message',
     content: normalized.content,
     ...(codexAppInput ? { codexAppInput } : {}),
-    ...(normalized.roleContextRevision
-      ? { roleContextRevision: normalized.roleContextRevision }
+    ...(normalized.agentContextRevision
+      ? { agentContextRevision: normalized.agentContextRevision }
       : {}),
-    ...(normalized.roleContextFallbackBlock
-      ? { roleContextFallbackBlock: normalized.roleContextFallbackBlock }
+    ...(normalized.agentContextFallbackBlock
+      ? { agentContextFallbackBlock: normalized.agentContextFallbackBlock }
       : {}),
-    ...(normalized.roleContextIncluded ? { roleContextIncluded: true } : {}),
+    ...(normalized.agentContextIncluded ? { agentContextIncluded: true } : {}),
     ...(nativeSessionTitle ? { nativeSessionTitle } : {}),
     ...(nativeSessionTitlePrompt ? { nativeSessionTitlePrompt } : {}),
     ...(turnId ? { turnId } : {}),
@@ -4782,13 +4769,13 @@ export function forkWorker(
     ...(nativeSessionTitlePrompt ? { nativeSessionTitlePrompt } : {}),
     prompt,
     ...(promptCodexAppInput ? { promptCodexAppInput } : {}),
-    ...(promptPayload.roleContextRevision
-      ? { promptRoleContextRevision: promptPayload.roleContextRevision }
+    ...(promptPayload.agentContextRevision
+      ? { promptAgentContextRevision: promptPayload.agentContextRevision }
       : {}),
-    ...(promptPayload.roleContextFallbackBlock
-      ? { promptRoleContextFallbackBlock: promptPayload.roleContextFallbackBlock }
+    ...(promptPayload.agentContextFallbackBlock
+      ? { promptAgentContextFallbackBlock: promptPayload.agentContextFallbackBlock }
       : {}),
-    ...(promptPayload.roleContextIncluded ? { promptRoleContextIncluded: true } : {}),
+    ...(promptPayload.agentContextIncluded ? { promptAgentContextIncluded: true } : {}),
     resume,
     // One-shot native fork intent (see Session.pendingForkSession). Only the
     // child's FIRST spawn resumes the SOURCE transcript (cliSessionId still
@@ -5178,8 +5165,8 @@ function setupWorkerHandlers(
         break;
       }
       case 'context_reset': {
-        markRoleContextRefreshRequired(ds);
-        logger.info(`[${t}] Native context reset (${msg.reason}); role refresh armed`);
+        markAgentContextRefreshRequired(ds);
+        logger.info(`[${t}] Native context reset (${msg.reason}); Agent Context refresh armed`);
         break;
       }
       case 'turn_input_received': {
@@ -5222,9 +5209,9 @@ function setupWorkerHandlers(
         // receipt ACK was delayed or dropped on the reverse IPC channel.
         if (msg.turnId) completeOrdinaryImDelivery(ds, msg.turnId, workerGeneration);
         let sessionChanged = false;
-        if (msg.roleContextRevision !== undefined) {
-          ds.session.roleContextRevision = msg.roleContextRevision;
-          ds.session.roleContextRefreshRequired = undefined;
+        if (msg.agentContextRevision !== undefined) {
+          ds.session.agentContextRevision = msg.agentContextRevision;
+          ds.session.agentContextRefreshRequired = undefined;
           sessionChanged = true;
         }
         if (msg.turnId) {
@@ -5615,25 +5602,25 @@ function setupWorkerHandlers(
             followUpContent: followUp?.cliInput,
             ...(followUp?.turnId ? { followUpTurnId: followUp.turnId } : {}),
             ...(followUpCodexAppInput ? { followUpCodexAppInput } : {}),
-            ...(followUp?.roleContextRevision
-              ? { followUpRoleContextRevision: followUp.roleContextRevision }
+            ...(followUp?.agentContextRevision
+              ? { followUpAgentContextRevision: followUp.agentContextRevision }
               : {}),
-            ...(followUp?.roleContextFallbackBlock
-              ? { followUpRoleContextFallbackBlock: followUp.roleContextFallbackBlock }
+            ...(followUp?.agentContextFallbackBlock
+              ? { followUpAgentContextFallbackBlock: followUp.agentContextFallbackBlock }
               : {}),
-            ...(followUp?.roleContextIncluded ? { followUpRoleContextIncluded: true } : {}),
+            ...(followUp?.agentContextIncluded ? { followUpAgentContextIncluded: true } : {}),
           });
           logger.info(`[${t}] Sent pending raw input after prompt_ready: ${rawInput.substring(0, 80)}${followUp ? ` (+follow-up ${followUp.cliInput.length} chars)` : ''}`);
           if (followUp) rememberLastCliInput(ds, followUp.userPrompt, {
             content: followUp.cliInput,
             ...(followUpCodexAppInput ? { codexAppInput: followUpCodexAppInput } : {}),
-            ...(followUp.roleContextRevision
-              ? { roleContextRevision: followUp.roleContextRevision }
+            ...(followUp.agentContextRevision
+              ? { agentContextRevision: followUp.agentContextRevision }
               : {}),
-            ...(followUp.roleContextFallbackBlock
-              ? { roleContextFallbackBlock: followUp.roleContextFallbackBlock }
+            ...(followUp.agentContextFallbackBlock
+              ? { agentContextFallbackBlock: followUp.agentContextFallbackBlock }
               : {}),
-            ...(followUp.roleContextIncluded ? { roleContextIncluded: true as const } : {}),
+            ...(followUp.agentContextIncluded ? { agentContextIncluded: true as const } : {}),
           }, { codexAppInputAccepted: !!followUpCodexAppInput });
         }
         // CLI reached its prompt — any previously posted stuck warning is stale.
@@ -5772,17 +5759,8 @@ function setupWorkerHandlers(
             content: msg.content,
           });
           // Usage ledger: any settle-to-idle/limited edge records the delta.
-          // Turn reactions are stricter — only flip ✋→✅ after a real busy
-          // period (working/analyzing). Cold-start starting→idle (or the first
-          // prompt-ready before the turn has gone working) must NOT DONE a
-          // message that is still about to be / just being processed. Grok
-          // card-off sessions hit this when the ready-gate settle fired idle
-          // ~seconds after GoGoGo while the CLI was still running the prompt.
           if (ds.lastScreenStatus === 'idle' || ds.lastScreenStatus === 'limited') {
             recordUsageForDaemonSession(ds);
-            if (prevStatus === 'working' || prevStatus === 'analyzing') {
-              void finishTurnReactions(ds);
-            }
           }
           if (
             ds.lastScreenStatus === 'idle'
@@ -6891,47 +6869,6 @@ function shouldDropMismatchedHermesFinalOutput(
   return true;
 }
 
-/**
- * Turn-end half of the two-phase turn reactions (auto-on for card-off sessions,
- * i.e. streaming card disabled). The 冲! "received" reactions are added per-message at the daemon
- * acceptance point (`noteTurnReceived`); the screen_update handler calls this
- * only on working|analyzing → idle|limited (not cold-start starting→idle), to
- * flip every pending ✋ on this session to ✅ DONE and clear the list. When
- * silentTurnReactions is enabled after a ✋ has already landed, we only remove
- * that received reaction and do not add DONE. Binding the start to the message
- * (not a status edge) means type-ahead / busy-batched messages each get their
- * own reaction and all settle together here.
- *
- * Every Feishu call is best-effort — a failure only means a missing emoji, so it
- * must never throw into the status pipeline (callers invoke as `void`).
- */
-async function finishTurnReactions(ds: DaemonSession): Promise<void> {
-  const list = ds.pendingAckReactions;
-  if (!list || list.length === 0) return;
-  // Detach the batch first so a second idle edge can't double-flip it.
-  ds.pendingAckReactions = [];
-  // A dedicated receiver has no progress-reaction channel. Clear any stale
-  // in-memory entries restored from an older build without touching Lark.
-  if (ds.session.vcMeetingReceiver) return;
-  const silent = silentTurnReactions(ds);
-  const doneEmoji = doneReactionEmojiFor(ds);
-  for (const ack of list) {
-    if (ack.reactionId) {
-      try {
-        await removeReaction(ds.larkAppId, ack.messageId, ack.reactionId);
-      } catch (err: any) {
-        logger.debug(`[reaction] failed to remove received reaction ${ack.reactionId}: ${err?.message ?? err}`);
-      }
-    }
-    if (silent) continue;
-    try {
-      await addReaction(ds.larkAppId, ack.messageId, doneEmoji);
-    } catch (err: any) {
-      logger.debug(`[reaction] failed to add done reaction to ${ack.messageId}: ${err?.message ?? err}`);
-    }
-  }
-}
-
 /** Deliver a bridge `final_output` to Lark. The worker emits each turn
  *  exactly once (it pops the turn off its queue at emit time), so the
  *  daemon owns retries on transient failures. After 3 attempts we log
@@ -7339,7 +7276,6 @@ function deliverFinalOutput(
 export const __testOnly_deliverFinalOutput = deliverFinalOutput;
 export const __testOnly_setupWorkerHandlers = setupWorkerHandlers;
 export const __testOnly_reserveWorkerGeneration = reserveWorkerGeneration;
-export const __testOnly_finishTurnReactions = finishTurnReactions;
 export const __testOnly_finalOutputDedupeKey = finalOutputDedupeKey;
 
 // ─── Fork adopt worker ──────────────────────────────────────────────────────

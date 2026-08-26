@@ -377,8 +377,7 @@ describe('buildConfigCard', () => {
       quota: null,
       admins: 1,
       booleans: [
-        { key: 'disableStreamingCard', on: false },
-        { key: 'silentTurnReactions', on: true },
+        { key: 'disableStreamingCard', on: true },
         { key: 'writableTerminalLinkInCard', on: false },
         { key: 'privateCard', on: false },
         { key: 'autoStartOnGroupJoin', on: false },
@@ -388,11 +387,11 @@ describe('buildConfigCard', () => {
       ],
     }, 'en'));
 
-    const toggle = allActions(card).find((a: any) => a.value?.field === 'silentTurnReactions');
+    const toggle = allActions(card).find((a: any) => a.value?.field === 'disableStreamingCard');
     expect(toggle).toBeTruthy();
     expect(toggle.value.action).toBe('config_toggle');
     expect(toggle.type).toBe('primary');
-    expect(toggle.text.content).toContain('Disable status reactions');
+    expect(toggle.text.content).toContain('Disable live card');
 
     // usageDisplay is an enum (streaming/footer/off), configured via dashboard
     // and `/botconfig set` — like skillInjection it is intentionally NOT a

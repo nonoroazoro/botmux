@@ -14,7 +14,6 @@
  */
 
 import { existsSync, readFileSync, statSync, mkdirSync, unlinkSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
 import { join, dirname } from 'node:path';
 import { config } from '../config.js';
@@ -24,7 +23,6 @@ import { logger } from '../utils/logger.js';
 // for richer personas; kept as a safety cap so an accidental mega-paste cannot
 // bloat the model context. Exported so all role write paths share one limit.
 export const MAX_ROLE_BYTES = 32 * 1024; // 32 KB (~10k CJK chars)
-export const EMPTY_ROLE_REVISION = 'role-context-v1:none';
 const ROLE_CHAT_ID_RE = /^(?:oc|om)_[A-Za-z0-9_-]{1,128}$/;
 
 interface CacheEntry {
@@ -214,27 +212,4 @@ export function resolveRole(larkAppId: string, chatId: string): { content: strin
   const team = larkAppId ? resolveTeamRoleFile(larkAppId) : null;
   if (team !== null) return { content: team, source: 'team' };
   return { content: null, source: 'none' };
-}
-
-/**
- * Resolve the effective role and a stable revision used by lifecycle-aware
- * delivery. Source is part of the digest because it changes the rendered
- * context boundary even when the Markdown bytes are identical.
- */
-export function resolveRoleContext(
-  larkAppId: string,
-  chatId: string,
-): { content: string | null; source: RoleSource; revision: string } {
-  const base = resolveRole(larkAppId, chatId);
-  if (!base.content) return { ...base, revision: EMPTY_ROLE_REVISION };
-  const revision = createHash('sha256')
-    .update('role-context-v1')
-    .update('\0')
-    .update(chatId)
-    .update('\0')
-    .update(base.source)
-    .update('\0')
-    .update(base.content)
-    .digest('hex');
-  return { ...base, revision };
 }

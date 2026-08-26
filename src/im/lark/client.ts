@@ -341,13 +341,26 @@ export async function replyMessage(
   return replyId;
 }
 
-export async function addReaction(larkAppId: string, messageId: string, emojiType: string): Promise<string> {
+export async function addReaction(
+  larkAppId: string,
+  messageId: string,
+  emojiType: string,
+  options?: LarkRequestOptions,
+): Promise<string> {
   assertLarkTransport(larkAppId, 'addReaction');
   const c = getBotClient(larkAppId);
-  const res = await (c as any).im.v1.messageReaction.create({
-    path: { message_id: messageId },
-    data: { reaction_type: { emoji_type: emojiType } },
-  });
+  const data = { reaction_type: { emoji_type: emojiType } };
+  const res = options
+    ? await c.request({
+      method: 'POST',
+      url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/reactions`,
+      data,
+      ...larkRequestDeadline(options),
+    })
+    : await (c as any).im.v1.messageReaction.create({
+      path: { message_id: messageId },
+      data,
+    });
   if (res.code !== 0) {
     throw new Error(`Failed to add reaction: ${res.msg} (code: ${res.code})`);
   }

@@ -264,8 +264,8 @@ function buildExistingSessionContent(
     larkAppId,
     chatId,
     whiteboardId: ds.session.whiteboardId,
-    roleContextRevision: ds.session.roleContextRevision,
-    roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
+    agentContextRevision: ds.session.agentContextRevision,
+    agentContextRefreshRequired: ds.session.agentContextRefreshRequired,
     codexAppText,
     codexAppApplicationContext,
     // Only data enters untrusted structured context; connector-owner task and

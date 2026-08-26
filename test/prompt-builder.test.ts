@@ -86,6 +86,14 @@ vi.mock('../src/core/worker-pool.js', () => ({
   getCurrentCliVersion: vi.fn(() => '1.0.0'),
 }));
 
+vi.mock('../src/core/personality/index.js', () => ({
+  resolveAgentContext: vi.fn(() => ({
+    block: '',
+    reactionReminder: 'Apply the active reaction policy before sending.',
+    revision: 'agent-context-v1:test',
+  })),
+}));
+
 // ─── Imports ──────────────────────────────────────────────────────────────
 
 import { buildNewTopicPrompt, buildFollowUpContent, buildReforkPrompt, renderSenderTag, renderCursorSenderNote, renderBufferedSenderBlock } from '../src/core/session-manager.js';
@@ -554,6 +562,19 @@ describe('buildFollowUpContent', () => {
     expect(content).not.toContain('do not resend because the CLI reports no visible output');
     expect(content).not.toContain('JSON.stringify');
     expect(content).not.toContain('botmux skill show botmux-send');
+  });
+
+  it('keeps a compact reaction decision gate on personality-enabled follow-ups', () => {
+    const content = buildFollowUpContent('2 + 2 = 5, right?', SESSION_ID, {
+      cliId: 'codex',
+      larkAppId: 'app_test',
+      chatId: 'oc_test',
+      agentContextRevision: 'agent-context-v1:test',
+    });
+
+    expect(content).not.toContain('<agent_context>');
+    expect(content).toContain('Apply the active reaction policy before sending.');
+    expect(content.indexOf('Apply the active reaction policy')).toBeLessThan(content.indexOf('<user_message>'));
   });
 
   it('injects a deterministic poll command hint only for poll turns', () => {

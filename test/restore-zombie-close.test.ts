@@ -677,7 +677,7 @@ describe('restoreActiveSessions — persistent-backend zombie-close decision', (
         clientUserMessageId: `om_round_${round}`,
         additionalContext: {
           botmux_sender: { kind: 'untrusted', value: `<sender round="${round}" />` },
-          botmux_role: { kind: 'application', value: '<role>经营助手</role>' },
+          botmux_agent_context: { kind: 'application', value: '<role>经营助手</role>' },
         },
         localImages: [{ path: `/tmp/round-${round}.png`, detail: 'original' }],
       };

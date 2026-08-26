@@ -523,13 +523,13 @@ export async function commitRepoSelection(
             : pendingPrompt || ds.pendingFollowUps?.join('\n\n') || '',
           cliInput: wrappedInput.content,
           ...(ds.pendingFollowUpTurnId ? { turnId: ds.pendingFollowUpTurnId } : {}),
-          ...(wrappedInput.roleContextRevision
-            ? { roleContextRevision: wrappedInput.roleContextRevision }
+          ...(wrappedInput.agentContextRevision
+            ? { agentContextRevision: wrappedInput.agentContextRevision }
             : {}),
-          ...(wrappedInput.roleContextFallbackBlock
-            ? { roleContextFallbackBlock: wrappedInput.roleContextFallbackBlock }
+          ...(wrappedInput.agentContextFallbackBlock
+            ? { agentContextFallbackBlock: wrappedInput.agentContextFallbackBlock }
             : {}),
-          ...(wrappedInput.roleContextIncluded ? { roleContextIncluded: true as const } : {}),
+          ...(wrappedInput.agentContextIncluded ? { agentContextIncluded: true as const } : {}),
           ...(effectiveCliId === 'codex-app' && botCfg.codexAppCleanInput === true && wrappedInput.codexAppInput
             ? { codexAppInput: wrappedInput.codexAppInput }
             : {}),

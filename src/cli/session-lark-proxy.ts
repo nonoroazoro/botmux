@@ -4,7 +4,7 @@ import { readManagedOriginCapability } from '../core/managed-origin-capability.j
 import { resolveDaemonIpcPort } from '../utils/daemon-discovery.js';
 
 export async function requestSessionLarkProxy(input: {
-  operation: 'lark-history' | 'lark-quoted';
+  operation: 'lark-history' | 'lark-quoted' | 'react';
   sessionId?: string;
   body: Record<string, unknown>;
   env?: NodeJS.ProcessEnv;
@@ -28,9 +28,7 @@ export async function requestSessionLarkProxy(input: {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       ...input.body,
-      originCapability: claim?.capability,
-      originTurnId: claim?.turnId,
-      originDispatchAttempt: claim?.dispatchAttempt,
+      ...(claim?.capability ? { originCapability: claim.capability } : {}),
     }),
   } satisfies RequestInit;
 

@@ -22,7 +22,7 @@ describe('dashboard bot payload helpers', () => {
       'env', 'launchShell', 'maxLiveWorkers', 'messageQuotaDefaultLimit', 'model',
       'overloadAlert', 'p2pMode', 'privateCard', 'regularGroupMentionMode',
       'regularGroupReplyMode', 'restrictGrantCommands', 'sandbox', 'sandboxPaths',
-      'silentTurnReactions', 'skillInjection', 'startupCommands', 'substituteMode',
+      'skillInjection', 'startupCommands', 'substituteMode',
       'summaryMemory', 'summaryMemoryPath', 'summaryRange', 'writableTerminalLinkInCard',
     ];
     expect(Object.keys(row)).toEqual(expect.arrayContaining(editableFields));

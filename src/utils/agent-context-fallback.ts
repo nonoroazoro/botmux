@@ -1,14 +1,14 @@
 import type { CodexAppTurnInput } from '../types.js';
 import { withCodexAppContext } from './codex-app-context.js';
 
-/** Add the effective role when a requested resume becomes a fresh context. */
-export function applyRoleContextFallback(
+/** Add the effective agent context when a requested resume becomes a fresh context. */
+export function applyAgentContextFallback(
   prompt: string,
   codexAppInput: CodexAppTurnInput | undefined,
   fallbackBlock: string | undefined,
-  roleContextIncluded = false,
+  agentContextIncluded = false,
 ): { prompt: string; codexAppInput?: CodexAppTurnInput } {
-  if (roleContextIncluded || !fallbackBlock) {
+  if (agentContextIncluded || !fallbackBlock) {
     return {
       prompt,
       ...(codexAppInput ? { codexAppInput } : {}),
@@ -20,7 +20,7 @@ export function applyRoleContextFallback(
       ? {
           codexAppInput: withCodexAppContext(
             codexAppInput,
-            'botmux_role',
+            'botmux_agent_context',
             fallbackBlock,
             'application',
           ),

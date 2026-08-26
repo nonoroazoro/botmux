@@ -93,8 +93,8 @@ vi.mock('../src/services/frozen-card-store.js', () => ({
 
 vi.mock('../src/core/session-manager.js', () => ({
   ensureSessionWhiteboard: vi.fn(),
-  markRoleContextRefreshRequired: vi.fn((ds: DaemonSession) => {
-    ds.session.roleContextRefreshRequired = true;
+  markAgentContextRefreshRequired: vi.fn((ds: DaemonSession) => {
+    ds.session.agentContextRefreshRequired = true;
     updateSessionMock(ds.session);
   }),
   persistStreamCardState: vi.fn(),
@@ -905,8 +905,8 @@ describe('session.start lifecycle integration', () => {
     ds.session.replyTargets = {
       om_kickoff: { rootMessageId: 'om_dispatch_root', updatedAt: '2026-07-14T09:00:01.000Z' },
     };
-    ds.session.roleContextRevision = 'role-old';
-    ds.session.roleContextRefreshRequired = true;
+    ds.session.agentContextRevision = 'role-old';
+    ds.session.agentContextRefreshRequired = true;
     forkWorker(ds, 'hello', false);
     const worker = forkMock.mock.results.at(-1)!.value;
     vi.mocked(sessionStore.updateSession).mockClear();
@@ -914,7 +914,7 @@ describe('session.start lifecycle integration', () => {
     worker.emit('message', {
       type: 'turn_input_committed',
       turnId: 'om_kickoff',
-      roleContextRevision: 'role-new',
+      agentContextRevision: 'role-new',
     });
     await Promise.resolve();
     expect(ds.session.dispatchInputReceipts?.om_kickoff).toEqual({
@@ -923,8 +923,8 @@ describe('session.start lifecycle integration', () => {
       workerGeneration: 1,
     });
     expect(ds.session.workerGeneration).toBe(1);
-    expect(ds.session.roleContextRevision).toBe('role-new');
-    expect(ds.session.roleContextRefreshRequired).toBeUndefined();
+    expect(ds.session.agentContextRevision).toBe('role-new');
+    expect(ds.session.agentContextRefreshRequired).toBeUndefined();
     expect(sessionStore.updateSession).toHaveBeenCalledWith(ds.session);
 
     const prior = ds.session.dispatchInputReceipts;
@@ -933,17 +933,17 @@ describe('session.start lifecycle integration', () => {
     worker.emit('message', {
       type: 'turn_input_committed',
       turnId: 'om_stale_worker',
-      roleContextRevision: 'role-stale',
+      agentContextRevision: 'role-stale',
     });
     await Promise.resolve();
     expect(ds.session.dispatchInputReceipts).toBe(prior);
-    expect(ds.session.roleContextRevision).toBe('role-new');
+    expect(ds.session.agentContextRevision).toBe('role-new');
     expect(sessionStore.updateSession).not.toHaveBeenCalled();
   });
 
-  it('requires role refresh when the worker replaces a native context', async () => {
+  it('requires Agent Context refresh when the worker replaces a native context', async () => {
     const ds = makeDs();
-    ds.session.roleContextRevision = 'role-current';
+    ds.session.agentContextRevision = 'role-current';
     forkWorker(ds, 'hello', false);
     const worker = forkMock.mock.results.at(-1)?.value;
     expect(worker).toBeDefined();
@@ -955,14 +955,14 @@ describe('session.start lifecycle integration', () => {
     });
     await Promise.resolve();
 
-    expect(ds.session.roleContextRevision).toBe('role-current');
-    expect(ds.session.roleContextRefreshRequired).toBe(true);
+    expect(ds.session.agentContextRevision).toBe('role-current');
+    expect(ds.session.agentContextRefreshRequired).toBe(true);
     expect(sessionStore.updateSession).toHaveBeenCalledWith(ds.session);
   });
 
-  it('commits role context for a turn without an external turn id', async () => {
+  it('commits Agent Context for a turn without an external turn id', async () => {
     const ds = makeDs();
-    ds.session.roleContextRefreshRequired = true;
+    ds.session.agentContextRefreshRequired = true;
     forkWorker(ds, 'hello', false);
     const worker = forkMock.mock.results.at(-1)?.value;
     expect(worker).toBeDefined();
@@ -970,12 +970,12 @@ describe('session.start lifecycle integration', () => {
 
     worker?.emit('message', {
       type: 'turn_input_committed',
-      roleContextRevision: 'role-system-turn',
+      agentContextRevision: 'role-system-turn',
     });
     await Promise.resolve();
 
-    expect(ds.session.roleContextRevision).toBe('role-system-turn');
-    expect(ds.session.roleContextRefreshRequired).toBeUndefined();
+    expect(ds.session.agentContextRevision).toBe('role-system-turn');
+    expect(ds.session.agentContextRefreshRequired).toBeUndefined();
     expect(sessionStore.updateSession).toHaveBeenCalledWith(ds.session);
   });
 

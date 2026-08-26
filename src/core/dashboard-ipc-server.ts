@@ -122,6 +122,14 @@ import {
   markMessageListenerRunPreviewTriggered,
 } from '../services/message-listener-run-preview-store.js';
 import { listChatMemberDisplays } from '../services/groups-store.js';
+import {
+  isPersonalityReaction,
+  personalityReactionsEnabled,
+  reactToCurrentTurn,
+  resetSoul,
+  resolveSoul,
+  writeSoul,
+} from './personality/index.js';
 
 const MESSAGE_LISTENER_PREVIEW_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -495,7 +503,7 @@ function routeHasNarrowUntrustedAuth(method: string, pathname: string): boolean 
   // Session-scoped Lark reads are available to read-isolated CLIs without
   // exposing bot credentials or the shared session store. The handlers bind
   // every query to the URL session and verify its current rotating capability.
-  if (method === 'POST' && /^\/api\/sessions\/[^/]+\/(?:lark-history|lark-quoted|polls|poll-vote)$/.test(pathname)) return true;
+  if (method === 'POST' && /^\/api\/sessions\/[^/]+\/(?:lark-history|lark-quoted|react|polls|poll-vote)$/.test(pathname)) return true;
   if (method === 'POST' && pathname === '/api/hooks/emit') return true;
   if (method === 'POST' && pathname === '/api/attention') return true;
   if (method === 'POST' && pathname === '/api/capabilities/manage') return true;
@@ -709,7 +717,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/close', async (req, res, params) => {
   const body = await readJsonBody<Record<string, unknown>>(req)
     .catch(() => ({} as Record<string, unknown>));
   const ds = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   const r = await closeSession(params.sessionId);
   jsonRes(res, 200, r);
@@ -896,31 +904,15 @@ ipcRoute('POST', '/api/host-overload/sweep', async (req, res) => {
 function sessionCliIpcAuth(
   req: IncomingMessage,
   ds: DaemonSession | undefined,
-  sessionId: string,
   body: Record<string, unknown> | undefined,
-): { ok: true; turnId?: string } | { ok: false; error: string } {
-  const claimedAttempt = typeof body?.originDispatchAttempt === 'number'
-    && Number.isSafeInteger(body.originDispatchAttempt)
-    && body.originDispatchAttempt > 0
-    ? body.originDispatchAttempt
-    : undefined;
-  const decision = authorizeSessionScopedIpc({
+): ReturnType<typeof authorizeSessionScopedIpc> {
+  return authorizeSessionScopedIpc({
     trustedHost: isTrustedHostIpcRequest(req),
-    sessionExists: !!ds,
     receiverSession: !!ds?.session.vcMeetingReceiver,
     allowReceiver: false,
-    sessionId,
     liveOrigin: ds?.managedTurnOrigin,
     claimedCapability: typeof body?.originCapability === 'string' ? body.originCapability : undefined,
-    claimedTurnId: typeof body?.originTurnId === 'string' ? body.originTurnId : undefined,
-    claimedDispatchAttempt: claimedAttempt,
   });
-  return decision.ok
-    ? {
-        ok: true,
-        ...(ds?.managedTurnOrigin?.turnId ? { turnId: ds.managedTurnOrigin.turnId } : {}),
-      }
-    : { ok: false, error: decision.error };
 }
 
 function recordCapabilityCardTurnSend(sessionId: string, messageId: string): void {
@@ -1128,8 +1120,8 @@ async function dispatchCapabilityInteractionTurnUnlocked(input: {
     larkAppId: ds.larkAppId,
     chatId: ds.chatId,
     whiteboardId: ds.session.whiteboardId,
-    roleContextRevision: ds.session.roleContextRevision,
-    roleContextRefreshRequired: ds.session.roleContextRefreshRequired,
+    agentContextRevision: ds.session.agentContextRevision,
+    agentContextRefreshRequired: ds.session.agentContextRefreshRequired,
     codexAppText: input.content,
   });
   beginReplyTargetTurn(ds, undefined, input.turnId, new Date().toISOString(), {
@@ -1163,8 +1155,6 @@ ipcRoute('POST', '/api/capabilities/manage', async (req, res) => {
   const body = await readJsonBody<{
     sessionId?: unknown;
     originCapability?: unknown;
-    originTurnId?: unknown;
-    originDispatchAttempt?: unknown;
     action?: unknown;
     scope?: unknown;
     type?: unknown;
@@ -1184,13 +1174,13 @@ ipcRoute('POST', '/api/capabilities/manage', async (req, res) => {
     return jsonRes(res, 400, { ok: false, error: 'invalid_request' });
   }
   const ds = findActiveBySessionId(body.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, body.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
   // The rotating capability is the authority. Linux isolated sessions expose
   // only that token, so bind the request to the daemon's verified live turn
   // instead of requiring caller-visible routing metadata as a second proof.
-  const turnId = auth.turnId ?? '';
+  const turnId = auth.origin?.turnId ?? '';
   const callerOpenId = turnId
     ? ds.session.replyTargets?.[turnId]?.senderOpenId
     : undefined;
@@ -1621,7 +1611,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/slash', async (req, res, params) => {
   const body = await readJsonBody<{ command?: string } & Record<string, unknown>>(req)
     .catch(() => ({} as { command?: string } & Record<string, unknown>));
   const ds = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
   // Adopt/observed 会话是收编的用户自有 pane，用户可能正在里面打字——机器注入
@@ -1655,7 +1645,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/chat-rename', async (req, res, params
   const body = await readJsonBody<{ name?: unknown; proactive?: unknown } & Record<string, unknown>>(req)
     .catch(() => ({} as { name?: unknown; proactive?: unknown } & Record<string, unknown>));
   const ds = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
   if (sessionTransportDisabled(ds)) return jsonRes(res, 200, { ok: false, error: 'no_feishu_transport' });
@@ -1737,7 +1727,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/cd', async (req, res, params) => {
   const body = await readJsonBody<{ dir?: string } & Record<string, unknown>>(req)
     .catch(() => ({} as { dir?: string } & Record<string, unknown>));
   const ds = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
   if (isSessionTransferring(ds)) {
@@ -2009,7 +1999,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-history', async (req, res, param
   const body = await readJsonBody<Record<string, unknown>>(req)
     .catch(() => ({} as Record<string, unknown>));
   const ds = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
 
@@ -2120,6 +2110,51 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-history', async (req, res, param
   }
 });
 
+ipcRoute('POST', '/api/sessions/:sessionId/react', async (req, res, params) => {
+  const body = await readJsonBody<Record<string, unknown>>(req)
+    .catch(() => ({} as Record<string, unknown>));
+  const ds = findActiveBySessionId(params.sessionId);
+  const auth = sessionCliIpcAuth(req, ds, body);
+  if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
+  if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
+  const turnId = auth.origin?.turnId;
+  if (!turnId) return jsonRes(res, 409, { ok: false, error: 'no_active_turn' });
+  if (sessionTransportDisabled(ds.session)) {
+    return jsonRes(res, 403, { ok: false, error: 'no_feishu_transport' });
+  }
+  const emoji = typeof body.emoji === 'string' ? body.emoji.trim().toLowerCase() : '';
+  if (!isPersonalityReaction(emoji)) {
+    return jsonRes(res, 400, { ok: false, error: 'invalid_reaction' });
+  }
+  try {
+    const botConfig = getBot(ds.larkAppId).config;
+    const ledger = ds.session.personalityReactionLedger ?? {};
+    ds.session.personalityReactionLedger = ledger;
+    const result = await reactToCurrentTurn({
+      larkAppId: ds.larkAppId,
+      sessionId: ds.session.sessionId,
+      turnId,
+      emoji,
+      enabled: personalityReactionsEnabled(botConfig),
+      replyTargets: ds.session.replyTargets,
+      ledger,
+      persist: () => sessionStore.updateSession(ds.session),
+      onPersistenceError: error => {
+        logger.warn(`[personality-reaction] persistence failed session=${params.sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+      },
+    });
+    if (result.ok) return jsonRes(res, 200, result);
+    const status = result.status === 'disabled' ? 403
+      : result.status === 'invalid_turn' ? 409
+      : result.status === 'rate_limited' ? 429
+      : 409;
+    return jsonRes(res, status, { ok: false, error: result.status });
+  } catch (error) {
+    logger.warn(`[personality-reaction] failed session=${params.sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+    return jsonRes(res, 502, { ok: false, error: 'reaction_failed' });
+  }
+});
+
 // Fetch one message only after proving that it belongs to the authenticated
 // session's chat. This prevents a caller that knows another message id from
 // turning the daemon into a cross-chat read oracle.
@@ -2127,7 +2162,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/lark-quoted', async (req, res, params
   const body = await readJsonBody<Record<string, unknown>>(req)
     .catch(() => ({} as Record<string, unknown>));
   const ds = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
 
@@ -2196,7 +2231,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/polls', async (req, res, params) => {
   const body = await readJsonBody<Record<string, unknown>>(req)
     .catch(() => ({} as Record<string, unknown>));
   const ds = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
   if (sessionTransportDisabled(ds.session)) {
@@ -2206,7 +2241,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/polls', async (req, res, params) => {
   if (!appId || appId !== cachedLarkAppId) {
     return jsonRes(res, 422, { ok: false, error: 'invalid_session_bot' });
   }
-  const turnId = auth.turnId ?? '';
+  const turnId = auth.origin?.turnId ?? '';
   const creatorOpenId = turnId ? ds.session.replyTargets?.[turnId]?.senderOpenId : undefined;
   if (!creatorOpenId) {
     return jsonRes(res, 403, { ok: false, error: 'current_user_required' });
@@ -2265,7 +2300,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/poll-vote', async (req, res, params) 
   const body = await readJsonBody<Record<string, unknown>>(req)
     .catch(() => ({} as Record<string, unknown>));
   const ds = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, ds, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, ds, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   if (!ds) return jsonRes(res, 404, { ok: false, error: 'session_not_active' });
   if (sessionTransportDisabled(ds.session)) {
@@ -2524,7 +2559,7 @@ ipcRoute('POST', '/api/sessions/:sessionId/rename', async (req, res, params) => 
   let body: { title?: unknown; source?: unknown } & Record<string, unknown>;
   try { body = await readJsonBody(req); } catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
   const active = findActiveBySessionId(params.sessionId);
-  const auth = sessionCliIpcAuth(req, active, params.sessionId, body);
+  const auth = sessionCliIpcAuth(req, active, body);
   if (!auth.ok) return jsonRes(res, 403, { ok: false, error: auth.error });
   const title = normalizeSessionTitle(body.title);
   if (!title) return jsonRes(res, 400, { ok: false, error: 'bad_title' });
@@ -4013,7 +4048,6 @@ ipcRoute('GET', '/api/bot-default-oncall', async (_req, res) => {
     // that is always empty — the CLI has no resolvable transcript).
     usageSupported: cliSupportsNativeUsage(cliId),
     disableStreamingCard: cardPrefs.disableStreamingCard,
-    silentTurnReactions: cardPrefs.silentTurnReactions,
     codexAppCleanInput: cardPrefs.codexAppCleanInput,
     writableTerminalLinkInCard: cardPrefs.writableTerminalLinkInCard,
     privateCard: cardPrefs.privateCard,
@@ -4055,7 +4089,7 @@ ipcRoute('PUT', '/api/bot-card-prefs', async (req, res) => {
   if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
   let body: {
     usageDisplay?: unknown;
-    disableStreamingCard?: unknown; silentTurnReactions?: unknown; codexAppCleanInput?: unknown; writableTerminalLinkInCard?: unknown; privateCard?: unknown;
+    disableStreamingCard?: unknown; codexAppCleanInput?: unknown; writableTerminalLinkInCard?: unknown; privateCard?: unknown;
     botToBotSameDir?: unknown;
     autoStartOnGroupJoin?: unknown; autoStartOnGroupJoinPrompt?: unknown; autoStartOnNewTopic?: unknown;
     regularGroupReplyMode?: unknown; regularGroupMentionMode?: unknown; docSubscribeDefaultMode?: unknown;
@@ -4066,7 +4100,7 @@ ipcRoute('PUT', '/api/bot-card-prefs', async (req, res) => {
 
   const patch: {
     usageDisplay?: UsageDisplayMode;
-    disableStreamingCard?: boolean; silentTurnReactions?: boolean; codexAppCleanInput?: boolean; writableTerminalLinkInCard?: boolean; privateCard?: boolean;
+    disableStreamingCard?: boolean; codexAppCleanInput?: boolean; writableTerminalLinkInCard?: boolean; privateCard?: boolean;
     botToBotSameDir?: boolean;
     autoStartOnGroupJoin?: boolean; autoStartOnGroupJoinPrompt?: string; autoStartOnNewTopic?: boolean;
     regularGroupReplyMode?: ChatReplyMode; regularGroupMentionMode?: 'always' | 'topic' | 'never' | 'ambient';
@@ -4076,7 +4110,6 @@ ipcRoute('PUT', '/api/bot-card-prefs', async (req, res) => {
   if (body.usageDisplay === 'streaming' || body.usageDisplay === 'footer' || body.usageDisplay === 'off') patch.usageDisplay = body.usageDisplay;
   if (typeof body.disableStreamingCard === 'boolean') patch.disableStreamingCard = body.disableStreamingCard;
   if (typeof body.botToBotSameDir === 'boolean') patch.botToBotSameDir = body.botToBotSameDir;
-  if (typeof body.silentTurnReactions === 'boolean') patch.silentTurnReactions = body.silentTurnReactions;
   if (typeof body.codexAppCleanInput === 'boolean') patch.codexAppCleanInput = body.codexAppCleanInput;
   if (typeof body.writableTerminalLinkInCard === 'boolean') patch.writableTerminalLinkInCard = body.writableTerminalLinkInCard;
   if (typeof body.privateCard === 'boolean') patch.privateCard = body.privateCard;
@@ -4462,6 +4495,85 @@ ipcRoute('PUT', '/api/bot-agent', async (req, res) => {
     requiredCommand: availability.command,
     runtimeProbe,
   });
+});
+
+ipcRoute('GET', '/api/bot-soul', (_req, res) => {
+  if (!cachedLarkAppId) return jsonRes(res, 503, { ok: false, error: 'larkAppId_not_set' });
+  try {
+    const soul = resolveSoul(cachedLarkAppId);
+    const cfg = getBot(cachedLarkAppId).config;
+    return jsonRes(res, 200, {
+      ok: true,
+      soul,
+      reactionsEnabled: personalityReactionsEnabled(cfg),
+      reactionsAvailable: cfg.apiOnly !== true,
+    });
+  } catch (error) {
+    return jsonRes(res, 500, {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+ipcRoute('PUT', '/api/bot-soul', async (req, res) => {
+  if (!cachedLarkAppId) return jsonRes(res, 503, { ok: false, error: 'larkAppId_not_set' });
+  let body: { content?: unknown };
+  try { body = await readJsonBody<{ content?: unknown }>(req); }
+  catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
+  if (typeof body.content !== 'string') {
+    return jsonRes(res, 400, { ok: false, error: 'soul_content_required' });
+  }
+  try {
+    return jsonRes(res, 200, { ok: true, soul: writeSoul(cachedLarkAppId, body.content) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return jsonRes(res, message.startsWith('soul_content_') ? 400 : 500, { ok: false, error: message });
+  }
+});
+
+ipcRoute('DELETE', '/api/bot-soul', (_req, res) => {
+  if (!cachedLarkAppId) return jsonRes(res, 503, { ok: false, error: 'larkAppId_not_set' });
+  try {
+    return jsonRes(res, 200, { ok: true, soul: resetSoul(cachedLarkAppId) });
+  } catch (error) {
+    return jsonRes(res, 500, {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+ipcRoute('PUT', '/api/bot-personality-reactions', async (req, res) => {
+  if (!cachedLarkAppId) return jsonRes(res, 503, { ok: false, error: 'larkAppId_not_set' });
+  let body: { enabled?: unknown };
+  try { body = await readJsonBody<{ enabled?: unknown }>(req); }
+  catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
+  if (typeof body.enabled !== 'boolean') {
+    return jsonRes(res, 400, { ok: false, error: 'enabled_required' });
+  }
+  const enabled = body.enabled;
+  let botConfig: ReturnType<typeof getBot>['config'];
+  try {
+    botConfig = getBot(cachedLarkAppId).config;
+  } catch {
+    return jsonRes(res, 500, { ok: false, error: 'bot_not_registered' });
+  }
+  if (enabled && botConfig.apiOnly === true) {
+    return jsonRes(res, 409, {
+      ok: false,
+      error: 'no_feishu_transport',
+      reactionsEnabled: false,
+    });
+  }
+  const updated = await rmwBotEntry<null>(cachedLarkAppId, entry => {
+    if (enabled) delete entry.personalityReactions;
+    else entry.personalityReactions = false;
+    return { write: true, result: null };
+  });
+  if (!updated.ok) return jsonRes(res, 400, { ok: false, error: updated.reason });
+  botConfig.personalityReactions = enabled ? undefined : false;
+  return jsonRes(res, 200, { ok: true, reactionsEnabled: enabled });
 });
 
 // Per-bot 私聊单聊模式 p2pMode。Body `{ p2pMode: 'chat' | 'thread' }`:

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { accessForPath, buildFsPolicy } from '../../../src/adapters/cli/fs-policy.js';
+import { soulStoreRoot } from '../../../src/core/personality/index.js';
 
 describe('multi-user filesystem policy', () => {
   it('allows credentials only inside the dedicated principal home', () => {
@@ -27,5 +28,52 @@ describe('multi-user filesystem policy', () => {
       .toBe('none');
     expect(accessForPath(policy.rules, '/var/lib/product/users/alice/home/.local/bin/sample-tool').access)
       .toBe('readWrite');
+  });
+});
+
+describe('host-only filesystem policy', () => {
+  it('keeps owner-managed Soul state denied despite broader or nested allow rules', () => {
+    const dataDir = '/Users/u/.botmux/data';
+    const root = soulStoreRoot(dataDir);
+    const file = `${root}/cli_test.md`;
+    const policy = buildFsPolicy({
+      platform: 'darwin',
+      homeDir: '/Users/u',
+      botmuxHome: '/Users/u/.botmux',
+      sessionDataDir: dataDir,
+      workingDir: '/Users/u',
+      currentAppId: 'cli_test',
+      sessionId: 'session-a',
+      botHome: '/Users/u/.botmux/bots/cli_test',
+      redirectedCliData: true,
+      userPaths: { readWrite: [file] },
+      mandatoryReadOnlyPaths: [file],
+      hostOnlyPaths: [root],
+    });
+
+    expect(accessForPath(policy.rules, root).access).toBe('deny');
+    expect(accessForPath(policy.rules, file).access).toBe('deny');
+    expect(policy.rules).not.toContainEqual(expect.objectContaining({
+      path: file,
+      access: 'readWrite',
+    }));
+  });
+
+  it('fails closed when a sandbox working directory is host-only', () => {
+    const dataDir = '/Users/u/.botmux/data';
+    const root = soulStoreRoot(dataDir);
+
+    expect(() => buildFsPolicy({
+      platform: 'darwin',
+      homeDir: '/Users/u',
+      botmuxHome: '/Users/u/.botmux',
+      sessionDataDir: dataDir,
+      workingDir: root,
+      currentAppId: 'cli_test',
+      sessionId: 'session-a',
+      botHome: '/Users/u/.botmux/bots/cli_test',
+      redirectedCliData: true,
+      hostOnlyPaths: [root],
+    })).toThrow('host-only state');
   });
 });

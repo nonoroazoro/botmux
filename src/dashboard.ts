@@ -4618,6 +4618,45 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    let mBotSoul: RegExpMatchArray | null;
+    if ((mBotSoul = url.pathname.match(/^\/api\/bots\/([^/]+)\/soul$/))
+      && (req.method === 'GET' || req.method === 'PUT' || req.method === 'DELETE')) {
+      const appId = decodeURIComponent(mBotSoul[1]);
+      let raw: string | undefined;
+      if (req.method === 'PUT') {
+        const chunks: Buffer[] = [];
+        for await (const c of req) chunks.push(c as Buffer);
+        raw = Buffer.concat(chunks).toString('utf8') || '{}';
+      }
+      const upstream = await proxyToDaemon(appId, '/api/bot-soul', {
+        method: req.method,
+        ...(raw !== undefined ? {
+          headers: { 'content-type': 'application/json' },
+          body: raw,
+        } : {}),
+      });
+      res.writeHead(upstream.status, { 'content-type': 'application/json' });
+      res.end(await upstream.text());
+      return;
+    }
+
+    let mBotPersonalityReactions: RegExpMatchArray | null;
+    if (req.method === 'PUT'
+      && (mBotPersonalityReactions = url.pathname.match(/^\/api\/bots\/([^/]+)\/personality-reactions$/))) {
+      const appId = decodeURIComponent(mBotPersonalityReactions[1]);
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      const raw = Buffer.concat(chunks).toString('utf8') || '{}';
+      const upstream = await proxyToDaemon(appId, '/api/bot-personality-reactions', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: raw,
+      });
+      res.writeHead(upstream.status, { 'content-type': 'application/json' });
+      res.end(await upstream.text());
+      return;
+    }
+
     // PUT /api/bots/:appId/skills — proxy to that bot's daemon. Body accepts
     // `{ action:'attach'|'detach', name }` or `{ action:'set', policy|null }`.
     let mBotSkills: RegExpMatchArray | null;

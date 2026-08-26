@@ -105,8 +105,6 @@ describe('readWorkflowSessionRelayContext', () => {
     expect(context).toEqual({
       sessionId: 'sess-1',
       capability: CAPABILITY,
-      turnId: 'turn-7',
-      dispatchAttempt: 2,
     });
   });
 
@@ -133,8 +131,6 @@ describe('postWorkflowSessionRunMutation', () => {
   const context: WorkflowSessionRelayContext = {
     sessionId: 'sess-1',
     capability: CAPABILITY,
-    turnId: 'turn-7',
-    dispatchAttempt: 2,
     larkAppId: 'cli_owner',
     ipcPortFallback: 4310,
   };
@@ -161,12 +157,10 @@ describe('postWorkflowSessionRunMutation', () => {
       reason: 'stop',
       sessionId: 'sess-1',
       originCapability: CAPABILITY,
-      originTurnId: 'turn-7',
-      originDispatchAttempt: 2,
     });
   });
 
-  it('omits absent turn fields and encodes the runId', async () => {
+  it('encodes the runId without caller-supplied turn identity', async () => {
     const fetchImpl = fetchOk();
     await postWorkflowSessionRunMutation({
       context: { sessionId: 'sess-1', capability: CAPABILITY, ipcPortFallback: 4310 },

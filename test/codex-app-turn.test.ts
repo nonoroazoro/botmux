@@ -15,7 +15,7 @@ const structured = {
   clientUserMessageId: 'om_123',
   additionalContext: {
     botmux_sender: { kind: 'untrusted' as const, value: '<sender name="Alice" />' },
-    botmux_role: { kind: 'application' as const, value: '<role>reviewer</role>' },
+    botmux_agent_context: { kind: 'application' as const, value: '<role>reviewer</role>' },
   },
   localImages: [
     { path: '/tmp/readable.jpg', detail: 'original' as const },

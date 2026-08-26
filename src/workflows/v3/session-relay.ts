@@ -103,25 +103,16 @@ export function authorizeV3SessionRunMutationRequest(input: {
   const sessionId = body.sessionId;
   if (!nonEmpty(sessionId)) return { ok: false, status: 400, error: 'missing_session_id' };
 
-  const claimedAttempt = typeof body.originDispatchAttempt === 'number'
-    && Number.isSafeInteger(body.originDispatchAttempt)
-    && body.originDispatchAttempt > 0
-    ? body.originDispatchAttempt
-    : undefined;
   const verified = authorizeSessionScopedIpc({
     trustedHost: input.trustedHost,
-    sessionExists: !!input.session,
     receiverSession: !!input.session?.receiver,
     // A meeting receiver must not drive workflow runs: its side effects belong
     // to the managed action ledger, same posture as /api/asks.
     allowReceiver: false,
-    sessionId,
     ...(input.session?.liveOrigin ? { liveOrigin: input.session.liveOrigin } : {}),
     ...(typeof body.originCapability === 'string'
       ? { claimedCapability: body.originCapability }
       : {}),
-    ...(typeof body.originTurnId === 'string' ? { claimedTurnId: body.originTurnId } : {}),
-    ...(claimedAttempt !== undefined ? { claimedDispatchAttempt: claimedAttempt } : {}),
   });
   if (!verified.ok) return { ok: false, status: 403, error: verified.error };
   if (input.session?.receiver) {

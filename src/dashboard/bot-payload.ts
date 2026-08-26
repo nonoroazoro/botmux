@@ -94,7 +94,6 @@ export function botDefaultsPayload(bot: DashboardBotDescriptor, j?: any, error?:
     usageDisplay: normalizeUsageDisplay(j ?? {}),
     usageSupported: j?.usageSupported === true,
     disableStreamingCard: j?.disableStreamingCard === true,
-    silentTurnReactions: j?.silentTurnReactions === true,
     codexAppCleanInput: j?.codexAppCleanInput === true,
     writableTerminalLinkInCard: j?.writableTerminalLinkInCard === true,
     privateCard: j?.privateCard === true,

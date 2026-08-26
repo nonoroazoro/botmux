@@ -60,6 +60,18 @@ describe('mergeQueuedCliInput', () => {
     })).toBe(false);
   });
 
+  it('never merges turns that already contain Agent Context', () => {
+    const contextTail = [{ content: 'context\n\nfirst', turnId: 't1', agentContextIncluded: true as const }];
+    expect(mergeQueuedCliInput(contextTail, { content: 'second', turnId: 't2' })).toBe(false);
+
+    const ordinaryTail = [{ content: 'first', turnId: 't1' }];
+    expect(mergeQueuedCliInput(ordinaryTail, {
+      content: 'context\n\nsecond',
+      turnId: 't2',
+      agentContextIncluded: true,
+    })).toBe(false);
+  });
+
   it('never merges queued explicit meeting IM turns or batches them on one live origin', () => {
     const pending = [{ content: 'human A', turnId: 'im-1', vcMeetingImTurnOrigin: imOrigin }];
     expect(mergeQueuedCliInput(pending, {

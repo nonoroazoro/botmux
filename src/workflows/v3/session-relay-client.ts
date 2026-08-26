@@ -24,8 +24,6 @@ import { V3_SESSION_RUN_MUTATION_ROUTE_PREFIX } from './session-relay.js';
 export interface WorkflowSessionRelayContext {
   sessionId: string;
   capability: string;
-  turnId?: string;
-  dispatchAttempt?: number;
   /** Routing hints only — never identity. */
   larkAppId?: string;
   ipcPortFallback?: number;
@@ -66,8 +64,6 @@ export function readWorkflowSessionRelayContext(options: {
   return {
     sessionId,
     capability: claim.capability,
-    ...(claim.turnId ? { turnId: claim.turnId } : {}),
-    ...(claim.dispatchAttempt !== undefined ? { dispatchAttempt: claim.dispatchAttempt } : {}),
     ...(larkAppId ? { larkAppId } : {}),
     ...(ipcPortFallback !== undefined ? { ipcPortFallback } : {}),
   };
@@ -99,10 +95,6 @@ export async function postWorkflowSessionRunMutation(input: {
     ...(input.body ?? {}),
     sessionId: input.context.sessionId,
     originCapability: input.context.capability,
-    ...(input.context.turnId ? { originTurnId: input.context.turnId } : {}),
-    ...(input.context.dispatchAttempt !== undefined
-      ? { originDispatchAttempt: input.context.dispatchAttempt }
-      : {}),
   });
   const fetchImpl = input.fetchImpl ?? fetch;
   let response: Response;

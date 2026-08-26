@@ -1,0 +1,1 @@
+export const REACTION_TURN_REMINDER = 'Apply the active reaction policy before sending: use at most one `botmux react` only for a clear match, otherwise none. A reply correcting a materially wrong premise or conclusion must first use `botmux react no`.';

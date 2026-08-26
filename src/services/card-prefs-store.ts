@@ -10,9 +10,6 @@
  *                                  body, 'footer' = ordinary reply-card footer,
  *                                  'off' = nowhere
  *   • disableStreamingCard      — suppress the live streaming session card
- *   • silentTurnReactions       — in card-off sessions, also drop the ✋→✅
- *                                  lightweight status reactions on the trigger
- *                                  message (only meaningful while the card is off)
  *   • writableTerminalLinkInCard — embed a directly-usable writable terminal
  *                                  link in the streaming card body
  *   • privateCard               — `/card` sends a private ephemeral snapshot
@@ -38,7 +35,6 @@ export interface BotCardPrefs {
    *  reply-card footer, 'off' = nowhere. */
   usageDisplay: UsageDisplayMode;
   disableStreamingCard: boolean;
-  silentTurnReactions: boolean;
   /** Experimental Codex App presentation mode. Default false preserves the
    * legacy full-prompt UserMessage; true moves Botmux metadata to hidden
    * app-server context for newly dispatched turns. */
@@ -79,7 +75,6 @@ export function getBotCardPrefs(larkAppId: string): BotCardPrefs {
     return {
       usageDisplay: normalizeUsageDisplay(c),
       disableStreamingCard: c.disableStreamingCard === true,
-      silentTurnReactions: c.silentTurnReactions === true,
       codexAppCleanInput: c.codexAppCleanInput === true,
       writableTerminalLinkInCard: c.writableTerminalLinkInCard === true,
       privateCard: c.privateCard === true,
@@ -99,7 +94,6 @@ export function getBotCardPrefs(larkAppId: string): BotCardPrefs {
     return {
       usageDisplay: DEFAULT_USAGE_DISPLAY,
       disableStreamingCard: false,
-      silentTurnReactions: false,
       codexAppCleanInput: false,
       writableTerminalLinkInCard: false,
       privateCard: false,
@@ -179,7 +173,6 @@ export async function updateBotCardPrefs(
   const r = await rmwBotEntry<BotCardPrefs>(larkAppId, (entry) => {
     applyUsageDisplay(entry, 'usageDisplay', patch.usageDisplay);
     apply(entry, 'disableStreamingCard', patch.disableStreamingCard);
-    apply(entry, 'silentTurnReactions', patch.silentTurnReactions);
     apply(entry, 'codexAppCleanInput', patch.codexAppCleanInput);
     apply(entry, 'writableTerminalLinkInCard', patch.writableTerminalLinkInCard);
     apply(entry, 'privateCard', patch.privateCard);
@@ -198,7 +191,6 @@ export async function updateBotCardPrefs(
       result: {
         usageDisplay: normalizeUsageDisplay(entry),
         disableStreamingCard: entry.disableStreamingCard === true,
-        silentTurnReactions: entry.silentTurnReactions === true,
         codexAppCleanInput: entry.codexAppCleanInput === true,
         writableTerminalLinkInCard: entry.writableTerminalLinkInCard === true,
         privateCard: entry.privateCard === true,
@@ -230,9 +222,6 @@ export async function updateBotCardPrefs(
   }
   if (patch.disableStreamingCard !== undefined) {
     bot.config.disableStreamingCard = patch.disableStreamingCard || undefined;
-  }
-  if (patch.silentTurnReactions !== undefined) {
-    bot.config.silentTurnReactions = patch.silentTurnReactions || undefined;
   }
   if (patch.codexAppCleanInput !== undefined) {
     bot.config.codexAppCleanInput = patch.codexAppCleanInput || undefined;
@@ -281,7 +270,6 @@ export async function updateBotCardPrefs(
   logger.info(
     `[card-prefs:${larkAppId}] usageDisplay=${r.result.usageDisplay} ` +
     `disableStreamingCard=${r.result.disableStreamingCard} ` +
-    `silentTurnReactions=${r.result.silentTurnReactions} ` +
     `codexAppCleanInput=${r.result.codexAppCleanInput} ` +
     `writableTerminalLinkInCard=${r.result.writableTerminalLinkInCard} privateCard=${r.result.privateCard} ` +
     `overloadAlert=${r.result.overloadAlert} ` +

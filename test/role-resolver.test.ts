@@ -72,24 +72,29 @@ describe('role-resolver storage', () => {
   });
 });
 
-describe('role context delivery', () => {
-  it('computes stable revisions for the effective role', async () => {
-    const { EMPTY_ROLE_REVISION, resolveRoleContext, writeRoleFile } = await fresh();
-    expect(resolveRoleContext('app1', 'oc_r')).toEqual({ content: null, source: 'none', revision: EMPTY_ROLE_REVISION });
+describe('agent context delivery', () => {
+  it('computes stable revisions for the effective agent context', async () => {
+    const { writeRoleFile } = await fresh();
+    const { resolveAgentContext } = await import('../src/core/personality/index.js');
+    const emptyFirst = resolveAgentContext('app1', 'oc_r');
+    const emptySecond = resolveAgentContext('app1', 'oc_r');
+    expect(emptySecond.revision).toBe(emptyFirst.revision);
     writeRoleFile('app1', 'oc_r', 'PERSONA');
-    const first = resolveRoleContext('app1', 'oc_r');
-    const second = resolveRoleContext('app1', 'oc_r');
+    const first = resolveAgentContext('app1', 'oc_r');
+    const second = resolveAgentContext('app1', 'oc_r');
     expect(first.revision).toMatch(/^[a-f0-9]{64}$/);
     expect(second.revision).toBe(first.revision);
+    expect(first.revision).not.toBe(emptyFirst.revision);
   });
 
-  it('includes the chat identity in the effective role revision', async () => {
-    const { resolveRoleContext, writeTeamRoleFile } = await fresh();
+  it('includes the chat identity in the effective agent context revision', async () => {
+    const { writeTeamRoleFile } = await fresh();
+    const { resolveAgentContext } = await import('../src/core/personality/index.js');
     writeTeamRoleFile('app1', 'SHARED_TEAM_PERSONA');
-    const first = resolveRoleContext('app1', 'oc_first');
-    const second = resolveRoleContext('app1', 'oc_second');
-    expect(first.content).toBe(second.content);
-    expect(first.source).toBe(second.source);
+    const first = resolveAgentContext('app1', 'oc_first');
+    const second = resolveAgentContext('app1', 'oc_second');
+    expect(first.block).toContain('SHARED_TEAM_PERSONA');
+    expect(second.block).toContain('SHARED_TEAM_PERSONA');
     expect(first.revision).not.toBe(second.revision);
   });
 
@@ -105,35 +110,35 @@ describe('role context delivery', () => {
       { larkAppId: 'app1', chatId: 'oc_auto' },
     );
     expect(opening.content).toContain('PERSONA_V1');
-    expect(opening.roleContextFallbackBlock).toContain('PERSONA_V1');
-    expect(opening.roleContextIncluded).toBe(true);
+    expect(opening.agentContextFallbackBlock).toContain('PERSONA_V1');
+    expect(opening.agentContextIncluded).toBe(true);
 
     const unchanged = buildFollowUpCliInput('again', 's1', {
       larkAppId: 'app1',
       chatId: 'oc_auto',
-      roleContextRevision: opening.roleContextRevision,
+      agentContextRevision: opening.agentContextRevision,
     });
     expect(unchanged.content).not.toContain('<role');
-    expect(unchanged.roleContextFallbackBlock).toContain('PERSONA_V1');
-    expect(unchanged.roleContextFallbackBlock).toContain('chat_id="oc_auto"');
-    expect(unchanged.roleContextIncluded).toBeUndefined();
+    expect(unchanged.agentContextFallbackBlock).toContain('PERSONA_V1');
+    expect(unchanged.agentContextFallbackBlock).toContain('chat_id="oc_auto"');
+    expect(unchanged.agentContextIncluded).toBeUndefined();
 
     writeRoleFile('app1', 'oc_auto', 'PERSONA_V2');
     const changed = buildFollowUpCliInput('again', 's1', {
       larkAppId: 'app1',
       chatId: 'oc_auto',
-      roleContextRevision: opening.roleContextRevision,
+      agentContextRevision: opening.agentContextRevision,
     });
     expect(changed.content).toContain('PERSONA_V2');
     expect(changed.content).toContain('supersedes="previous"');
-    expect(changed.roleContextRevision).not.toBe(opening.roleContextRevision);
-    expect(changed.roleContextFallbackBlock).toContain('PERSONA_V2');
-    expect(changed.roleContextIncluded).toBe(true);
+    expect(changed.agentContextRevision).not.toBe(opening.agentContextRevision);
+    expect(changed.agentContextFallbackBlock).toContain('PERSONA_V2');
+    expect(changed.agentContextIncluded).toBe(true);
   });
 
-  it('re-injects after a context refresh and resets a removed role', async () => {
+  it('re-injects after a context refresh and supersedes a removed role', async () => {
     await fresh();
-    const { deleteRoleFile, EMPTY_ROLE_REVISION, writeRoleFile } = await import('../src/core/role-resolver.js');
+    const { deleteRoleFile, writeRoleFile } = await import('../src/core/role-resolver.js');
     const { buildFollowUpCliInput, buildNewTopicCliInput } = await import('../src/core/session-manager.js');
     writeRoleFile('app1', 'oc_refresh', 'REFRESH_PERSONA');
     const opening = buildNewTopicCliInput(
@@ -145,8 +150,8 @@ describe('role context delivery', () => {
     const refreshed = buildFollowUpCliInput('after compact', 's1', {
       larkAppId: 'app1',
       chatId: 'oc_refresh',
-      roleContextRevision: opening.roleContextRevision,
-      roleContextRefreshRequired: true,
+      agentContextRevision: opening.agentContextRevision,
+      agentContextRefreshRequired: true,
     });
     expect(refreshed.content).toContain('REFRESH_PERSONA');
 
@@ -154,30 +159,33 @@ describe('role context delivery', () => {
     const reset = buildFollowUpCliInput('after delete', 's1', {
       larkAppId: 'app1',
       chatId: 'oc_refresh',
-      roleContextRevision: opening.roleContextRevision,
-      roleContextRefreshRequired: true,
+      agentContextRevision: opening.agentContextRevision,
+      agentContextRefreshRequired: true,
     });
-    expect(reset.content).toContain('<role_reset>');
-    expect(reset.roleContextRevision).toBe(EMPTY_ROLE_REVISION);
+    expect(reset.content).toContain('<agent_context supersedes="previous">');
+    expect(reset.content).toContain('<personality source="default">');
+    expect(reset.content).not.toContain('REFRESH_PERSONA');
+    expect(reset.agentContextRevision).not.toBe(opening.agentContextRevision);
   });
 
-  it('re-injects the effective role into a refork context', async () => {
+  it('re-injects Agent Context into a refork context', async () => {
     await fresh();
-    const { resolveRoleContext, writeRoleFile } = await import('../src/core/role-resolver.js');
+    const { writeRoleFile } = await import('../src/core/role-resolver.js');
+    const { resolveAgentContext } = await import('../src/core/personality/index.js');
     const { buildReforkCliInput } = await import('../src/core/session-manager.js');
     writeRoleFile('app1', 'oc_refork', 'REFORK_PERSONA');
-    const revision = resolveRoleContext('app1', 'oc_refork').revision;
+    const revision = resolveAgentContext('app1', 'oc_refork').revision;
     const ds = {
       larkAppId: 'app1',
       session: {
         sessionId: 's-refork',
         chatId: 'oc_refork',
-        roleContextRevision: revision,
+        agentContextRevision: revision,
       },
     } as any;
     const refork = buildReforkCliInput(ds, 'continue', { cliId: 'claude-code', locale: 'en' });
     expect(refork.content).toContain('REFORK_PERSONA');
-    expect(refork.roleContextRevision).toBe(revision);
+    expect(refork.agentContextRevision).toBe(revision);
   });
 
 });

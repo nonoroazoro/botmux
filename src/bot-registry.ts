@@ -1400,24 +1400,10 @@ export interface BotConfig {
    */
   disableStreamingCard?: boolean;
   /**
-   * When true, suppress the lightweight GoGoGo → DONE message reactions used as
-   * progress markers in card-off sessions. Missing/false preserves the current
-   * card-off reaction behavior.
+   * Allow the active model to add one semantic reaction to the exact inbound
+   * message for its current turn. Default is enabled for Lark-backed bots.
    */
-  silentTurnReactions?: boolean;
-  /**
-   * Feishu emoji_type for the "received" turn reaction in card-off sessions.
-   * Undefined → default GoGoGo (冲!). Free-form string; a bad emoji_type just
-   * silently fails to attach (addReaction is best-effort).
-   */
-  receivedReactionEmoji?: string;
-  /**
-   * Feishu emoji_type for the "done" turn reaction. Undefined → default DONE (✅).
-   * Set this EQUAL to receivedReactionEmoji to keep the marker visually
-   * unchanged on turn-end — useful for CLIs whose idle detection can fire early
-   * (e.g. Pi during model-thinking gaps), where a premature ✅ would mislead.
-   */
-  doneReactionEmoji?: string;
+  personalityReactions?: boolean;
   /**
    * Conversation mode for 1:1 private chats (DMs) with the bot:
    *   - 'thread' (default, stored as undefined): every top-level DM message
@@ -2724,11 +2710,8 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
         ? undefined
         : normalizeUsageDisplay(entry),
       disableStreamingCard: entry.disableStreamingCard === true || undefined,
-      silentTurnReactions: entry.silentTurnReactions === true || undefined,
-      receivedReactionEmoji: typeof entry.receivedReactionEmoji === 'string' && entry.receivedReactionEmoji.trim()
-        ? entry.receivedReactionEmoji.trim() : undefined,
-      doneReactionEmoji: typeof entry.doneReactionEmoji === 'string' && entry.doneReactionEmoji.trim()
-        ? entry.doneReactionEmoji.trim() : undefined,
+      // Default is ON, so only an explicit false is meaningful.
+      personalityReactions: entry.personalityReactions === false ? false : undefined,
       // Default is now 'chat' (flat continuous DM session). Only 'thread' is
       // meaningful and persists; 'chat' (and anything else) normalizes to
       // undefined so bots.json stays clean.

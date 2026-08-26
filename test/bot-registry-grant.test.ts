@@ -2,6 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { parseBotConfigsFromText, getOwnerOpenId, registerBot } from '../src/bot-registry.js';
 
 describe('bot-registry grant additions', () => {
+  it('parses personality reactions as default-on with an explicit false kill switch', () => {
+    expect(parseBotConfigsFromText(JSON.stringify([{ larkAppId: 'pr1', larkAppSecret: 's' }]))[0].personalityReactions).toBeUndefined();
+    expect(parseBotConfigsFromText(JSON.stringify([{ larkAppId: 'pr2', larkAppSecret: 's', personalityReactions: true }]))[0].personalityReactions).toBeUndefined();
+    expect(parseBotConfigsFromText(JSON.stringify([{ larkAppId: 'pr3', larkAppSecret: 's', personalityReactions: false }]))[0].personalityReactions).toBe(false);
+    expect(parseBotConfigsFromText(JSON.stringify([{ larkAppId: 'pr4', larkAppSecret: 's', personalityReactions: 'false' }]))[0].personalityReactions).toBeUndefined();
+  });
+
   it('parseBotConfigsFromText preserves & filters chatReplyModes (four-state incl. chat-topic)', () => {
     const cfgs = parseBotConfigsFromText(JSON.stringify([{
       larkAppId: 'rm1', larkAppSecret: 's',

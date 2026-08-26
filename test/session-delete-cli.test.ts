@@ -163,11 +163,7 @@ describe('botmux delete — daemon-first close', () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('已关闭 1 个会话');
       expect(requestUrl).toBe(`/api/sessions/${session.sessionId}/close`);
-      expect(requestBody).toMatchObject({
-        originCapability: CAPABILITY,
-        originTurnId: 'turn-delete',
-        originDispatchAttempt: 3,
-      });
+      expect(requestBody).toEqual({ originCapability: CAPABILITY });
       // The fake daemon deliberately does not persist. Staying active proves
       // the CLI did not run the legacy local fallback after an IPC success.
       const stored = JSON.parse(readFileSync(sessionsPath, 'utf8'));

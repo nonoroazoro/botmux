@@ -12,6 +12,7 @@ import type {
 } from '../types.js';
 import type { CliUsageLimitState } from '../utils/cli-usage-limit.js';
 import type { CodexServiceTierSnapshot } from '../services/codex-service-tier.js';
+import type { ManagedTurnOrigin } from './managed-turn-origin/index.js';
 
 /** Frozen card state — cached content for historical streaming cards that can still be toggled. */
 export interface FrozenCard {
@@ -141,9 +142,9 @@ export interface DaemonSession {
     cliInput: string;
     turnId?: string;
     codexAppInput?: CodexAppTurnInput;
-    roleContextRevision?: string;
-    roleContextFallbackBlock?: string;
-    roleContextIncluded?: true;
+    agentContextRevision?: string;
+    agentContextFallbackBlock?: string;
+    agentContextIncluded?: true;
     /** The clean-input feature gate was evaluated when this follow-up was
      * staged; prompt_ready must not re-read a later config value. */
     codexAppInputGateFrozen?: true;
@@ -189,13 +190,6 @@ export interface DaemonSession {
    *  command so a user can manually summon a live card in an otherwise-quiet
    *  session. In-memory only (resets on daemon restart). */
   streamingCardForced?: boolean;
-  /** Two-phase turn reactions (auto-on for card-off sessions, i.e. streaming
-   *  card disabled). The bot reacts 冲! on each user message the moment it's accepted for the session
-   *  (bound to the message, NOT a worker status edge — so type-ahead / busy-
-   *  batched messages each get their own reaction). Every pending ✋ here is
-   *  flipped to ✅ when the turn returns to idle. In-memory only (a daemon
-   *  restart mid-turn just leaves a stale ✋ — purely cosmetic). */
-  pendingAckReactions?: Array<{ messageId: string; reactionId?: string }>;
   /** Card body display mode. Default 'hidden'. When user clicks 显示输出, defaults to 'screenshot'. */
   displayMode?: DisplayMode;
   /** Latest uploaded screenshot image_key for the streaming card. */
@@ -263,11 +257,7 @@ export interface DaemonSession {
   suppressedFinalOutputTurns?: Map<string, number>;
   /** Worker-issued live turn registry used to authorize daemon-mediated exits
    * (ask/relay) that cannot trust a long-lived CLI's spawn-time env. */
-  managedTurnOrigin?: {
-    capability: string;
-    turnId?: string;
-    dispatchAttempt?: number;
-  };
+  managedTurnOrigin?: ManagedTurnOrigin;
   /** Authority snapshot captured when an explicit Lark IM message was
    * deterministically routed into this dedicated meeting receiver. */
   vcMeetingImTurnOrigin?: VcMeetingImTurnOrigin;
