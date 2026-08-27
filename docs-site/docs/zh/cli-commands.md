@@ -46,4 +46,5 @@ session 信息通过祖先进程标记自动推断，agent 直接调：
 | `botmux bots list` | 列出当前群里的机器人（含 open_id） |
 | `botmux history [--limit N]` | 拉会话历史（JSON） |
 | `botmux quoted <message_id>` | 拉被引用的单条消息（JSON） |
+| `botmux react <yes\|no\|heart\|like\|done>` | 给触发当前 managed turn 的实际用户消息添加一个人格化 reaction。该命令面向 agent，详见[机器人人格](/personality) |
 | `botmux schedule add/list/remove/pause/resume/run` | 管理定时任务 |

@@ -4,6 +4,9 @@
 
 > 本页含两套相关但不同的能力：**`/role` 人设**（同一个 bot 一套人设、可按群覆盖，见下）与 **[角色切换（role switch）](#角色切换role-switch)**（一个 bot 拥有多个完整角色、各自独立记忆、用自然语言按话题切换，进阶功能）。
 
+> Role 不是 bot 的 Soul。[Soul](/personality) 定义 bot 稳定的判断与表达方式，Role
+> 定义当前职责。Botmux 将二者组合成当前生效的 Agent Context。
+
 ## 两级 Role（人设）
 
 | 命令 | 作用 |
@@ -16,7 +19,7 @@
 
 - **本群 Role** 优先级最高：同一个 bot 在不同群可以有不同性格 / 职责（如在 A 群当「严格的 reviewer」、在 B 群当「亲和的答疑助手」）。
 - **默认角色** 是该 bot 的跨群默认人设，没设本群 Role 时生效。
-- Role 内容是 Markdown，注入到 CLI 的 system prompt，最大约 4096 字节。
+- Role 内容是 Markdown，最大 32 KiB。Botmux 在 session 启动、有效内容变化或原生 CLI context reset 后，将它作为带 revision 的 Agent Context 投递，不会在每个普通轮次重复整块内容。
 - Role 解析顺序始终是：**本群 Role > 默认角色 > 无**。
 
 > 💡 **默认角色**最直观的设置方式是在 `botmux dashboard` 的 **Bot 配置** 页——每个 bot 卡片都有「**默认角色**」编辑器（和 `/role team set` 写的是同一份配置；它是 bot 级的全局默认人设，放在 Bot 配置更合适）。**团队**面板里只做**只读查看**入口，编辑统一去 Bot 配置页。
@@ -85,7 +88,7 @@ Role + 能力标签是[多机器人协作](/multi-bot)的基础设施：给每�
 
 ## 角色切换（role switch）
 
-> ⚠️ 进阶功能，需先部署「角色库」，且目前只支持 Claude Code。部署步骤见仓库的 [角色系统部署 runbook](https://github.com/deepcoldy/botmux/blob/master/docs/roles/deploy-runbook.md)；下面讲**部署好之后终端用户怎么用**。
+> ⚠️ 进阶功能，需先部署「角色库」，且目前只支持 Claude Code。部署步骤见仓库的 [角色系统部署 runbook](https://github.com/nonoroazoro/botmux/blob/master/docs/roles/deploy-runbook.md)；下面讲**部署好之后终端用户怎么用**。
 
 和上面的 `/role`（同一个人设、按群覆盖）不同，**角色切换**让一个 bot 拥有**多个完整角色**，每个角色有自己的人设**和独立记忆**——切到「售后客服」它就带着售后的人设 + 只属于售后的记忆积累，切到「产品经理」又是另一套。角色**按话题生效**，新话题从默认角色开始。
 

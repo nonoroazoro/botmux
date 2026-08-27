@@ -592,7 +592,7 @@ Final acceptance:
 
 ## References
 
-- [Botmux source](https://github.com/deepcoldy/botmux)
+- [Botmux source](https://github.com/nonoroazoro/botmux)
 - [Official Plugin template](https://github.com/botmux-ai/botmux-plugin-template)
 - [Botmux Plugin Market](https://github.com/botmux-ai/plugin-market)
 - [Agent Chrome Plugin example](https://github.com/botmux-ai/botmux-plugin-agent-chrome)

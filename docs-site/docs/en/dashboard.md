@@ -16,10 +16,18 @@ botmux dashboard
 - **Sessions**: lists active + closed sessions across all bots, filterable by CLI / status / adopt / text. Open a detail view to copy various IDs, close sessions, and multi-select batch close; "locate topic" has the bot post an **@-mention of the session owner** in the original topic (a bare @, no other text) to help you jump back to the context. Chat-scope session rows also carry a Lark group AppLink straight to the chat.
 - **Schedules**: lists all scheduled tasks, with Run now / Pause / Resume.
 - **Groups**: one-click create a new group (auto @-notifies the invited user), add bots to a group, and auto-transfer group ownership; disband groups and have bots leave groups (associated sessions are cleaned up automatically).
-- **Team / Roles / Bot Defaults**: the Team panel handles [cross-deployment collaboration](/en/roles) (invite someone else's deployment into your team, create cross-deployment groups); Roles manages each bot's per-group persona; Bot Defaults (Bot configuration) sets default behaviors (new-group on-call, card signature, **default role**, etc.).
+- **Team / Roles / Bot Config**: the Team panel handles [cross-deployment collaboration](/en/roles) (invite someone else's deployment into your team, create cross-deployment groups); Roles manages each bot's per-group Role; Bot Config manages default behavior, the default Role, the bot's [Soul and personality reactions](/en/personality), and card settings.
 - **Workflows control panel**: Run List polling; Run Detail shows the summary / dangling red zone / node-activity / event timeline / concurrent-execution timeline; you can **cancel a run** directly.
 
 > **Two things live outside the Dashboard**: a v3 workflow's **humanGate approve / reject** happens on a **Lark approval card** (not clicked in the Dashboard); triggering a workflow with parameters currently goes through the **connector (Webhook)** path (see [Connectors](/en/webhook)) — there is no "Workflow Catalog + parameterized trigger" page in the Dashboard. The Dashboard's Workflows panel focuses on observation and cancel.
+
+## Bot personality
+
+Open **Bot Config** and expand a bot's Personality section to edit its Soul or
+toggle personality reactions. Saving a custom Soul replaces the built-in Soul
+for that bot. Reset restores the built-in version. Soul is separate from Role:
+Soul defines the stable collaborator style, while Role defines the current
+responsibility. See [Bot Personality](/en/personality).
 
 ## External read-only queries
 

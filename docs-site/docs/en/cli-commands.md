@@ -48,4 +48,5 @@ Session info is inferred automatically from ancestor-process markers, so the age
 | `botmux bots list` | List the bots in the current group (including open_id) |
 | `botmux history [--limit N]` | Pull the session history (JSON) |
 | `botmux quoted <message_id>` | Pull a single quoted message (JSON) |
+| `botmux react <yes\|no\|heart\|like\|done>` | Add one personality reaction to the exact user message that initiated the current managed turn. Agent-facing; see [Bot Personality](/en/personality) |
 | `botmux schedule add/list/remove/pause/resume/run` | Manage scheduled tasks |

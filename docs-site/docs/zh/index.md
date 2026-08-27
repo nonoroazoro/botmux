@@ -2,9 +2,13 @@
 
 <p class="lead">把飞书话题群变成 AI 编程 CLI 的遥控器。一条消息，启动一个独立的编程会话。</p>
 
+> 本文档对应独立 fork
+> [nonoroazoro/botmux](https://github.com/nonoroazoro/botmux)，不是上游项目的
+> 文档，两个版本互不兼容。
+
 botmux 是一座桥：一个常驻 **daemon** 监听飞书消息，为每个新话题自动启动一个独立的 AI 编程 CLI 进程（Claude Code / Codex / Cursor / Gemini / OpenCode / Antigravity 等），把终端输出实时渲染成飞书**流式卡片**，并提供一个可交互的 **Web 终端**。手机、电脑、飞书三端同步——人在哪儿，编程会话就跟到哪儿。
 
-> 项目地址：<https://github.com/deepcoldy/botmux> ｜ npm：`npm install -g botmux`
+> 项目地址：<https://github.com/nonoroazoro/botmux> ｜ 上游来源：<https://github.com/deepcoldy/botmux> ｜ npm：`npm install -g botmux`
 
 ## 设计理念：不做 SDK wrapper，直接桥接 CLI
 
@@ -27,10 +31,11 @@ botmux **不重新实现** Agent 能力，而是直接桥接已有的 AI 编程 
 | 多机器人协作 | 多 bot 同群 @mention 路由，进程隔离 | 通常单机器人 |
 | 终端直连 | `tmux attach` 进入进程，与本地一致 | 无法操作底层终端 |
 
-## 亮点功能
+## 当前版本亮点
 
 - **实时流式卡片** — 每轮对话一张实时更新的飞书卡片，终端输出渲染为 Markdown
 - **可交互 Web 终端** — 不只是看，还能在浏览器里直接操作 CLI；移动端有悬浮快捷键工具栏
+- **机器人人格** - 稳定 Soul、场景 Role、生命周期感知的 context 投递和克制的语义 reaction
 - **多机器人协作** — 同群放多个不同 CLI 的机器人，@谁谁干活，让 Claude Code 和 Codex 一起 review 代码
 - **tmux 会话常驻** — daemon 重启不中断 CLI 进程
 - **会话接管（Adopt）** — 把本地 tmux 里跑着的 CLI 一键接进飞书，换设备继续

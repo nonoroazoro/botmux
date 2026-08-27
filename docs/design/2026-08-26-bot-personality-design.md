@@ -80,7 +80,9 @@ Reaction support can be enabled or disabled per bot and is unavailable when the
 bot has no Feishu transport.
 
 Soul files are owner-managed host data. They are not writable by a normal bot
-session, including sessions that run without sandbox isolation.
+through any supported botmux interface. File sandboxing additionally denies
+direct access to the Soul store. Without sandbox isolation, processes running as
+the same OS user do not have a strong filesystem boundary.
 
 ## Deliberate Non-Goals
 

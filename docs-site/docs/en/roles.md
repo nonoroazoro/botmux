@@ -4,6 +4,10 @@ Give each bot an independent persona per group, and form a "team roster" during 
 
 > This page covers two related but distinct capabilities: **`/role` personas** (one persona per bot, overridable per group — see below) and **[Role Switch](#role-switch)** (one bot owning multiple full roles, each with independent memory, switched by natural language per topic — an advanced feature).
 
+> A Role is not the bot's Soul. [Soul](/en/personality) defines the bot's stable
+> judgment and communication style; Role defines its current responsibility.
+> Botmux combines both into the effective Agent Context.
+
 ## Two-Tier Role (Persona)
 
 | Command | Effect |
@@ -16,7 +20,7 @@ Give each bot an independent persona per group, and form a "team roster" during 
 
 - **This-group Role** has the highest priority: the same bot can have different personalities / responsibilities in different groups (e.g., a "strict reviewer" in group A, an "approachable Q&A assistant" in group B).
 - **Default role** is the bot's cross-group default persona, which takes effect when no this-group Role is set.
-- Role content is Markdown, injected into the CLI's system prompt, with a maximum of about 4096 bytes.
+- Role content is Markdown, with a maximum of 32 KiB. Botmux delivers it as part of the versioned Agent Context at session start, after an effective change, or after a native CLI context reset instead of repeating the full block on every ordinary turn.
 - Role resolution stays exactly: **this-group role > default role > none**.
 
 > 💡 The most intuitive way to set the **default role** is on the **Bot Config** page of `botmux dashboard` — every bot card has a "**Default Role**" editor (it writes to the same config as `/role team set`; it's a bot-level global default persona, so it fits better under Bot Config). The **Team** panel only provides a **read-only view** entry; do all editing on the Bot Config page.
@@ -85,7 +89,7 @@ On the **Team** panel of `botmux dashboard`, you can invite **someone else's dep
 
 ## Role Switch
 
-> ⚠️ Advanced feature — requires deploying a "role library" first, and currently supports Claude Code only. Deployment steps are in the [role-system deploy runbook](https://github.com/deepcoldy/botmux/blob/master/docs/roles/deploy-runbook.md); the below covers **how end users use it once deployed**.
+> ⚠️ Advanced feature: requires deploying a "role library" first, and currently supports Claude Code only. Deployment steps are in the [role-system deploy runbook](https://github.com/nonoroazoro/botmux/blob/master/docs/roles/deploy-runbook.md); the below covers **how end users use it once deployed**.
 
 Unlike `/role` above (a single persona, overridable per group), **role switch** gives one bot **multiple full roles**, each with its own persona **and independent memory** — switch to "After-sales" and it carries the after-sales persona plus memory accumulated only for after-sales; switch to "PM" and it's a whole different set. Roles take effect **per topic**; new topics start from the default role.
 

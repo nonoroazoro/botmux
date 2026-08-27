@@ -1,93 +1,210 @@
-# botmux
+<div align="center">
+  <img src="src/dashboard/web/favicon.png" alt="botmux logo" width="120" />
+  <h1>botmux</h1>
+  <p><strong>Feishu and Lark gateway for isolated AI coding CLI sessions</strong></p>
+  <p>Talk to Codex, Claude Code, Gemini, OpenCode, and other coding CLIs from a real conversation.</p>
+  <p>
+    <a href="README.zh.md">中文</a> ·
+    <a href="docs-site/docs/en/quickstart.md">Quick Start</a> ·
+    <a href="docs-site/docs/en/architecture.md">Architecture</a> ·
+    <a href="docs-site/docs/en/personality.md">Bot Personality</a>
+  </p>
+</div>
 
-[中文](README.zh.md)
+> **Independent fork:** This repository is an independent fork of
+> [deepcoldy/botmux](https://github.com/deepcoldy/botmux), not an official
+> upstream distribution. It has fully diverged and does not preserve
+> compatibility with upstream releases, configuration, or documentation.
 
-botmux connects Feishu or Lark to AI coding CLIs such as Codex and Claude Code.
-Each conversation runs in its own CLI session and can be followed from Feishu,
-the dashboard, or a Web Terminal.
+## Overview
 
-## This is an independent fork
+Botmux connects Feishu or Lark to real AI coding CLI processes. A conversation
+can own a persistent CLI session, stream terminal output back to chat, and open
+the same process from the Web Terminal or a local terminal.
 
-This repository has fully diverged from the original
-[deepcoldy/botmux](https://github.com/deepcoldy/botmux). It is not expected to
-remain compatible with upstream releases, configuration, or documentation.
-Upstream changes are adopted only when they fit this fork.
+It bridges the complete CLI instead of rebuilding a smaller agent on an Agent
+SDK. Native memory, context management, tools, hooks, Skills, MCP servers, plan
+mode, and slash commands remain available.
 
-## What changed and why
+## Main changes in this fork
 
-### One assistant, many isolated users
+This fork keeps the original gateway model, but substantially rebuilds the
+surrounding architecture and product experience for long-running bots, shared
+servers, and real Feishu collaboration. The capabilities below are implemented
+by this repository and are not upstream feature documentation.
 
-Each user can have a separate home, workspace, CLI configuration, login, and
-session identity. Shared tools remain available, but private state does not leak
-between users.
+| New capability | Description |
+|------|------|
+| Multi-user isolation | Separate home, workspace, CLI configuration, credentials, Git and SSH identity, history, and session identity for each user |
+| Feishu conversation model | Mention routing anywhere in a lobby message, natural follow-ups inside topics, paginated history, group context, topic branches, session forks, and interactive polls |
+| Bot personality | Stable Soul, context-specific Role, lifecycle-aware Agent Context, and restrained semantic reactions |
+| Assistant capability library | User-scoped and bot-scoped Knowledge, Skills, and Workflows with revisions, review, and controlled publication |
+| Authorization | Separate talk and operate permissions, `/grant` request cards, expiry, message quotas, revocation, command restrictions, owner approval, and user-level OAuth |
+| Local code workflow | Local repository checkouts are the source of truth instead of remote snippets or stale search results |
+| Runtime and recovery | Persistent Ask cards and state, guarded retries, native context preservation, tmux, ZMX, and file sandbox support |
+| Bot management and integrations | Centralized Dashboard configuration, automated Feishu app setup, multi-bot and cross-deployment collaboration, API-only mode, Issue Board, schedules, and On-Call |
 
-For example, two people can use the same bot on a shared server without sharing
-CLI history, credentials, repositories, or personal assistant data. A card can
-only be confirmed by the user who requested it.
+## Multi-user isolation
 
-### Feishu conversations behave like conversations
+Multiple users can use the same bot on a shared server while keeping CLI history,
+credentials, repositories, and personal assistant data separate. Each user can
+have an independent home, workspace, CLI configuration, Git and SSH identity,
+and session identity. Shared tools remain available without sharing personal
+state.
 
-In a group lobby, an explicit mention of the bot anywhere in the message starts
-a session. Inside the resulting topic, users can continue without mentioning it
-again. On the first turn, the agent can read paginated group or direct-message
-history when earlier discussion is needed. Mentions such as `@Alice` remain part
-of the request, so the agent can decide whether Alice's messages are relevant.
+Multi-user mode also isolates Feishu history reads, attachment paths, and
+session data, preventing one user from reaching another user's session or local
+files.
 
-This keeps routing predictable while still allowing requests such as "check the
-bug Alice described above" to work naturally.
+## Feishu conversation model
 
-### Knowledge, Skills, and Workflows
+The conversation model follows normal Feishu usage. Mention the bot anywhere in
+a lobby message to start a task, then continue inside the topic without
+repeating the mention. When earlier discussion matters, the agent can read
+paginated group or direct-message history and receive relevant group context
+when members or topics join. Mentions such as `@Alice` remain part of the
+original request so the model can decide whether Alice's messages are relevant.
 
-Users can build a personal assistant through conversation:
+The same task can be branched into a child topic or a parallel session with
+`/fork`. `/adopt` attaches a locally running CLI, and `/relay` moves a session
+to another topic while preserving its context and permission boundary.
 
-- **Knowledge** records facts and conventions.
-- **Skills** record reusable task instructions.
-- **Workflows** record parameterized processes that the agent can run again.
+Interactive polls support both people and bots. A bot can create a poll and
+vote in it, and the result returns to the session as a normal Feishu
+interaction event.
+
+## Bot personality
+
+Every bot has a built-in **Soul** that defines its stable judgment and
+communication style. The owner can replace it with custom Markdown in the
+Dashboard. The existing **Role** system remains separate and defines what the
+bot is responsible for in the current group.
+
+```text
+Agent Context = Soul + effective Role + enabled capability policy
+```
+
+The full Agent Context is delivered when a conversation starts, when its
+revision changes, or after the native CLI context resets. It is not repeated on
+every ordinary turn.
+
+The active model may add one restrained reaction to the exact user message that
+started the current turn:
+
+- `yes` for a clearly correct understanding
+- `no` before correcting a materially incorrect premise
+- `heart` for genuine warmth, appreciation, or support
+- `like` for a useful contribution or good decision
+- `done` for a clearly completed outcome
+
+Most messages receive no reaction. The model makes the semantic decision; the
+daemon owns target binding, authorization, idempotency, and rate limits. The
+bot has no supported interface for rewriting its active Soul. File sandboxing
+also blocks direct writes. Without sandboxing, processes running as the same OS
+user do not have a strong filesystem boundary. See [Bot Personality](docs-site/docs/en/personality.md).
+
+## Knowledge, Skills, and Workflows
+
+Users can preserve useful results from a session as reusable assistant
+capabilities:
+
+- **Knowledge** stores facts and conventions.
+- **Skills** store reusable task instructions.
+- **Workflows** store parameterized processes that can run again.
 
 All three support create, view, search, update, revision history, and delete.
-They can belong to one user or to the whole bot. Personal changes require that
-user's confirmation. Team contributions require a bot owner's approval.
+They can belong to one user or to the whole bot. Personal content is managed by
+its owner. Shared bot content goes through a proposal and owner approval flow
+for publication or deletion. Workflows support DAG authoring, execution-time
+approval cards, retries, and controlled loop extensions. Approval state survives
+daemon restarts.
 
-For example, a user can ask the bot to remember a release checklist, or turn a
-successful release process into a reusable Workflow. The LLM writes and runs
-the semantic content; code handles permissions, validation, cards, persistence,
-and confirmed changes.
+## Authorization
 
-### Local code is the source of truth
+Permissions are divided into two layers:
 
-Before reading or changing a repository, the agent clones it into the user's
-workspace, returns an existing checkout to its default branch, and updates it.
-Remote code search is not used unless the user explicitly asks for it.
+- **Talk (`canTalk`)**: who can ask questions, view logs, and read code. Access
+  can be opened for a group or granted to selected users through `globalGrants`
+  or `/grant`. By default, only the owner can talk to the bot.
+- **Operate (`canOperate`)**: who can change directories, restart or close a
+  session, or click cards that change session state. This is controlled by
+  `allowedUsers` and normally belongs only to the owner.
 
-This avoids answers based on stale branches or remote snippets that do not match
-the code the agent will actually edit.
+The authorization flow is also explicit and recoverable:
 
-### Unattended execution with guarded recovery
+- An unauthorized group member who mentions the bot can trigger a request card
+  sent to the owner, who can approve or reject it.
+- `/grant` supports a user, an entire group, an expiry, and a message quota;
+  `/revoke` removes the corresponding access.
+- Exhausted quotas and expired grants automatically remove talk access without
+  affecting the owner's operate access.
+- `restrictGrantCommands` can limit per-user grantees to plain conversation,
+  without slash commands.
+- `p2pOpen` can open direct-message conversation while sensitive operations still
+  require `allowedUsers`.
+- User calls to services such as cloud documents and calendars use independent
+  `/login` OAuth authorization rather than the bot owner's identity.
+- Cross-deployment bots enter a dedicated team-trust gate and do not bypass the
+  normal permission system to gain operate access.
 
-Coding CLIs are prepared to run without routine workspace-trust or permission
-prompts. Real blockers such as login can still require the user.
+Changes to shared assistant capabilities require bot-owner approval. Approval
+cards, grant cards, and important state are persisted so a daemon restart does
+not lose the result.
 
-If a Codex-backed session explicitly hits a cybersecurity policy block, the
-requesting user receives a dedicated confirmation card. Confirming starts a new
-conversation with a conservative defensive-review strategy while keeping the
-same workspace, Feishu topic, reply route, and Web Terminal link. Normal
-conversations never enter this flow.
+## Local code workflow
 
-### The bot owns its identity
+Code tasks use local repository checkouts as their source of truth. Before
+reading or modifying code, the agent works from the user's local workspace
+instead of remote snippets or stale search results. Attachment paths are
+physically resolved so links or symlinks cannot cross the current workspace
+boundary.
 
-Feishu cards and messages use the configured bot name and description. Users see
-the configured assistant identity rather than the botmux gateway brand. Empty
-or invalid trusted metadata is not injected into the CLI. User messages are
-forwarded unchanged.
+## Runtime and recovery
 
-## What remains from the original project
+Botmux manages the real CLI process and supports tmux, ZMX, and other persistent
+session backends. After a daemon restart, machine restart, or worker reconnect,
+managed sessions, AskUserQuestion cards, and required recovery state can still
+be processed.
 
-The fork retains the useful gateway foundation: live Feishu cards, Web Terminal,
-multi-bot and multi-CLI routing, persistent sessions, dashboard management,
-scheduled tasks, external triggers, and Feishu/Lark support.
+Startup, submit confirmation, type-ahead, idle detection, and turn boundaries
+are handled consistently across CLI adapters. Codex safe recovery preserves
+native context. Login, permission, and policy-gated recovery blockers return
+control to the initiator instead of silently widening access.
 
-The adapter source of truth is
-[`src/adapters/cli/registry.ts`](src/adapters/cli/registry.ts).
+File sandboxing provides cross-platform default-deny rules, path allowlists, and
+boundary validation. For lighter deployments, core-only and API-only bots can
+be driven through an HTTP control API without Feishu message transport.
+
+## Bot management and integrations
+
+The Dashboard provides Bot, Session, Group, Team, Schedule, Workflow, Issue
+Board, monitoring, and insight panels. Each bot can configure its CLI, defaults,
+Role, Soul, reactions, cards, multi-user isolation, and runtime backend.
+
+`botmux setup` initializes the Feishu app, requests permissions, and configures
+events. Cards, messages, Ask prompts, and approval notices use the configured
+bot identity rather than presenting the botmux gateway as the assistant. Bots
+can collaborate in one group or create cross-deployment collaboration groups
+through team relationships.
+
+Issue Board covers claiming, group creation, repository binding, execution,
+completion, and release, with a local outbox and crash recovery. Schedules,
+Webhooks, On-Call, plugins, and Workflows extend one-off conversations into
+ongoing automation.
+
+## Quick start
+
+Node.js 22 or newer is required.
+
+```bash
+npm install -g botmux
+botmux setup
+botmux start
+botmux dashboard
+```
+
+See the [5-minute setup guide](docs-site/docs/en/quickstart.md) for Feishu app
+permissions, event subscriptions, CLI installation, and bot configuration.
 
 ## Development
 
@@ -101,10 +218,13 @@ botmux setup
 pnpm daemon:start
 ```
 
-Run the main checks before submitting changes:
+Run the complete verification set before handing off changes:
 
 ```bash
 pnpm build
 pnpm test
 pnpm workflow-core:test
 ```
+
+The CLI adapter registry is
+[`src/adapters/cli/registry.ts`](src/adapters/cli/registry.ts).

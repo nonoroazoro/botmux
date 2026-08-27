@@ -2,9 +2,14 @@
 
 <p class="lead">Turn a Lark topic group into a remote control for AI coding CLIs. One message launches a dedicated coding session.</p>
 
+> This documentation covers the independent
+> [nonoroazoro/botmux](https://github.com/nonoroazoro/botmux) fork. It is not
+> documentation for the upstream project, and the two versions are not
+> compatible.
+
 botmux is a bridge: a persistent **daemon** listens to Lark messages and automatically launches a dedicated AI coding CLI process (Claude Code / Codex / Cursor / Gemini / OpenCode / Antigravity, etc.) for each new topic. It renders terminal output into Lark **streaming cards** in real time, and provides an interactive **Web Terminal**. Phone, computer, and Lark stay in sync — wherever you are, your coding session follows.
 
-> Project: <https://github.com/deepcoldy/botmux> ｜ npm: `npm install -g botmux`
+> Project: <https://github.com/nonoroazoro/botmux> ｜ Upstream origin: <https://github.com/deepcoldy/botmux> ｜ npm: `npm install -g botmux`
 
 ## Design philosophy: not an SDK wrapper — bridge the CLI directly
 
@@ -27,10 +32,11 @@ Compared to approaches like OpenClaw that are "rebuilt on top of an Agent SDK":
 | Multi-bot collaboration | Multiple bots in one group with @mention routing, process isolation | Usually a single bot |
 | Direct terminal access | `tmux attach` into the process, identical to local | Cannot operate the underlying terminal |
 
-## Highlights
+## Current version highlights
 
 - **Streaming cards** — One live-updating Lark card per conversation turn, with terminal output rendered as Markdown
 - **Interactive Web Terminal** — Not just viewing: operate the CLI directly in the browser; mobile has a floating shortcut toolbar
+- **Bot personality** - Stable Soul, context-specific Role, lifecycle-aware context delivery, and sparse semantic reactions
 - **Multi-bot collaboration** — Put multiple bots with different CLIs in one group, @ whoever you want to work, and have Claude Code and Codex review code together
 - **Persistent tmux sessions** — Restarting the daemon doesn't interrupt CLI processes
 - **Session adopt** — Adopt a CLI running in a local tmux into Lark with one click, and continue on another device
