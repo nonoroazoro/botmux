@@ -47,19 +47,6 @@ Network access remains enabled by default. On Linux, set `sandboxNetwork: false`
 - PTY and tmux support the local sandbox.
 - Zellij, Zmx, Herdr, and other backends that own the child process fail closed when local sandboxing is requested.
 
-## Legacy Configuration
-
-The daemon migrates these legacy fields automatically:
-
-| Legacy | Current |
-| --- | --- |
-| `readIsolation: true` | `sandbox: true` |
-| `readDenyExtraPaths` | `sandboxPaths.deny` |
-| `sandboxHidePaths` | `sandboxPaths.deny` |
-| `sandboxReadonlyPaths` | `sandboxPaths.readOnly` |
-
-Prefer the current fields for new configuration. See the [bots.json reference](/en/bots-json) for the complete schema.
-
 ## Safety Notes
 
 1. Review `readWrite` paths carefully because writes are direct.

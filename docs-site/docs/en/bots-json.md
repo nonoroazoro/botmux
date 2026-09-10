@@ -47,14 +47,14 @@ There are many fields, listed below grouped by purpose. The vast majority are **
 | `cliId` | CLI adapter, defaults to `claude-code`. See [Multi-CLI adapters](/en/adapters) |
 | `model` | Model name used to launch the CLI (e.g. `claude --model opus`); leave empty to use the CLI default. Multiple bots with the same `cliId` can run different models. Each adapter's `modelChoices` are the candidates offered in `botmux setup` |
 | `cliRuntime` | Structured runtime descriptor for a Codex-compatible distribution: `{ id, displayName?, executable, update? }`. It reuses the `codex` adapter while retaining its own version, update source, and session identity. See [Codex-compatible distributions](/en/adapters#codex-compatible-distributions) |
-| `cliPathOverride` | Legacy CLI entry-point override, retained for wrappers / routers and existing custom binaries. Prefer `cliRuntime` for a new Codex-compatible distribution. To support downgrading BotMux, writers also persist an exact compatibility shadow of `cliRuntime.executable`; do not manually configure mismatched values |
+| `cliPathOverride` | CLI entry-point override for wrapper scripts, routers, or custom binaries. Use `cliRuntime` for a Codex-compatible distribution; these fields cannot be combined. |
 | `disableCliBypass` | When `true`, the CLI's auto-approve / sandbox-bypass flags (`--yolo`, `--dangerously-*`) are not appended automatically; omitted / `false` keeps the original behavior |
 | `backendType` | Session backend, one of `pty` / `tmux` / `herdr` / `zellij`. **Leave empty to default to `tmux`** (PTY auto-fallback is retired): when a persistent backend (tmux/herdr/zellij) isn't available on this host it **hard-gates** and posts a card asking you to install it — it does **not** silently downgrade to pty (`zellij` requires ≥ 0.44). `pty` is an explicit fallback only (`backendType:"pty"` or `BACKEND_TYPE=pty`) — attaches directly to the process and **does not survive daemon restarts**. See [tmux backend](/en/tmux) |
 | `launchShell` | Shell used to launch the CLI, overriding the daemon's `$SHELL`: a shell name (`zsh` / `bash` / `sh`) or an absolute path (e.g. `/usr/bin/zsh`). For when the login `$SHELL` (e.g. bash) has an rcfile that `exec`-trampolines into another shell (`exec zsh`), pre-empting the CLI under botmux's `bash -i` launch so the session never starts (bare-shell `parse error`) — pinning it launches under that shell directly, bypassing the skipped rcfile. **Note**: PATH / nvm / pnpm must then live in the chosen shell's rcfiles (e.g. `.zshrc` / `.zprofile`). Empty = use `$SHELL`. Takes effect next session; `tmux` / `zellij` backends only (`pty` execs the CLI directly and is unaffected). Also configurable in the dashboard ("Bot defaults → Launch shell") or via `/config launchShell <value>` |
 | `lang` | The bot's UI language, `zh` / `en`; leave empty to fall back to the `BOTMUX_LANG` / `LANG` environment variable |
 | `customPassthroughCommands` | On top of the fixed passthrough allowlist and the current CLI adapter's default-allowed commands, additionally pass through slash commands to the underlying CLI, e.g. `["/export"]` (Claude Code / Codex default-allow `/goal`). Auto-normalized (a missing `/` is added, lowercased, only `[a-z0-9:_-]` kept, deduplicated); entries that would shadow a botmux daemon command (e.g. `/status`) are dropped and have no effect even if configured. Use `/list-slash-command` to view the full allowlist. See [Slash commands](/en/slash-commands) |
 | `env` | Per-bot process environment variables `{ "KEY": "value" }`, injected into this bot's CLI process. Most common use: run a bot on GLM / a third-party Anthropic·OpenAI-compatible provider (see example below); also handy for `HTTPS_PROXY` or a CLI feature flag. Values accept string / number / boolean; botmux-reserved keys (`BOTMUX_`, `LARK_APP_`, …) are ignored. Injected **per session** (effective from the next session), never written to the shared tmux server env, so it can't leak across bots. Also editable in the dashboard ("Bot defaults → Environment variables") |
-| `codexAppCleanInput` | **Experimental**, and only effective for Botmux-managed sessions whose actual CLI is `codex-app`. When `true`, the visible / persisted text `UserMessage` contains only the user's original input while message-level Botmux context primarily moves to `additionalContext`. Defaults to off, takes effect on the next turn dispatch, and does not rewrite existing history. See details below |
+| `codexAppCleanInput` | **Experimental**, and only effective for managed sessions whose actual CLI is `codex-app`. When `true`, the visible / persisted text `UserMessage` contains only the user's original input while message-level host context primarily moves to `additionalContext`. Defaults to off, takes effect on the next turn dispatch, and does not rewrite existing history. See details below |
 
 ### Codex-compatible distributions
 
@@ -63,7 +63,6 @@ An independently released CLI that preserves Codex's arguments, interaction, rol
 ```json
 {
   "cliId": "codex",
-  "cliPathOverride": "vendor-codex",
   "cliRuntime": {
     "id": "vendor-codex",
     "displayName": "Vendor Codex",
@@ -77,8 +76,8 @@ An independently released CLI that preserves Codex's arguments, interaction, rol
 - `executable` is one executable name or path, not a shell command; do not append arguments. The Dashboard performs a read-only `--version` probe before saving, and its output must contain a recognizable `X.Y.Z` version.
 - `displayName` controls cards, status, and Dashboard labels only; it defaults to `id`.
 - `update.provider` is one of `auto`, `self`, `npm`, or `none`. `auto` trusts only a unique npm package proven to own that exact binary. If no source can be established, the runtime is shown as unmanaged and is **never compared with official Codex**. Only `self` uses the CLI's structured doctor data, and its current version must match `--version`; `npm` requires the distribution's own `packageName`; `none` disables update checks for that runtime.
-- `cliRuntime` currently applies only to `cliId: "codex"` and cannot be combined with `wrapperCli`. BotMux writers generate a `cliPathOverride` downgrade shadow that exactly matches `executable`: new versions use `cliRuntime` as canonical, while old versions still launch the same binary from the shadow. Manual configs must include the same exact shadow as shown above; a missing or mismatched value fails validation so an accepted config is always safe to roll back. Wrappers and gateways keep using the legacy entry-point mechanism below.
-- Existing `cliPathOverride` configs remain launch-compatible and receive the same safe `auto` update behavior. The Dashboard shows them in a read-only compatibility state: model-only saves preserve the old entry point, choosing Official Codex explicitly clears it, and choosing Custom Compatible migrates it to `cliRuntime`. Because a raw path does not assert the full compatibility contract, Codex RPC enhancements remain disabled.
+- `cliRuntime` applies only to `cliId: "codex"`. Configure it as the sole runtime source; do not combine it with `cliPathOverride` or `wrapperCli`.
+- `cliPathOverride` selects an executable without declaring Codex protocol compatibility, so Codex RPC enhancements remain disabled. Use `cliRuntime` to declare a compatible distribution.
 
 A session freezes its runtime snapshot when created. Model-only changes affect new sessions; switching CLI, runtime, or wrapper immediately closes active sessions that still use the old launch identity so they cannot lazy-resume into the wrong distribution. Existing sessions are never silently switched to another runtime.
 
@@ -102,9 +101,9 @@ Run one bot on a GLM Coding Plan (or any Anthropic-compatible provider) while an
 - **Security**: values live in `bots.json` and the process environment in plaintext — not a secret vault; chat surfaces like `/config get` mask the values (the owner-authenticated dashboard editor shows real values).
 - Takes effect from the next **session**.
 
-### Clean Codex App input (experimental)
+### Clean Codex Desktop input (experimental)
 
-`codexAppCleanInput` keeps user messages shown in Codex App clean while preserving the context Botmux needs when invoking the model. It defaults to `false` / `off`; when disabled, Botmux keeps the original combined-prompt behavior unchanged.
+`codexAppCleanInput` keeps user messages shown in Codex Desktop clean while preserving the context the host needs when invoking the model. It defaults to `false` / `off`; when disabled, the original combined-prompt behavior remains unchanged.
 
 An owner or `allowedUsers` member can hot-update it with `/botconfig`; no daemon restart is required:
 
@@ -123,11 +122,11 @@ You can also add it to the corresponding bot entry directly (manual `bots.json` 
 ```
 
 - The flag applies only to Botmux-managed sessions whose actual CLI is `codex-app`; other CLIs and externally bridged `/adopt` sessions are unaffected. A session-frozen CLI takes precedence over a later bot-default CLI change.
-- When enabled, user-authored turns use the original text as the Codex App text `UserMessage`; Botmux-authored synthetic turns such as external triggers and document prewarm use a short readable label. Message-level sender, mentions, attachment paths, quotes, role, whiteboard, Skills, and synthetic-turn instructions primarily move to hidden `additionalContext`. Readable absolute-path images are also sent as `localImage`; missing, relative, or unreadable images skip the native image item with a diagnostic while their attachment path remains in context.
+- When enabled, user-authored turns use the original text as the Codex Desktop text `UserMessage`; host-authored synthetic turns such as external triggers and document prewarm use a short readable label. Message-level sender, mentions, attachment paths, quotes, role, whiteboard, Skills, and synthetic-turn instructions primarily move to hidden `additionalContext`. Readable absolute-path images are also sent as `localImage`; missing, relative, or unreadable images skip the native image item with a diagnostic while their attachment path remains in context.
 - A detectable Codex CLI `>= 0.135` enables clean text plus `additionalContext`; `>= 0.136` also attaches a separate `clientUserMessageId`. Older or unknown versions use the legacy combined prompt directly.
 - The runner retries the legacy prompt **once** only when app-server explicitly rejects `additionalContext` / `clientUserMessageId` before `turn/started`, then disables clean mode for that runner lifetime. Network, timeout, model, and generic turn errors are never auto-retried, avoiding duplicate work.
 - A `/botconfig` change is sampled at the **next dispatch to the Codex worker**. For ordinary live messages this is normally the next message; a first turn waiting on repo selection is sampled when the repo is committed. Already queued or running turns are not rewritten, and existing history is never backfilled.
-- `additionalContext` is omitted from the ordinary Codex App user-message bubble, but it may still be retained in raw rollout or diagnostic records. When enabled, Botmux also keeps the legacy prompt and structured sidecar for compatibility fallback and `retry_last_task`. This feature improves App presentation and ordinary history reading; it is **not** a privacy-erasure or security-redaction mechanism.
+- `additionalContext` is omitted from the ordinary Codex Desktop user-message bubble, but it may still be retained in raw rollout or diagnostic records. When enabled, the host also keeps the fallback prompt and structured sidecar for `retry_last_task`. This feature improves Desktop presentation and ordinary history reading; it is **not** a privacy-erasure or security-redaction mechanism.
 
 ## Working directory
 
@@ -157,8 +156,6 @@ You can also add it to the corresponding bot entry directly (manual `bots.json` 
 | Field | Description |
 |------|------|
 | `sandbox` | When `true`, launch new sessions in the Linux file sandbox. Writes are isolated and must be landed with `/land` |
-| `sandboxHidePaths` | Paths masked inside the sandbox with empty dirs/files so the bot cannot read them, e.g. `["~/.ssh", "~/.botmux/bots.json"]` |
-| `sandboxReadonlyPaths` | Extra existing paths mounted read-only inside the sandbox, useful for shared source snapshots, reference repos, or generated docs the bot should inspect but not modify |
 | `sandboxNetwork` | Network policy for sandboxed sessions. Omitted / `true` keeps current network and proxy access; `false` adds `--unshare-net` and blocks normal network egress |
 
 > ZMX cannot enforce the file sandbox or effective read isolation, so configurations that enable those boundaries fail closed; see [ZMX backend boundaries](/en/zmx#unsupported-combinations).

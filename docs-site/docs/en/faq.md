@@ -38,7 +38,7 @@ botmux has two permission layers (see [permissions](#how-are-permissions-divided
 
 **This applies only to terminal CLI sessions that require explicit sending** (Claude Code / Codex CLI / Gemini / CoCo, etc.): terminal stdout ≠ sent to Lark, so the model must explicitly run `botmux send` (with one of `--mention-back` / `--mention` / `--no-mention`) for the group to see it. Just `echo`ing/`print`ing or forgetting `botmux send` means nothing goes out. Use a heredoc for multi-line content; don't write it as `"line one\nline two"`.
 
-> ⚠️ **Exception: `codex-app` (Codex App app-server protocol)** — its final assistant message is **auto-forwarded** back to Lark by botmux, so **don't call `botmux send` for normal replies** (that would double-send); use it only for mid-turn pushes / attachments / cross-bot @mentions.
+> ⚠️ **Exception: `codex-app` (Codex Desktop app-server protocol)**: its final assistant message is **auto-forwarded** back to Lark, so **don't call `botmux send` for normal replies** (that would double-send); use it only for mid-turn pushes, attachments, or cross-bot @mentions.
 
 ## `botmux history` reports 400 / Lark gateway 411?
 

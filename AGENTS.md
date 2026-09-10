@@ -27,7 +27,6 @@ handoff, run:
 ```bash
 pnpm build
 pnpm test
-pnpm workflow-core:test
 ```
 
 ## Local Checkout

@@ -1,6 +1,6 @@
 # Connectors (Webhook)
 
-Let external systems (monitoring alerts, CI, tickets, scheduled scripts…) trigger a **bot to speak in a group or run a workflow** via a webhook. The gateway doesn't parse each platform's format — it hands the raw event **as-is** to the model to read for itself, so a new system needs almost zero adaptation.
+Let external systems (monitoring alerts, CI, tickets, scheduled scripts…) trigger a **bot to process an event in a group** via a webhook. The gateway doesn't parse each platform's format — it hands the raw event **as-is** to the model to read for itself, so a new system needs almost zero adaptation.
 
 > Create and manage these on the "**Connectors**" page of the [Dashboard Control Panel](/en/dashboard). Currently in beta.
 
@@ -81,7 +81,6 @@ Each incoming event automatically gets a new group to handle it, and the bot's a
 ## Trigger modes
 
 - **Single-turn conversation**: have the bot respond once to this event.
-- **Workflow**: pass the event as the string parameter `event` to a [Workflow](/en/workflow), whose nodes read and process it.
 
 ## Handling instructions (optional)
 

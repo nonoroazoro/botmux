@@ -158,18 +158,6 @@
 
 `/watch-comment`：监听飞书文档评论、绑定 AI 会话并把回复发回评论串；支持 `<文档链接> [--dir <路径>] [--all|--mentions-only]` 与 `list/off`。`/subscribe-lark-doc` 保留原有的飞书逐文件 API 订阅流程。详见 [飞书文档评论入口](/doc-comment)。
 
-## 🔧 Workflow（流程编排，实验性）
-
-| 命令 | 说明 |
-|------|------|
-| `/workflow <目标>`（= `/workflow new <目标>`） | 发起**即兴 workflow**：bot 拷问澄清需求 → 自动编排成 DAG → 你确认后并发跑完，风险节点执行期弹审批卡 |
-| `/workflow run <名称> [key=value ...]` | 运行一个 Saved Workflow |
-| `/workflow save last [名称]` · `/workflow list\|show\|cancel` | 保存 / 列出 / 查看 / 取消 workflow（v2 资产仅支持离线 `migrate-v3` / `archive-runs`） |
-
-> 旧的 `/template run|cancel` 已退役；现在发 `/template` 只返回退役提示。
-
-详见 [Workflow](/workflow)。
-
 ## 👥 多机器人协作
 
 `@botA @botB /t <prompt>`（各自开新话题）· `botmux bots list`（查看当前群可协作 bot）· `@botA @botB /introduce`（旧版 / 外部 bot 兜底登记，一般不再需要）

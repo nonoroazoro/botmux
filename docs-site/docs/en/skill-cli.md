@@ -14,7 +14,7 @@ Inside a session the agent can call these `botmux` subcommands directly (session
 | `botmux bots list` | List the bots in the current group and their open_id (for `--mention`) |
 | `botmux schedule` | Create, list, update, and delete scheduled tasks |
 
-> These are the most-used set; the real command surface is larger (e.g. `botmux ask` for interactive questions, and workflow / goal / dispatch orchestration entry points) — see `botmux --help` and the injected Skill catalog for the full list. Handoff / orchestration are separate **Skills** (`botmux-handoff` / `botmux-orchestrate`), which are Skills, not executable subcommands.
+> These are the most-used set; the real command surface is larger, including `botmux ask` for interactive questions, artifact management, and goal / dispatch orchestration entry points. See `botmux --help` and the injected Skill catalog for the full list. Handoff / orchestration are separate **Skills** (`botmux-handoff` / `botmux-orchestrate`), not executable subcommands.
 
 ### The @-decision hard gate on `botmux send`
 
@@ -42,7 +42,7 @@ The channel through which routing guidance and the Skill catalog are **injected 
 
 Compared with an MCP-based approach, the Skill + CLI combination:
 
-- The CLI **doesn't need an MCP handshake** on startup, the core `botmux send` / `history` channels have zero MCP dependency, and it doesn't consume tool-list tokens (a gateway only starts when an adapter explicitly opts in *and* a plugin actually contributes MCP servers).
+- The CLI **doesn't need an MCP handshake** on startup, the core `botmux send` / `history` channels have zero MCP dependency, and they don't consume tool-list tokens.
 - The **shell / routing layer is universal** — as long as a CLI can read a system prompt and run shell commands, `~/.botmux/bin/botmux` + PATH work, covering Claude Code / Codex / Cursor / Gemini / OpenCode, and more.
 
 > ⚠️ But the **out-of-box Skill layer is not equal across every CLI**: a few (e.g. Antigravity, which only recognizes SKILL.md inside plugin bundles, not a flat `skills/` dir) get routing guidance only, without a Skill catalog. So "universal" holds for the shell/routing channel, and is "most" rather than "all" for the Skill catalog.

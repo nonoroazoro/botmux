@@ -33,7 +33,7 @@ pnpm daemon:logs
 - `src/core/`, `src/services/`: shared runtime logic and persistent services.
 - `src/im/lark/`: Lark events, messages, cards, grants, and API access.
 - `src/dashboard.ts`, `src/dashboard/`: dashboard server and UI support.
-- `src/workflows/`, `src/vc-agent/`, `src/platform/`, `src/desktop/`: extended runtime surfaces.
+- `src/vc-agent/`, `src/platform/`: extended runtime surfaces.
 
 See [AGENTS.md](AGENTS.md) for the current impact checklist. Do not duplicate implementation inventories here; use the source registries as the source of truth.
 
@@ -52,7 +52,6 @@ Use the full checklist in [`src/adapters/cli/CLAUDE.md`](src/adapters/cli/CLAUDE
 ```bash
 pnpm build
 pnpm test
-pnpm workflow-core:test
 pnpm test:e2e
 ```
 

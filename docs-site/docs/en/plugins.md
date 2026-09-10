@@ -1,6 +1,6 @@
 # Plugin Development and Market Registration
 
-A Botmux Plugin uses one publishable npm package to deliver Skills, MCP, CLI
+A Botmux Plugin uses one publishable npm package to deliver Skills, CLI
 commands, a Dashboard page, and a Host Service. This guide is for plugin authors
 and operators. It covers the complete path from project creation and package
 validation to npm publishing and Plugin Market registration.
@@ -20,13 +20,12 @@ fixed paths:
 | Capability | Source | Installed entry |
 | --- | --- | --- |
 | Skill | `skills/<name>/SKILL.md` | `dist/skills/<name>/SKILL.md` |
-| MCP | `src/mcp/` | `dist/mcp/index.json` |
 | CLI command | `src/cli/` | `dist/cli/{index.js,commands.json}` |
 | Dashboard | `src/dashboard/` | `dist/dashboard/index.js` |
 | Host Service | `src/service/` | `dist/service/index.js` |
 
 There is currently no general worker/daemon hook contribution. Put long-running
-processes in a Host Service, Agent tools in MCP or a Skill, and operational
+processes in a Host Service, Agent tools in a Skill, and operational
 entry points in CLI commands.
 
 Installation and enablement are separate operations:
@@ -34,9 +33,9 @@ Installation and enablement are separate operations:
 1. `plugin install` downloads the package, validates its manifest, discovers
    contributions, and stores `dist/`.
 2. `plugin enable` binds the plugin as a machine default or to selected Bots and
-   prepares Skill/MCP snapshots for future sessions.
+   prepares Skill snapshots for future sessions.
 
-Botmux does not intentionally invoke the plugin's CLI, Dashboard, MCP, or
+Botmux does not intentionally invoke the plugin's CLI, Dashboard, or
 Service entry during installation. However, an npm installation **may run npm
 lifecycle scripts**. Installing a third-party plugin still means trusting its
 publisher.
@@ -184,46 +183,6 @@ dist/skills/<skill-name>/SKILL.md
 Running Agents do not hot-load new Skills after a plugin is enabled or updated.
 Start a new session so Botmux can regenerate the Plugin/Skill snapshot for the
 new CLI process.
-
-### MCP
-
-Each plugin can currently contribute at most one MCP server. The built
-`dist/mcp/index.json` supports two transports.
-
-stdio:
-
-```json
-{
-  "transport": "stdio",
-  "command": ["node", "./mcp/server.js"],
-  "env": {}
-}
-```
-
-Streamable HTTP:
-
-```json
-{
-  "transport": "streamable-http",
-  "url": "https://example.com/mcp",
-  "headers": {}
-}
-```
-
-Constraints and caveats:
-
-- only `stdio` and `streamable-http` are supported;
-- the MCP name is the Plugin ID; do not add a separate `name`;
-- `./...` paths are relative to the installed `dist/`;
-- `${VAR}` string templates are not supported in this configuration;
-- bundle local MCP runtime dependencies into `dist/` rather than relying on the
-  development `node_modules`;
-- never put real tokens, cookies, or secrets in the package; runtime code should
-  read them from a controlled environment or private plugin configuration.
-
-Botmux aggregates the enabled MCP servers for a session through one MCP Gateway.
-The plugin set and credential snapshot are fixed for the lifetime of a CLI
-process, so create a new session after changing bindings or configuration.
 
 ### Dashboard
 
@@ -495,7 +454,7 @@ Add `plugins/my-plugin.json`:
   "description": "One sentence describing the problem this plugin solves.",
   "repo": "https://github.com/your-org/botmux-plugin-my-plugin",
   "docs": "https://github.com/your-org/botmux-plugin-my-plugin#readme",
-  "categories": ["mcp", "productivity"],
+  "categories": ["productivity"],
   "compatibility": {
     "botmux": ">=3.8.0"
   }
@@ -563,7 +522,7 @@ Treat `botmux plugin --help` as the final source of truth.
 Installing a plugin means trusting its code:
 
 - npm installation may run package lifecycle scripts;
-- CLI, MCP, Dashboard, and Service code all run with the authority of the system
+- CLI, Dashboard, and Service code all run with the authority of the system
   user who installed Botmux;
 - in production, install only trusted publishers, pin an exact version, and
   verify registry integrity;
@@ -582,7 +541,7 @@ Final acceptance:
 - [ ] `dist/` is self-contained and works without source files or
       `node_modules`;
 - [ ] `npm pack --dry-run` contains no sensitive files;
-- [ ] manifest, CLI command, MCP, and Service entries pass validation;
+- [ ] manifest, CLI command, and Service entries pass validation;
 - [ ] Service mode matches between the manifest and the exported definition;
 - [ ] both local-directory and real-tarball installation have been tested;
 - [ ] the npm version, dist-tag, and integrity have been verified after

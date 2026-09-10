@@ -31,10 +31,10 @@ CLI session，终端输出实时回到聊天里，也可以从 Web Terminal 或�
 
 | 新增能力 | 说明 |
 |------|------|
-| 多用户隔离 | 每个用户独立 home、workspace、CLI 配置、凭证、Git 与 SSH identity、历史和 session identity |
+| 多用户隔离 | 共享 provider account 和全局能力，同时隔离每个用户的 runtime state、workspace、Git 与 SSH identity、历史和 session identity |
 | 飞书对话模型 | lobby 消息任意位置 @ 都能路由，topic 内自然续聊，支持分页读取历史、群上下文、子话题分支、会话分身和交互式投票 |
 | 机器人人格 | 稳定 Soul、场景 Role、生命周期感知的 Agent Context，以及克制的语义 reaction |
-| 助手能力库 | 用户级和 bot 级 Knowledge、Skill、Workflow，带 revision、review 和受控发布 |
+| 助手能力库 | 个人和团队 Knowledge、Skill、Workflow，带独立归属、revision、review 和受控发布 |
 | 权限与授权 | 对话权和操作权分层，支持 `/grant` 申请卡、有效期、消息额度、撤销、命令限制、owner 审批和用户级 OAuth 授权 |
 | 本地代码流程 | 代码任务以本地 repository checkout 为事实源，不拿远端片段或过期搜索结果代替 |
 | 运行与恢复 | Ask 卡片和关键状态持久化，提交失败受控重试，恢复时保留原生 context，支持 tmux、ZMX 和安全沙盒 |
@@ -42,9 +42,10 @@ CLI session，终端输出实时回到聊天里，也可以从 Web Terminal 或�
 
 ## 多用户隔离
 
-多个用户可以在同一台共享服务器上使用同一个 bot，同时保持 CLI 历史、凭证、代码仓库和
-个人助手数据彼此隔离。每个用户可以拥有独立的 home、workspace、CLI 配置、Git 与 SSH
-identity，以及对应的会话身份。共享工具仍可使用，但不会因此共享个人状态。
+多个用户可以使用部署方统一提供的 AI provider account 和全局 CLI 能力，同时保持 CLI
+历史、代码仓库、可变 runtime state 和个人助手数据彼此隔离。每个用户拥有独立的 home、
+workspace、CLI runtime data、Git 与 SSH identity，以及对应的会话身份。全局
+AGENTS.md、Skill、plugin 和系统工具对所有用户可用，但不会因此共享用户产生的数据。
 
 多用户模式还会隔离飞书历史读取、附件路径和会话数据，避免一个用户借助另一个用户的
 session 或本地文件访问不属于自己的内容。
@@ -89,15 +90,22 @@ sandbox 时，同一 OS user 下的进程不具备强文件隔离。详见[机�
 
 ## Knowledge、Skill 和 Workflow
 
-用户可以直接通过对话，将 session 中有价值的结果沉淀为可复用的助手能力：
+用户可以直接通过对话，将有价值的结果沉淀为可复用的助手能力，不必反复向机器人解释
+同一份背景和做事方式：
 
-- **Knowledge** 保存事实和约定。
-- **Skill** 保存一类任务的通用操作方法。
-- **Workflow** 保存可传参、可重复执行的流程。
+- **Knowledge** 让机器人长期记住事实、术语、决策和约定。
+- **Skill** 教会机器人处理一类任务时可重复使用的方法、判断原则和操作说明。
+- **Workflow** 定义包含输入、步骤、分支、成功标准和失败处理的可重复流程，由当前机器人
+  使用已有工具执行。
 
-三类内容都支持创建、查看、搜索、更新、revision history 和删除，可以属于一个用户或整个
-bot。个人内容由本人管理；共享 bot 内容通过提案和 owner 审批流程发布或删除。Workflow
-支持 DAG 编排、执行期审批卡、重试和受控的循环追加，审批状态会在 daemon 重启后恢复。
+三类能力都通过自然对话管理，并分别存放在个人能力库或机器人的团队能力库中。个人能力
+只在本人与机器人的私聊中可用，不会载入群聊，也不会被其他用户读取；团队能力在该机器人
+的所有对话中共享。
+
+个人能力由本人管理，也可以整理为不包含个人信息的通用版本后申请贡献给团队。团队内容的
+发布和删除由 bot owner 审批，每次保存都会生成不可变的 revision。Workflow 保存前，当前
+机器人会在用户确认后试运行完全相同的草稿，并说明实际结果和限制。详见
+[Knowledge、Skill 和 Workflow](docs-site/docs/zh/workflow.md)。
 
 ## 权限与授权
 
@@ -143,7 +151,7 @@ core-only 或 API-only bot，由 HTTP 控制 API 驱动，不必配置飞书消�
 
 ## Bot 管理与产品集成
 
-Dashboard 提供 Bot 配置、Session、Group、Team、Schedule、Workflow、Issue Board、监控
+Dashboard 提供 Bot 配置、Session、Group、Team、Schedule、Issue Board、监控
 和洞察等管理面板。每个 bot 可以单独配置 CLI、默认行为、Role、Soul、reaction、卡片、
 多用户隔离和运行后端。
 
@@ -185,7 +193,6 @@ pnpm daemon:start
 ```bash
 pnpm build
 pnpm test
-pnpm workflow-core:test
 ```
 
 CLI adapter 的唯一事实源是

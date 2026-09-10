@@ -17,10 +17,6 @@ botmux dashboard
 - **Schedules**：列出所有定时任务，可 Run now / Pause / Resume。
 - **Groups**：一键拉新群（自动 @ 通知被邀请人）、拉 bot 入群、自动转让群主；解散群聊、bot 退群（关联会话自动清理）。
 - **团队 / Roles / Bot 配置**：团队面板做[跨部署协作](/roles)（邀请别人的部署进团队、跨部署拉群）；Roles 管理各 bot 的本群 Role；Bot 配置管理默认行为、默认 Role、bot 的 [Soul 与人格化 reaction](/personality)，以及卡片设置。
-- **Workflows 管控面**：Run List 轮询；Run Detail 看 summary / dangling 红区 / node-activity / event timeline / 并发执行 timeline；可直接 **cancel run**。
-
-> **两件事在 Dashboard 之外**：v3 workflow 的 **humanGate 批准 / 拒绝** 走**飞书审批卡**（不在 Dashboard 上点）；带参触发 workflow 目前是**接入点（Webhook）** 那条路径（见 [接入点](/webhook)），Dashboard 没有「Workflow Catalog 带参触发」页。Dashboard 的 Workflows 面板专注观测与 cancel。
-
 ## 机器人人格
 
 在 **Bot 配置** 中展开目标 bot 的人格区域，即可编辑 Soul 或开关人格化 reaction。

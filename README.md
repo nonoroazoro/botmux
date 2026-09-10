@@ -35,10 +35,10 @@ by this repository and are not upstream feature documentation.
 
 | New capability | Description |
 |------|------|
-| Multi-user isolation | Separate home, workspace, CLI configuration, credentials, Git and SSH identity, history, and session identity for each user |
+| Multi-user isolation | Shared provider accounts and capabilities with separate user runtime state, workspace, Git and SSH identity, history, and session identity |
 | Feishu conversation model | Mention routing anywhere in a lobby message, natural follow-ups inside topics, paginated history, group context, topic branches, session forks, and interactive polls |
 | Bot personality | Stable Soul, context-specific Role, lifecycle-aware Agent Context, and restrained semantic reactions |
-| Assistant capability library | User-scoped and bot-scoped Knowledge, Skills, and Workflows with revisions, review, and controlled publication |
+| Assistant capability library | Personal and team Knowledge, Skills, and Workflows with isolated ownership, revisions, review, and controlled publication |
 | Authorization | Separate talk and operate permissions, `/grant` request cards, expiry, message quotas, revocation, command restrictions, owner approval, and user-level OAuth |
 | Local code workflow | Local repository checkouts are the source of truth instead of remote snippets or stale search results |
 | Runtime and recovery | Persistent Ask cards and state, guarded retries, native context preservation, tmux, ZMX, and file sandbox support |
@@ -46,11 +46,12 @@ by this repository and are not upstream feature documentation.
 
 ## Multi-user isolation
 
-Multiple users can use the same bot on a shared server while keeping CLI history,
-credentials, repositories, and personal assistant data separate. Each user can
-have an independent home, workspace, CLI configuration, Git and SSH identity,
-and session identity. Shared tools remain available without sharing personal
-state.
+Multiple users can use the same deployment-owned AI provider account and global
+CLI capabilities while keeping CLI history, repositories, mutable state, and
+personal assistant data separate. Each user has an independent home, workspace,
+CLI runtime data, Git and SSH identity, and session identity. Global AGENTS.md,
+Skills, plugins, and system tools remain available without sharing user-produced
+state. See [Global Provider and User Runtime Isolation](docs/design/2026-09-08-global-provider-user-runtime-isolation.md).
 
 Multi-user mode also isolates Feishu history reads, attachment paths, and
 session data, preventing one user from reaching another user's session or local
@@ -105,19 +106,28 @@ user do not have a strong filesystem boundary. See [Bot Personality](docs-site/d
 
 ## Knowledge, Skills, and Workflows
 
-Users can preserve useful results from a session as reusable assistant
-capabilities:
+Users can preserve useful results from a conversation as reusable assistant
+capabilities instead of explaining the same context and process again:
 
-- **Knowledge** stores facts and conventions.
-- **Skills** store reusable task instructions.
-- **Workflows** store parameterized processes that can run again.
+- **Knowledge** gives the bot durable facts, terminology, decisions, and
+  conventions to remember.
+- **Skills** teach the bot reusable methods, judgment guidelines, and task
+  instructions for a category of work.
+- **Workflows** define repeatable processes with inputs, steps, branches,
+  success criteria, and failure handling. The current bot runs them with its
+  existing tools.
 
-All three support create, view, search, update, revision history, and delete.
-They can belong to one user or to the whole bot. Personal content is managed by
-its owner. Shared bot content goes through a proposal and owner approval flow
-for publication or deletion. Workflows support DAG authoring, execution-time
-approval cards, retries, and controlled loop extensions. Approval state survives
-daemon restarts.
+Users manage all three through natural conversation. Each capability belongs
+either to a personal library or to the bot's team library. Personal capabilities
+are available only to their owner in private conversations and are never loaded
+into shared group conversations. Team capabilities are shared across that bot's
+conversations.
+
+Personal content is managed by its owner. A user can propose a portable personal
+capability to the team; publishing or deleting team content requires bot owner
+approval. Every saved change creates an immutable revision. Before a Workflow is
+saved, the current bot runs the exact draft as a confirmed trial and reports the
+observed result and limitations. See [Knowledge, Skills, and Workflows](docs-site/docs/en/workflow.md).
 
 ## Authorization
 
@@ -177,7 +187,7 @@ be driven through an HTTP control API without Feishu message transport.
 
 ## Bot management and integrations
 
-The Dashboard provides Bot, Session, Group, Team, Schedule, Workflow, Issue
+The Dashboard provides Bot, Session, Group, Team, Schedule, Issue
 Board, monitoring, and insight panels. Each bot can configure its CLI, defaults,
 Role, Soul, reactions, cards, multi-user isolation, and runtime backend.
 
@@ -223,7 +233,6 @@ Run the complete verification set before handing off changes:
 ```bash
 pnpm build
 pnpm test
-pnpm workflow-core:test
 ```
 
 The CLI adapter registry is

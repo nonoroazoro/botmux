@@ -38,7 +38,7 @@ botmux 权限分两层（详见 [权限怎么分](#权限怎么分谁能操作)�
 
 **这条只针对需要显式发送的终端 CLI 会话**（Claude Code / Codex CLI / Gemini / CoCo 等）：终端 stdout ≠ 已发飞书，模型必须显式执行 `botmux send`（并带 `--mention-back` / `--mention` / `--no-mention` 之一），群里才看得到。只 `echo`/`print` 或忘调 `botmux send` 就不会发出。多行内容用 heredoc，别写成 `"第一行\n第二行"`。
 
-> ⚠️ **例外：`codex-app`（Codex App app-server 协议）**——它的最终 assistant message 由 botmux **自动转发**回飞书，**常规回复不要调 `botmux send`**（否则会重复发送），仅在中途主动推送 / 发附件 / 跨 bot @ 时才用。
+> ⚠️ **例外：`codex-app`（Codex Desktop app-server 协议）**：它的最终 assistant message 会**自动转发**回飞书，**常规回复不要调 `botmux send`**（否则会重复发送），仅在中途主动推送、发附件或跨 bot @ 时使用。
 
 ## `botmux history` 报 400 / 飞书网关 411？
 

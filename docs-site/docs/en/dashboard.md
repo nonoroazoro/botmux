@@ -17,10 +17,6 @@ botmux dashboard
 - **Schedules**: lists all scheduled tasks, with Run now / Pause / Resume.
 - **Groups**: one-click create a new group (auto @-notifies the invited user), add bots to a group, and auto-transfer group ownership; disband groups and have bots leave groups (associated sessions are cleaned up automatically).
 - **Team / Roles / Bot Config**: the Team panel handles [cross-deployment collaboration](/en/roles) (invite someone else's deployment into your team, create cross-deployment groups); Roles manages each bot's per-group Role; Bot Config manages default behavior, the default Role, the bot's [Soul and personality reactions](/en/personality), and card settings.
-- **Workflows control panel**: Run List polling; Run Detail shows the summary / dangling red zone / node-activity / event timeline / concurrent-execution timeline; you can **cancel a run** directly.
-
-> **Two things live outside the Dashboard**: a v3 workflow's **humanGate approve / reject** happens on a **Lark approval card** (not clicked in the Dashboard); triggering a workflow with parameters currently goes through the **connector (Webhook)** path (see [Connectors](/en/webhook)) — there is no "Workflow Catalog + parameterized trigger" page in the Dashboard. The Dashboard's Workflows panel focuses on observation and cancel.
-
 ## Bot personality
 
 Open **Bot Config** and expand a bot's Personality section to edit its Soul or

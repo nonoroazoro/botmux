@@ -80,7 +80,7 @@ core-only 的 IPC 路由不是「公共 vs 全部 HMAC」二分，而是**三层
 
 这三条控制路由的免签是 core-only 专属的紧致 allowlist——刻意收窄：早期「全部路由免鉴权」会让同机 co-resident 的模型 turn 读写会话/调度/发起变更。`/api/asks/answer` **刻意不在**内（askId 为键、无会话绑定，暴露会让同机 turn 劫持别的待答 ask）。
 
-**第二层 · 内部 capability / 签名路由**（绕外层 trusted-host HMAC，但各由 handler 自证）——这些**不是** public，但也**不要求**本文 §4 那种 trusted-host HMAC；它们由**会话内 rotating per-turn capability**（绑定到 URL 里的 sessionId）或**独立的强签名协议**在 handler 内验证。典型：`POST /api/session-ready`、`POST /api/asks`、`POST /api/sessions/:id/{slash,cd,close,chat-rename}`、`POST /api/hooks/emit`、`POST /api/attention`、`POST /api/vc-meetings/action-request`、workflow v3 变更前缀。合法调用方是**会话内的 CLI 自身**（沙箱/读隔离下读不到 host secret），capability 只证明「我是这个会话当前这轮的 CLI」，选不了别的会话。集成方通常不直接调这层。
+**第二层 · 内部 capability / 签名路由**（绕外层 trusted-host HMAC，但各由 handler 自证）——这些**不是** public，但也**不要求**本文 §4 那种 trusted-host HMAC；它们由**会话内 rotating per-turn capability**（绑定到 URL 里的 sessionId）或**独立的强签名协议**在 handler 内验证。典型：`POST /api/session-ready`、`POST /api/asks`、`POST /api/sessions/:id/{slash,cd,close,chat-rename}`、`POST /api/hooks/emit`、`POST /api/attention` 和 `POST /api/vc-meetings/action-request`。合法调用方是**会话内的 CLI 自身**（沙箱/读隔离下读不到 host secret），capability 只证明「我是这个会话当前这轮的 CLI」，选不了别的会话。集成方通常不直接调这层。
 
 **第三层 · host / operator 路由**（需 §4 的 route+port-bound HMAC）——其余全部路由，包括你要的可写终端 `GET /api/sessions/:id/write-link`、`GET /api/sessions/:id`（会话元信息）等。下一节讲怎么正确签名。
 

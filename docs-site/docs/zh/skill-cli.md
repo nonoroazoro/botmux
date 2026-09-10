@@ -14,7 +14,7 @@ CLI 进入 botmux 会话时，自动获得 `~/.botmux/bin` 在 PATH 中，以及
 | `botmux bots list` | 查当前群里的机器人及 open_id（供 `--mention`） |
 | `botmux schedule` | 增删改查定时任务 |
 
-> 这些是最常用的一组；实际可用命令更多（如 `botmux ask` 交互提问、workflow / goal / dispatch 编排入口等），以 `botmux --help` 与注入的 Skill 目录为准。交棒 / 编排另有 `botmux-handoff` / `botmux-orchestrate` 等 **Skill**（是 Skill、不是可执行子命令）。
+> 这些是最常用的一组。实际可用命令还包括 `botmux ask` 交互提问、artifact 能力管理，以及 goal / dispatch 编排入口。完整列表以 `botmux --help` 与注入的 Skill 目录为准。交棒 / 编排另有 `botmux-handoff` / `botmux-orchestrate` 等 **Skill**，不是可执行子命令。
 
 ### `botmux send` 的 @ 决策硬门
 
@@ -42,7 +42,7 @@ session 信息通过**祖先进程标记**自动推断：worker 启动 CLI 时�
 
 相比基于 MCP 的方案，Skill + CLI 组合：
 
-- CLI 启动**不用做 MCP 握手**，核心的 `botmux send` / `history` 等通道零 MCP 依赖，也不占用工具列表 token（仅当 adapter 显式开启且插件真的贡献了 MCP server 时才起网关）。
+- CLI 启动**不用做 MCP 握手**，核心的 `botmux send` / `history` 等通道零 MCP 依赖，也不占用工具列表 token。
 - **shell / 路由这一层通用**——只要 CLI 能读 system prompt、能跑 shell 命令，`~/.botmux/bin/botmux` + PATH 就能用，覆盖 Claude Code / Codex / Cursor / Gemini / OpenCode 等。
 
 > ⚠️ 但**开箱 Skill 这一层并非对所有 CLI 均等**：少数 CLI（如 Antigravity，只认插件包内的 SKILL.md、不认扁平 `skills/` 目录）只拿到路由指引、不装 Skill 目录。所以「通用」对 shell/路由通道成立，对 Skill 目录是「大多数」而非「全部」。

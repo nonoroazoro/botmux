@@ -1,7 +1,7 @@
 # Plugin 开发与市场注册
 
 Botmux
-Plugin 用一个可发布的 npm 包，同时交付 Skill、MCP、CLI 命令、Dashboard 页面和 Host
+Plugin 用一个可发布的 npm 包，同时交付 Skill、CLI 命令、Dashboard 页面和 Host
 Service。本文面向插件作者与运维者，说明从创建项目、构建验收到 npm 发布和插件市场登记的完整流程。
 
 > 当前边界：插件市场是独立的发现索引。把包发布到 npm
@@ -16,21 +16,20 @@ Service。本文面向插件作者与运维者，说明从创建项目、构建�
 | 能力 | 源目录 | 安装入口 |
 | --- | --- | --- |
 | Skill | `skills/<name>/SKILL.md` | `dist/skills/<name>/SKILL.md` |
-| MCP | `src/mcp/` | `dist/mcp/index.json` |
 | CLI 命令 | `src/cli/` | `dist/cli/{index.js,commands.json}` |
 | Dashboard | `src/dashboard/` | `dist/dashboard/index.js` |
 | Host Service | `src/service/` | `dist/service/index.js` |
 
 当前没有通用的 worker/daemon hook 扩展点。插件应把长期进程放进 Host
-Service，把 Agent 工具放进 MCP 或 Skill，把运维入口放进 CLI。
+Service，把 Agent 工具放进 Skill，把运维入口放进 CLI。
 
 安装和启用是两个动作：
 
 1. `plugin install` 下载、校验 manifest、扫描扩展点并保存 `dist/`；
 2. `plugin enable`
-   把插件绑定到机器默认或指定 Bot，并为后续会话生成 Skill/MCP 快照。
+   把插件绑定到机器默认或指定 Bot，并为后续会话生成 Skill 快照。
 
-Botmux 安装阶段不会主动调用插件的 CLI、Dashboard、MCP 或 Service 入口，但从 npm 安装时底层
+Botmux 安装阶段不会主动调用插件的 CLI、Dashboard 或 Service 入口，但从 npm 安装时底层
 `npm install` **可能执行 npm lifecycle
 scripts**。安装第三方插件仍等同于信任其发布者。
 
@@ -168,43 +167,6 @@ dist/skills/<skill-name>/SKILL.md
 ```
 
 启用或更新插件后，已经运行的 Agent 不会热加载新 Skill。请新建会话，让 Botmux 重新生成本次 CLI 进程使用的 Plugin/Skill 快照。
-
-### MCP
-
-每个插件当前最多贡献一个 MCP server。构建后的 `dist/mcp/index.json`
-支持两种 transport。
-
-stdio：
-
-```json
-{
-  "transport": "stdio",
-  "command": ["node", "./mcp/server.js"],
-  "env": {}
-}
-```
-
-Streamable HTTP：
-
-```json
-{
-  "transport": "streamable-http",
-  "url": "https://example.com/mcp",
-  "headers": {}
-}
-```
-
-约束与注意事项：
-
-- 只支持 `stdio` 和 `streamable-http`；
-- MCP 名称自动使用 Plugin ID，不要另写 `name`；
-- `./...` 路径相对安装后的 `dist/`；
-- 配置不支持 `${VAR}` 字符串模板；
-- 本地 MCP 运行依赖应被打包进 `dist/`，不要依赖开发目录的 `node_modules`；
-- 不要把真实 token、Cookie 或密钥写进包；运行代码应从受控环境或插件私有配置读取。
-
-Botmux 通过统一 MCP Gateway 聚合当前会话已启用插件的 MCP
-server。插件集合与凭证快照以 CLI 进程为边界，因此修改绑定或配置后应新建会话。
 
 ### Dashboard
 
@@ -458,7 +420,7 @@ git switch -c register-my-plugin
   "description": "一句话说明插件解决什么问题。",
   "repo": "https://github.com/your-org/botmux-plugin-my-plugin",
   "docs": "https://github.com/your-org/botmux-plugin-my-plugin#readme",
-  "categories": ["mcp", "productivity"],
+  "categories": ["productivity"],
   "compatibility": {
     "botmux": ">=3.8.0"
   }
@@ -522,7 +484,7 @@ gh pr create \
 安装插件等于信任其代码：
 
 - npm 安装可能执行 package lifecycle scripts；
-- CLI、MCP、Dashboard 和 Service 都以安装 Botmux 的系统用户权限运行；
+- CLI、Dashboard 和 Service 都以安装 Botmux 的系统用户权限运行；
 - 生产环境只安装可信发布者的包，固定精确版本并核对 registry integrity；
 - 不要把 token、Cookie、私钥、浏览器 Profile、日志或用户数据打进 `dist/`；
 - 不要让 `dist/` 依赖仓库源码、开发目录或未声明的全局包；
@@ -535,7 +497,7 @@ gh pr create \
 - [ ] `npm ci && npm test` 通过；
 - [ ] `dist/` 自包含，脱离源码和 `node_modules` 可运行；
 - [ ] `npm pack --dry-run` 不含敏感文件；
-- [ ] manifest、CLI 命令、MCP 和 Service 入口通过校验；
+- [ ] manifest、CLI 命令和 Service 入口通过校验；
 - [ ] Service 的 manifest mode 与导出定义一致；
 - [ ] 本地目录和真实 tarball 都完成安装验收；
 - [ ] npm 发布后校验版本、dist-tag 和 integrity；

@@ -13,7 +13,7 @@ The table lists the current built-in adapters (the **authoritative source** for 
 |---------|-----|-----|:--:|
 | `claude-code` | Claude Code (default) | local process | ✅ |
 | `codex` | Codex CLI | local process | ✅ |
-| `codex-app` | Codex App | local process (app-server protocol) | |
+| `codex-app` | Codex Desktop | local process (app-server protocol) | |
 | `gemini` | Gemini | local process | ✅ |
 | `cursor` | Cursor (cursor-agent) | local process | ✅ |
 | `opencode` | OpenCode | local process | ✅ |

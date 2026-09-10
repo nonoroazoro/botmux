@@ -158,18 +158,6 @@ See [One-Click Session Group](/en/group) for details.
 
 `/watch-comment`: watch Feishu doc comments, bind them to an AI session, and post replies back into their threads; supports `<doc link> [--dir <path>] [--all|--mentions-only]` and `list/off`. `/subscribe-lark-doc` keeps the original per-file Feishu API subscription flow. See [Feishu Doc Comment Entry](/en/doc-comment) for details.
 
-## 🔧 Workflow (orchestration, experimental)
-
-| Command | Description |
-|------|------|
-| `/workflow <goal>` (= `/workflow new <goal>`) | Start an **ad-hoc workflow**: the bot interrogates the requirement → auto-orchestrates a DAG → runs it concurrently after you confirm, with approval cards on risk nodes at execution time |
-| `/workflow run <name> [key=value ...]` | Run a Saved Workflow |
-| `/workflow save last [name]` · `/workflow list\|show\|cancel` | Save / list / inspect / cancel workflows (legacy v2 assets only support offline `migrate-v3` / `archive-runs`) |
-
-> The old `/template run|cancel` commands are retired; sending `/template` now returns a retirement notice.
-
-See [Workflow](/en/workflow) for details.
-
 ## 👥 Multi-Bot Collaboration
 
 `@botA @botB /t <prompt>` (each opens a new topic) · `botmux bots list` (show bots available in the current group) · `@botA @botB /introduce` (legacy / external-bot fallback; usually no longer needed)

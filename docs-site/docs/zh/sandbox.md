@@ -47,19 +47,6 @@ baseline policy 会把会话工作目录和当前 bot 的 runtime 数据设为�
 - PTY 和 tmux 支持本地 sandbox。
 - Zellij、Zmx、Herdr 等由 backend 自己启动 child process 的模式会 fail closed。
 
-## Legacy 配置
-
-daemon 会自动迁移这些字段：
-
-| Legacy | Current |
-| --- | --- |
-| `readIsolation: true` | `sandbox: true` |
-| `readDenyExtraPaths` | `sandboxPaths.deny` |
-| `sandboxHidePaths` | `sandboxPaths.deny` |
-| `sandboxReadonlyPaths` | `sandboxPaths.readOnly` |
-
-新配置应使用 current fields。完整 schema 见 [bots.json 配置](/bots-json)。
-
 ## 安全提示
 
 1. `readWrite` 是 direct write，必须谨慎配置。
