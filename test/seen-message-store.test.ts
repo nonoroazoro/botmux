@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * seen-message-store: 按 message_id 的**持久化**去重。
  *
@@ -8,8 +9,17 @@
  * Run: pnpm vitest run test/seen-message-store.test.ts
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-seen-msg-1': null,
+  });
+});
+import { rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { claimMessageOnce, _resetCacheForTest } from '../src/services/seen-message-store.js';
 
@@ -18,7 +28,7 @@ const HOUR = 60 * 60_000;
 let dataDir: string;
 
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-seen-msg-'));
+  dataDir = '/fixtures/botmux-seen-msg-1';
   vi.stubEnv('SESSION_DATA_DIR', dataDir);
   _resetCacheForTest();
 });

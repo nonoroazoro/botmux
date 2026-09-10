@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { prepareSessionSkillPrompt } from '../src/core/skills/session-runtime.js';
 import { readSessionSkillManifest } from '../src/core/skills/manifest-store.js';
@@ -13,6 +12,7 @@ import {
   capabilityArtifactRoot,
   createCapability,
 } from '../src/core/capabilities/index.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function write(file: string, content: string): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -25,9 +25,9 @@ describe('session skill runtime preparation', () => {
   let src: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-skill-home-'));
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-skill-data-'));
-    src = mkdtempSync(join(tmpdir(), 'botmux-skill-src-'));
+    home = makeTestTempDir('botmux-skill-home-');
+    dataDir = makeTestTempDir('botmux-skill-data-');
+    src = makeTestTempDir('botmux-skill-src-');
     vi.stubEnv('HOME', home);
     vi.stubEnv('SESSION_DATA_DIR', dataDir);
   });

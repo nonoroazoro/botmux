@@ -1,13 +1,22 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import {
-  mkdtempSync,
   readdirSync,
   rmSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-codex-confirmed-turn-1': null,
+  });
+});
 import {
   CODEX_NOTIFIER_CONFIRMED_TURN_TTL_MS,
   confirmCodexNotifierTurn,
@@ -23,7 +32,7 @@ afterEach(() => {
 });
 
 function dataDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-confirmed-turn-'));
+  const dir = '/fixtures/botmux-codex-confirmed-turn-1';
   tempDirs.push(dir);
   return dir;
 }

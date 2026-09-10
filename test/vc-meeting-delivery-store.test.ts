@@ -1,7 +1,18 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-vc-delivery-1': null,
+    '/fixtures/botmux-vc-delivery-fresh-2': null,
+  });
+});
 import {
   abandonVcMeetingDeliveryStream,
   acceptVcMeetingDelivery,
@@ -77,7 +88,7 @@ describe('vc meeting delivery store', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'botmux-vc-delivery-'));
+    dir = '/fixtures/botmux-vc-delivery-1';
   });
 
   afterEach(() => {
@@ -511,7 +522,7 @@ describe('vc meeting delivery store', () => {
     });
 
     it('rejects a delivery before any projection is registered', () => {
-      const fresh = mkdtempSync(join(tmpdir(), 'botmux-vc-delivery-fresh-'));
+      const fresh = '/fixtures/botmux-vc-delivery-fresh-2';
       try {
         expect(acceptVcMeetingDelivery(fresh, delivery()))
           .toMatchObject({ kind: 'conflict', reason: 'unknown_member' });

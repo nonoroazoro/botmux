@@ -7,14 +7,14 @@
  * Run:  pnpm vitest run test/opencode-resume.test.ts
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 
 import { createOpenCodeAdapter } from '../src/adapters/cli/opencode.js';
 import { opencodeDbPath } from '../src/services/opencode-paths.js';
 import type { PtyHandle } from '../src/adapters/cli/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const BOTMUX_SESSION_ID = '0a1b2c3d-1111-4222-8333-444455556666';
 
@@ -71,7 +71,7 @@ function seedUserPart(db: DatabaseSync, sessionId: string, text: string, timeCre
 }
 
 beforeEach(() => {
-  tmpRoot = mkdtempSync(join(tmpdir(), 'oc-resume-unit-'));
+  tmpRoot = makeTestTempDir('oc-resume-unit-');
   savedXdg = process.env.XDG_DATA_HOME;
   process.env.XDG_DATA_HOME = tmpRoot;
 });

@@ -3,10 +3,10 @@
  *
  * Run: pnpm vitest run test/group-join-shared-routing.test.ts
  */
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const mocks = vi.hoisted(() => ({
   forkWorker: vi.fn(),
@@ -100,12 +100,12 @@ async function loadModules() {
   const sessionStore = await import('../src/services/session-store.js');
   const daemon = await import('../src/daemon.js');
   const types = await import('../src/core/types.js');
-  sessionStore.init();
+  sessionStore.init('test-bot');
   return { daemon, registry, types };
 }
 
 beforeAll(async () => {
-  tempRoot = mkdtempSync(join(tmpdir(), 'botmux-group-join-shared-'));
+  tempRoot = makeTestTempDir('botmux-group-join-shared-');
   process.env.SESSION_DATA_DIR = tempDir('sessions');
   modules = await loadModules();
 });

@@ -1,7 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-skill-repo-1': null,
+    '/fixtures/botmux-codex-home-2': null,
+    '/fixtures/botmux-codex-home-3': null,
+    '/fixtures/botmux-home-4': null,
+    '/fixtures/botmux-home-5': null,
+    '/fixtures/botmux-claude-data-6': null,
+    '/fixtures/botmux-claude-data-7': null,
+    '/fixtures/botmux-claude-empty-8': null,
+  });
+});
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { discoverClaudePluginSkillGroups, discoverNativeCliSkillGroups, discoverProjectSkills } from '../src/core/skills/discovery.js';
 
@@ -21,7 +37,7 @@ describe('skill discovery', () => {
   let previousHome: string | undefined;
 
   beforeEach(() => {
-    repo = mkdtempSync(join(tmpdir(), 'botmux-skill-repo-'));
+    repo = '/fixtures/botmux-skill-repo-1';
     previousCodexHome = process.env.CODEX_HOME;
     previousHome = process.env.HOME;
   });
@@ -40,7 +56,7 @@ describe('skill discovery', () => {
   });
 
   it('discovers native codex skills from CODEX_HOME', () => {
-    const codexHome = mkdtempSync(join(tmpdir(), 'botmux-codex-home-'));
+    const codexHome = '/fixtures/botmux-codex-home-2';
     process.env.CODEX_HOME = codexHome;
     write(join(codexHome, 'skills', 'native-codex-skill', 'SKILL.md'), '---\nname: native-codex-skill\ndescription: Native Codex skill\n---');
 
@@ -64,8 +80,8 @@ describe('skill discovery', () => {
   });
 
   it('groups skills per CLI and skips a CLI whose skill root is empty', () => {
-    const codexHome = mkdtempSync(join(tmpdir(), 'botmux-codex-home-'));
-    const home = mkdtempSync(join(tmpdir(), 'botmux-home-'));
+    const codexHome = '/fixtures/botmux-codex-home-3';
+    const home = '/fixtures/botmux-home-4';
     process.env.CODEX_HOME = codexHome;
     process.env.HOME = home;
     write(join(codexHome, 'skills', 'cx', 'SKILL.md'), '---\nname: cx\n---');
@@ -82,7 +98,7 @@ describe('skill discovery', () => {
   });
 
   it('dedups a skills root shared by two CLIs into a single group (first CLI owns it)', () => {
-    const home = mkdtempSync(join(tmpdir(), 'botmux-home-'));
+    const home = '/fixtures/botmux-home-5';
     process.env.HOME = home;
     // coco and traex both declare skillsDir ~/.trae/skills.
     write(join(home, '.trae', 'skills', 'shared', 'SKILL.md'), '---\nname: shared\n---');
@@ -97,7 +113,7 @@ describe('skill discovery', () => {
   });
 
   it('discovers Claude plugin + marketplace skills under a claudeDataDir', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-claude-data-'));
+    const dataDir = '/fixtures/botmux-claude-data-6';
     const pluginsRoot = join(dataDir, 'plugins');
 
     // Enabled plugin WITH skills: installed_plugins.json → <installPath>/skills.
@@ -135,7 +151,7 @@ describe('skill discovery', () => {
   });
 
   it('honors the shared `seen` set so a root claimed elsewhere is not re-added', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-claude-data-'));
+    const dataDir = '/fixtures/botmux-claude-data-7';
     const skillsRoot = join(dataDir, 'plugins', 'marketplaces', 'mp', 'skills');
     write(join(skillsRoot, 's', 'SKILL.md'), '---\nname: s\n---');
 
@@ -145,7 +161,7 @@ describe('skill discovery', () => {
   });
 
   it('returns [] when the claudeDataDir has no plugins dir', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-claude-empty-'));
+    const dataDir = '/fixtures/botmux-claude-empty-8';
     expect(discoverClaudePluginSkillGroups(dataDir, 'claude-code')).toEqual([]);
     rmSync(dataDir, { recursive: true, force: true });
   });

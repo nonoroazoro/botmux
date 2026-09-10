@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   DEFAULT_PLUGIN_TEMPLATE_PACKAGE,
@@ -10,6 +9,7 @@ import {
   resolveOfficialPluginPackageSpec,
 } from '../src/core/plugins/init.js';
 import { upsertInstalledPlugin } from '../src/services/plugin-registry-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function writeJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -22,7 +22,6 @@ function createTemplateFixture(root: string): string {
   mkdirSync(join(project, 'scripts'), { recursive: true });
   mkdirSync(join(project, 'src', 'cli'), { recursive: true });
   mkdirSync(join(project, 'src', 'dashboard'), { recursive: true });
-  mkdirSync(join(project, 'src', 'mcp'), { recursive: true });
   mkdirSync(join(project, 'src', 'service'), { recursive: true });
   mkdirSync(join(project, 'skills', '{{pluginId}}'), { recursive: true });
   mkdirSync(join(project, 'assets'), { recursive: true });
@@ -61,7 +60,6 @@ function createTemplateFixture(root: string): string {
     };
   `);
   writeFileSync(join(project, 'src', 'dashboard', 'index.js.tmpl'), 'export default function PluginDashboard() { return "{{displayName}} dashboard"; }\n');
-  writeFileSync(join(project, 'src', 'mcp', 'index.js'), 'export default { command: ["node", "./mcp/server.js"] };\n');
   writeFileSync(join(project, 'src', 'service', 'index.js.tmpl'), 'export default { mode: "manual", pm2: { script: "./service/server.js", env: { PORT: process.env.{{envPrefix}}_PORT ?? "9360" } } };\n');
   writeFileSync(join(project, 'skills', '{{pluginId}}', 'SKILL.md.tmpl'), '---\nname: {{pluginId}}-skill\n---\n# {{displayName}} Skill\n');
   writeFileSync(join(project, 'README.md.tmpl'), '# {{repoName}}\n\nRun `botmux {{commandPrefix}}hello`.\n');
@@ -100,8 +98,8 @@ describe('plugin init', () => {
   let workspace: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-plugin-init-home-'));
-    workspace = mkdtempSync(join(tmpdir(), 'botmux-plugin-init-workspace-'));
+    home = makeTestTempDir('botmux-plugin-init-home-');
+    workspace = makeTestTempDir('botmux-plugin-init-workspace-');
     vi.stubEnv('HOME', home);
   });
 
@@ -151,7 +149,6 @@ describe('plugin init', () => {
     expect(existsSync(join(result.targetDir, 'package-lock.json'))).toBe(true);
     expect(readFileSync(join(result.targetDir, 'src', 'cli', 'index.js'), 'utf-8')).toContain("'agent-chrome:hello'");
     expect(existsSync(join(result.targetDir, 'skills', 'agent-chrome', 'SKILL.md'))).toBe(true);
-    expect(readFileSync(join(result.targetDir, 'src', 'mcp', 'index.js'), 'utf-8')).toContain('./mcp/server.js');
     expect(readFileSync(join(result.targetDir, 'assets', 'logo.bin'))).toEqual(Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x41, 0x42]));
   });
 

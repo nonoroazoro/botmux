@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Same-deployment peer identity is talk-only: isKnownPeerBot / cross-ref may
  * route a sibling's prompt, but it must never confer management-command
@@ -6,9 +7,18 @@
  * Run: pnpm vitest run test/peer-bot-operate.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/op-gates-1': null,
+  });
+});
+import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -28,7 +38,7 @@ describe('sibling-bot cross-ref is talk-only', () => {
     bot.resolvedAllowedUsers = ['ou_owner'];
     bot.config.chatGrants = { oc_1: ['ou_guest'] };
     prevDataDir = config.session.dataDir;
-    tmp = mkdtempSync(join(tmpdir(), 'op-gates-'));
+    tmp = '/fixtures/op-gates-1';
     // op1's cross-ref knows a sibling deployment bot "codex" = ou_sibling.
     writeFileSync(join(tmp, 'bot-openids-op1.json'), JSON.stringify({ codex: 'ou_sibling' }));
     config.session.dataDir = tmp;

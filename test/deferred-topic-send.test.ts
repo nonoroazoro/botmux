@@ -1,7 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-deferred-topic-1': null,
+  });
+});
 import { dispatchDeferredTopicSend, reusableDeferredTopicRoot } from '../src/cli/deferred-topic-send.js';
 import {
   deferredTopicBindingPath,
@@ -15,7 +25,7 @@ describe('deferred fresh-topic botmux send routing', () => {
   let dataDir: string;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-deferred-topic-'));
+    dataDir = '/fixtures/botmux-deferred-topic-1';
   });
 
   afterEach(() => {

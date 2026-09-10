@@ -1,10 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { recordDispatchRegistryEntry } from '../src/core/dispatch-registry.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const registryModuleUrl = pathToFileURL(fileURLToPath(new URL('../src/core/dispatch-registry.ts', import.meta.url))).href;
 
@@ -51,7 +51,7 @@ describe('dispatch registry persistence', () => {
   });
 
   it('preserves existing report routing entries', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-dispatch-registry-'));
+    const root = makeTestTempDir('botmux-dispatch-registry-');
     roots.push(root);
     const registryPath = join(root, 'orchestrate-dispatch.json');
     writeFileSync(registryPath, JSON.stringify({ seed_old: { orchSessionId: 'session-old' } }));
@@ -65,7 +65,7 @@ describe('dispatch registry persistence', () => {
   });
 
   it('keeps both seeds when two CLI processes overlap their writes', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-dispatch-registry-'));
+    const root = makeTestTempDir('botmux-dispatch-registry-');
     roots.push(root);
     const registryPath = join(root, 'orchestrate-dispatch.json');
 
@@ -86,7 +86,7 @@ describe('dispatch registry persistence', () => {
   }, 10_000);
 
   it('fails closed instead of replacing a malformed registry', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-dispatch-registry-'));
+    const root = makeTestTempDir('botmux-dispatch-registry-');
     roots.push(root);
     const registryPath = join(root, 'orchestrate-dispatch.json');
     writeFileSync(registryPath, '[]');

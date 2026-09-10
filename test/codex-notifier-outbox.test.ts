@@ -1,7 +1,6 @@
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -10,7 +9,6 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -29,6 +27,7 @@ import {
   readCodexNotifierWorkerState,
   runCodexNotifierWorkerSupervisor,
 } from '../src/features/codex-notifier/index.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const tempDirs: string[] = [];
 
@@ -37,7 +36,7 @@ afterEach(() => {
 });
 
 function newDataDir(): string {
-  const dataDir = mkdtempSync(join(tmpdir(), 'botmux-codex-outbox-'));
+  const dataDir = makeTestTempDir('botmux-codex-outbox-');
   tempDirs.push(dataDir);
   return dataDir;
 }

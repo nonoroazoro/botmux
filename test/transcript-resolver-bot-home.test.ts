@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  mkdtempSync,
   mkdirSync,
   writeFileSync,
   rmSync,
@@ -10,7 +9,6 @@ import {
   utimesSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 // Regression: sandboxed (CLI-data-redirected) bots run Claude with
 // CLAUDE_CONFIG_DIR=<botmuxHome>/bots/<appId>/claude, so their transcripts never
@@ -32,6 +30,7 @@ import {
   resolveSessionTranscriptPath,
   cliSupportsNativeUsage,
 } from '../src/services/transcript-resolver.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const APP_ID = 'cli_testbot0001';
 
@@ -51,7 +50,7 @@ describe('resolveSessionTranscriptPath — sandboxed-bot BOT_HOME fallback', () 
     savedCodexHome = process.env.CODEX_HOME;
     delete process.env.CODEX_HOME;
     __resetTranscriptResolverCacheForTest();
-    base = mkdtempSync(join(tmpdir(), 'botmux-bot-home-'));
+    base = makeTestTempDir('botmux-bot-home-');
     trash.push(base);
     fake.home = join(base, 'home');
     cwd = join(base, 'work');

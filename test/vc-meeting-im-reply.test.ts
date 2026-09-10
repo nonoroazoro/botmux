@@ -1,6 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/vc-im-reply-1': null,
+  });
+});
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   VC_MEETING_LISTENER_PROVIDER_DEDUP_SAFE_MS,
@@ -68,7 +78,7 @@ function project(overrides: Partial<VcMeetingMemberProjectionInput> = {}): void 
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'vc-im-reply-'));
+  dir = '/fixtures/vc-im-reply-1';
   project();
 });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });

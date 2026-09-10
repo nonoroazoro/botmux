@@ -9,8 +9,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 
 // ─── Mock child_process before importing the module under test ───────────
 
@@ -30,6 +28,7 @@ vi.mock('node:child_process', () => ({
 // Import after mock setup
 import { scanProjects, scanMultipleProjects, type ProjectInfo } from '../src/services/project-scanner.js';
 import { execSync } from 'node:child_process';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const mockedExecSync = vi.mocked(execSync);
 
@@ -38,7 +37,7 @@ const mockedExecSync = vi.mocked(execSync);
 let tempRoot: string;
 
 function makeTempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'project-scanner-test-'));
+  return makeTestTempDir('project-scanner-test-');
 }
 
 /** Create a directory path (recursive) and place a valid .git marker.

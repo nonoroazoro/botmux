@@ -1,6 +1,16 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-codex-notifier-1': null,
+  });
+});
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   CodexNotifierEventStore,
@@ -45,7 +55,7 @@ function newStore(
   maxEntries = 1000,
   maxReceipts = 10_000,
 ): { store: CodexNotifierEventStore; file: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-notifier-'));
+  const dir = '/fixtures/botmux-codex-notifier-1';
   tempDirs.push(dir);
   const file = join(dir, 'codex-notifier-events.json');
   return { store: new CodexNotifierEventStore(file, maxEntries, maxReceipts), file };
@@ -324,6 +334,16 @@ describe('CodexNotifierEventStore', () => {
 });
 
 describe('buildCodexCompletionCard', () => {
+  it('uses each sending bot identity without rewriting the task result', () => {
+    const event = { ...validEvent(), finalPreview: 'Reviewed the botmux repository.' };
+    for (const botName of ['Project Guide', 'review partner']) {
+      const card = JSON.parse(buildCodexCompletionCard(event, { botName }));
+      expect(card.header.title.content).toBe(`${botName} · 💬 Codex 任务已完成`);
+      const result = card.body.elements.find((element: any) => element.element_id === 'main_content');
+      expect(result.text.content).toBe(event.finalPreview);
+    }
+  });
+
   it('builds a v2 app completion card with callback-only owner-safe actions', () => {
     const event = validEvent();
     const card = JSON.parse(buildCodexCompletionCard(event, { platform: 'darwin' }));
@@ -337,7 +357,7 @@ describe('buildCodexCompletionCard', () => {
     });
     expect(openAction).toMatchObject({
       type: 'default',
-      text: { content: '打开 Codex App ↗' },
+      text: { content: '打开 Codex Desktop ↗' },
       behaviors: [{
         type: 'callback',
         value: {
@@ -350,7 +370,7 @@ describe('buildCodexCompletionCard', () => {
     expect(serialized).toContain('project · 修复通知链路');
     expect(serialized).not.toContain('project · project');
     expect(serialized).toContain('任务已经完成。');
-    expect(serialized).toContain('会请求运行 BotMux 的 Mac 打开原 Codex App 会话');
+    expect(serialized).toContain('会请求宿主 Mac 打开原 Codex Desktop 会话');
     expect(serialized).not.toContain('移动端也可触发');
     expect(serialized).not.toContain('直接回复当前卡片');
     expect(serialized).not.toContain('codex://');
@@ -363,8 +383,8 @@ describe('buildCodexCompletionCard', () => {
 
   it.each([
     ['codex-cli', APP_THREAD_ID, 'Codex CLI'],
-    [undefined, APP_THREAD_ID, 'Codex App/CLI'],
-    ['codex-app', 'not-a-uuid', 'Codex App'],
+    [undefined, APP_THREAD_ID, 'Codex Desktop/CLI'],
+    ['codex-app', 'not-a-uuid', 'Codex Desktop'],
   ] as const)('omits the app link for surface %s and thread %s', (clientSurface, threadId, label) => {
     const base = validEvent(`without-link-${clientSurface ?? 'legacy'}`);
     const identity = {
@@ -404,7 +424,7 @@ describe('buildCodexCompletionCard', () => {
     const serialized = JSON.stringify(card);
 
     expect(card.body.elements.find((element: any) => element.tag === 'column_set')).toBeUndefined();
-    expect(serialized).toContain('Codex App Side Chat');
+    expect(serialized).toContain('Codex Desktop Side Chat');
     expect(serialized).toContain('Side Chat 是临时会话');
     expect(serialized).not.toContain('codex_notifier_continue');
     expect(serialized).not.toContain('codex_notifier_open_app');
@@ -448,8 +468,8 @@ describe('buildCodexCompletionCard', () => {
 
 describe('buildCodexNotifierResultCard', () => {
   it.each([
-    ['已接管 Codex App 任务', '可以继续处理', 'green'],
-    ['Codex App 任务接管失败', '请稍后重试', 'red'],
+    ['已接管 Codex Desktop 任务', '可以继续处理', 'green'],
+    ['Codex Desktop 任务接管失败', '请稍后重试', 'red'],
   ] as const)('builds a V2 terminal card without stale callback actions', (title, content, template) => {
     const card = buildCodexNotifierResultCard(title, content, template) as any;
     const serialized = JSON.stringify(card);

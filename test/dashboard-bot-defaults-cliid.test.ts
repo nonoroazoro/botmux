@@ -516,7 +516,7 @@ describe('Codex App history switch', () => {
     const toggle = renderer.root.findByProps({ 'data-action': 'toggle-codex-app-clean-input' });
     expect(toggle.props.checked).toBe(false);
     const renderedText = JSON.stringify(renderer.toJSON());
-    expect(renderedText).toContain('只影响 Codex App');
+    expect(renderedText).toContain('Codex Desktop 的对话记录只展示用户输入');
     expect(renderedText).toContain('默认关闭，保持原有兼容行为');
 
     await act(async () => {

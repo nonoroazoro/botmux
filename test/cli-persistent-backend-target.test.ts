@@ -9,15 +9,14 @@ import { spawn } from 'node:child_process';
 import {
   chmodSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = join(TEST_DIR, '..', 'src', 'cli.ts');
@@ -25,6 +24,7 @@ const tempDirs: string[] = [];
 
 interface StoredSession {
   sessionId: string;
+  larkAppId: string;
   chatId: string;
   rootMessageId: string;
   title: string;
@@ -52,7 +52,7 @@ function makeFixture(): {
   sessionPath: string;
   session: StoredSession;
 } {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-cli-target-'));
+  const root = makeTestTempDir('botmux-cli-target-');
   tempDirs.push(root);
   const dataDir = join(root, 'data');
   const binDir = join(root, 'bin');
@@ -62,6 +62,7 @@ function makeFixture(): {
 
   const session: StoredSession = {
     sessionId: 'abcdef12-1111-2222-3333-444444444444',
+    larkAppId: 'cli_target',
     chatId: 'oc_target',
     rootMessageId: 'om_target',
     title: 'shared-herdr-target',
@@ -75,7 +76,7 @@ function makeFixture(): {
       agentName: 'agent-a',
     },
   };
-  const sessionPath = join(dataDir, 'sessions.json');
+  const sessionPath = join(dataDir, 'sessions-cli_target.json');
   writeFileSync(sessionPath, JSON.stringify({ [session.sessionId]: session }));
 
   const fakeHerdr = join(binDir, 'herdr');
@@ -162,7 +163,7 @@ describe('CLI persisted backend targets', () => {
   });
 
   it('keeps an offline ZMX session active when exact ownership cannot be proved', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-cli-zmx-target-'));
+    const root = makeTestTempDir('botmux-cli-zmx-target-');
     tempDirs.push(root);
     const dataDir = join(root, 'data');
     const binDir = join(root, 'bin');
@@ -172,7 +173,7 @@ describe('CLI persisted backend targets', () => {
 
     const sessionId = 'abcdef12-1111-2222-3333-444444444444';
     const sessionName = 'bmx-abcdef12';
-    const sessionPath = join(dataDir, 'sessions.json');
+    const sessionPath = join(dataDir, 'sessions-cli_target.json');
     writeFileSync(sessionPath, JSON.stringify({
       [sessionId]: {
         sessionId,

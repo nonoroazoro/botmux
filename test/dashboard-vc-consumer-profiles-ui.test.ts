@@ -315,7 +315,7 @@ describe('VcConsumerProfilesSection · Listener 归属与语义文案', () => {
 
     expect(textOf(r.root.findByProps({ className: 'vc-profile-config-target' })))
       .toBe('正在配置：Bot A');
-    expect(r.root.findAllByProps({ 'aria-label': '配置所属 Listener' })).toHaveLength(0);
+    expect(r.root.findAllByProps({ 'aria-label': '接收会议事件的机器人' })).toHaveLength(0);
     expect(optionButton(r, 'Bot B')).toBeUndefined();
   });
 
@@ -323,9 +323,9 @@ describe('VcConsumerProfilesSection · Listener 归属与语义文案', () => {
     const fetchMock = stubFetchImmediate({ A: catalogBody('A'), B: catalogBody('B') });
     const r = await mount({ listenerBotAppId: null });
 
-    expect(r.root.findAllByProps({ 'aria-label': '配置所属 Listener' })).toHaveLength(1);
+    expect(r.root.findAllByProps({ 'aria-label': '接收会议事件的机器人' })).toHaveLength(1);
     expect(textOf(r.root.findByProps({ className: 'vc-profiles-section' })))
-      .toContain('配置所属 Listener');
+      .toContain('接收会议事件的机器人');
 
     await openProfile(r, 0);
     await setInput(labelInput(r, 0), 'edited');
@@ -354,67 +354,10 @@ describe('VcConsumerProfilesSection · Listener 归属与语义文案', () => {
     expect(en('settings.vcProfiles.defaultMode')).toContain('no selection');
     expect(zh('settings.vcProfiles.defaultConsumers')).toContain('未操作');
     expect(en('settings.vcProfiles.defaultConsumers')).toContain('no selection');
-    expect(zh('settings.vcProfiles.migrationOffer')).toContain('会中文字和语音必须经过受管输出闸门');
-    expect(zh('settings.vcProfiles.migrationOffer')).toContain('语音还需 Listener 语音设施已启用');
-    expect(en('settings.vcProfiles.migrationOffer')).toContain('listener-thread replies can be sent directly');
-    expect(en('settings.vcProfiles.migrationOffer')).toContain('managed output gate');
-    expect(en('settings.vcProfiles.migrationOffer')).toContain('requires approval by default');
-    expect(zh('settings.vcProfiles.migrationEnable')).toContain('升级并启用全能力默认纪要');
-    expect(en('settings.vcProfiles.migrationEnable')).toContain('Upgrade and enable full-capability minutes');
   });
 });
 
 describe('VcConsumerProfilesSection · 保存', () => {
-  it('offers the exact legacy seed as an explicit full-capability v2 upgrade and saves through the existing PUT', async () => {
-    const v2Instructions = '持续整理会议纪要，重点记录已确认的决策、待办事项（含负责人和截止时间）以及未解决风险；字幕修订时更新已有条目，不重复记录同一事项。仅在出现新的关键决策、明确待办或风险，或被用户点名时，才在监听群输出简洁增量；无实质增量时保持静默，不发送确认或心跳。需要向会议内发送文字或语音时，必须通过 botmux 受管 request-output/action gate 提交，不得绕过权限、所有权与审核策略。';
-    const fetchMock = stubFetchImmediate({
-      A: catalogBody('A', {
-        migrationOffer: 'enable_seeded_minutes_default',
-        profiles: [profileDto('minutes', {
-          agentAppId: 'app_agent',
-          label: '会议纪要',
-          instructions: 'legacy instructions',
-          activityTypes: ['transcript_received'],
-        })],
-      }),
-    }, () => jsonRes(200, catalogBody('A', {
-      revision: 'rev-A-2',
-      defaultMode: 'agents',
-      defaultConsumerIds: ['minutes'],
-      profiles: [profileDto('minutes', {
-        label: '会议纪要',
-        instructions: v2Instructions,
-        activityTypes: ['transcript_received'],
-        responseMode: 'listener_thread',
-        permissionPreset: 'meeting_text_voice',
-      })],
-    })));
-    const r = await mount();
-    expect(textOf(r.root)).toContain('监听群回复可直接发送');
-    expect(textOf(r.root)).toContain('会中文字和语音必须经过受管输出闸门');
-    const enable = optionButton(r, '升级并启用全能力默认纪要（保存后生效）');
-    expect(enable).toBeTruthy();
-    await act(async () => { enable!.props.onClick(); });
-    expect(defaultConsumerCheckbox(r, '会议纪要')?.props.checked).toBe(true);
-    expect(saveButton(r)?.props.disabled).toBe(false);
-    await act(async () => { saveButton(r)!.props.onClick(); });
-    await flush();
-    expect(putCalls(fetchMock)[0]).toMatchObject({
-      defaultMode: 'agents',
-      defaultConsumerIds: ['minutes'],
-      profiles: [{
-        id: 'minutes',
-        agentAppId: 'app_agent',
-        label: '会议纪要',
-        instructions: v2Instructions,
-        activityTypes: ['transcript_received'],
-        responseMode: 'listener_thread',
-        permissionPreset: 'meeting_text_voice',
-      }],
-    });
-    expect(optionButton(r, '升级并启用全能力默认纪要（保存后生效）')).toBeUndefined();
-  });
-
   it('shows an actionable reason when an uninitialized catalog has no eligible execution bot', async () => {
     stubFetchImmediate({
       A: catalogBody('A', {

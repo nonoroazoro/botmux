@@ -371,7 +371,6 @@ vi.mock('../src/services/codex-app-threads.js', () => ({
 vi.mock('../src/core/command-discovery.js', () => ({
   discoverSlashCommandsForAdapter: vi.fn(() => [{ name: '/project-cmd', description: 'Project command' }]),
   supportsFilesystemCommandDiscovery: vi.fn((adapter: any) => !!(adapter?.claudeDataDir || adapter?.skillsDir || adapter?.pluginDir)),
-  listMcpServerNames: vi.fn(() => []),
 }));
 
 vi.mock('../src/utils/user-token.js', () => ({
@@ -507,8 +506,7 @@ import { DocSubscriptionPermissionError, resolveDocFile, subscribeDocFile, unsub
 import { putDocSubscription, removeDocSubscription, listAllDocSubscriptions, getDocSubscription } from '../src/services/doc-subs-store.js';
 import { bindOncall } from '../src/services/oncall-store.js';
 import { putVcMeetingPreparation } from '../src/services/vc-meeting-preparations-store.js';
-import { existsSync, statSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, statSync, readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { codexHome } from '../src/services/codex-paths.js';
 import { scanMultipleProjects, describeProjectDir } from '../src/services/project-scanner.js';
@@ -517,6 +515,7 @@ import { createRepoWorktree } from '../src/services/git-worktree.js';
 import { discoverAdoptableSessions, validateAdoptTarget } from '../src/core/session-discovery.js';
 import { listCodexAppThreads } from '../src/services/codex-app-threads.js';
 import { discoverSlashCommandsForAdapter } from '../src/core/command-discovery.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -813,7 +812,7 @@ describe('SESSIONLESS_DAEMON_COMMANDS set', () => {
 
 describe('/botconfig skills JSON text command', () => {
   it('persists skills as a parsed policy object, not a raw JSON string', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-botconfig-skills-'));
+    const dir = makeTestTempDir('botmux-botconfig-skills-');
     const configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
     writeFileSync(configPath, JSON.stringify([{
@@ -859,7 +858,7 @@ describe('/botconfig skills JSON text command', () => {
 
 describe('/botconfig canTalkDaemonCommands uses the field parser (not the passthrough one)', () => {
   it('persists daemon commands via the text command path', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-botconfig-ctdc-'));
+    const dir = makeTestTempDir('botmux-botconfig-ctdc-');
     const configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
     writeFileSync(configPath, JSON.stringify([{
@@ -906,7 +905,7 @@ describe('/botconfig canTalkDaemonCommands uses the field parser (not the passth
 
 describe('/botconfig string field goes through coerceConfigValue (maxLen)', () => {
   it('rejects an over-long displayName and persists a valid one', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-botconfig-displayname-'));
+    const dir = makeTestTempDir('botmux-botconfig-displayname-');
     const configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
     writeFileSync(configPath, JSON.stringify([{
@@ -1991,12 +1990,6 @@ describe('handleCommand', () => {
       expect(replyContent).toContain('/help');
       expect(replyContent).toContain('/schedule');
       expect(replyContent).toContain('/login');
-      expect(replyContent).toContain('/workflow <目标>');
-      expect(replyContent).toContain('/workflow run <名称>');
-      expect(replyContent).toContain('/workflow save last');
-      expect(replyContent).toContain('botmux template migrate-v3');
-      expect(replyContent).toContain('archive-runs');
-      expect(replyContent).toContain('botmux template migrate-v3');
       expect(replyContent).toContain('/compact'); // passthrough list
       expect(replyContent).toContain('/model');
       expect(replyContent).toContain('Claude'); // CLI display name
@@ -2081,7 +2074,6 @@ describe('handleCommand', () => {
         '/revoke',
         '/introduce',
         '/reply-mode',
-        '/workflow',
         '/t',
         '/topic',
       ];
@@ -3020,7 +3012,7 @@ describe('handleCommand', () => {
       expect(forkWorker).not.toHaveBeenCalled();
       expect(ds.pendingRepo).toBe(true); // pending kept — recoverable
       const replyContent = (deps.sessionReply as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
-      expect(replyContent).toContain('配置的工作目录不存在');
+      expect(replyContent).toContain('工作目录不存在');
     });
     // The non-pending (mid-session) bare `/repo` → card path is covered by
     // "should show project list card when called without argument" above.
@@ -3832,7 +3824,7 @@ describe('handleCommand', () => {
       expect(sessionStore.updateSession).toHaveBeenCalledWith(ds.session);
       expect(forkWorker).toHaveBeenCalledWith(ds, '', true);
       const replyContent = (deps.sessionReply as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
-      expect(replyContent).toContain('已继续 Codex App 对话');
+      expect(replyContent).toContain('已继续 Codex Desktop 对话');
       expect(replyContent).toContain('Fix botmux');
     });
   });
@@ -5462,7 +5454,7 @@ describe('/term — operable terminal slash command (operator / canOperate)', ()
     const deps = makeDeps(makeDaemonSession({ backendType: 'zmx' }));
     await handleCommand('/term', ROOT_ID, ownerMsg(), deps, LARK_APP_ID);
     const reply = (deps.sessionReply as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
-    expect(reply).toContain('不提供 Web 终端');
+    expect(reply).toContain('不支持 Web 终端');
   });
 
   it('delivery failure → failure notice', async () => {

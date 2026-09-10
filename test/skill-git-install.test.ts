@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import {
   discoverGitSkillCandidates,
@@ -14,6 +13,7 @@ import {
   updateInstalledSkill,
   updateInstalledSkillAsync,
 } from '../src/services/skill-registry-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function run(cmd: string, args: string[], cwd: string): string {
   return execFileSync(cmd, args, { cwd, encoding: 'utf-8' }).trim();
@@ -122,8 +122,8 @@ describe('git skill install', () => {
   let repo: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-skill-home-'));
-    repo = mkdtempSync(join(tmpdir(), 'botmux-skill-repo-'));
+    home = makeTestTempDir('botmux-skill-home-');
+    repo = makeTestTempDir('botmux-skill-repo-');
     vi.stubEnv('HOME', home);
     run('git', ['init'], repo);
     run('git', ['config', 'user.email', 'botmux@example.com'], repo);
@@ -156,7 +156,7 @@ describe('git skill install', () => {
 
   it('clones successfully when the daemon launch directory was deleted', () => {
     const originalCwd = process.cwd();
-    const staleCwd = mkdtempSync(join(tmpdir(), 'botmux-stale-cwd-'));
+    const staleCwd = makeTestTempDir('botmux-stale-cwd-');
     process.chdir(staleCwd);
     rmSync(staleCwd, { recursive: true, force: true });
 
@@ -315,7 +315,7 @@ describe('git skill install', () => {
   });
 
   it('rejects git skill paths that resolve outside through symlinks', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'botmux-skill-outside-'));
+    const outside = makeTestTempDir('botmux-skill-outside-');
     write(join(outside, 'SKILL.md'), '---\nname: outside\n---\n# Outside');
     symlinkSync(outside, join(repo, 'skills', 'outside-link'));
     run('git', ['add', '.'], repo);

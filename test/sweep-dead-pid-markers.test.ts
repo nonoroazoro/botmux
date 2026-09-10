@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for sweepDeadPidMarkers (worker-pool.ts) — the daemon-startup GC
  * that removes dead CLI-pid marker files from `.botmux-cli-pids/`.
@@ -17,8 +18,17 @@
  * Run:  pnpm vitest run test/sweep-dead-pid-markers.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/sweep-1': null,
+  });
+});
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 // worker-pool.ts pulls in backends / lark client / registry on import; mock the
@@ -69,7 +79,7 @@ describe('sweepDeadPidMarkers()', () => {
   };
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'sweep-'));
+    dir = '/fixtures/sweep-1';
     markersDir = join(dir, '.botmux-cli-pids');
     mkdirSync(markersDir, { recursive: true });
   });

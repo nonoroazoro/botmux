@@ -1,12 +1,21 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * platform-team-store: apply/rev/roster predicate + the team-groups mirror
  * (replace-by-prefix that must never touch legacy federation entries).
  * Run: pnpm vitest run test/platform-team-store.test.ts
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-pfteam-1': null,
+  });
+});
 
 import {
   applyPlatformTeamSync,
@@ -20,7 +29,7 @@ import {
 import { recordTeamGroup, isTeamGroupChat, listTeamGroups } from '../src/services/team-groups-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-pfteam-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-pfteam-1'; });
 
 const payload = (rev: string, teams: unknown[]) => ({ rev, teams });
 const team = (

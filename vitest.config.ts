@@ -33,6 +33,7 @@ export default defineConfig({
           // e2e dir out explicitly so a stray *.test.ts there can't sneak in.
           exclude: ['test/e2e-browser/**', '**/*.e2e.ts', 'node_modules/**'],
           testTimeout: 30_000,
+          globalSetup: ['./test/temp-root-global-setup.ts'],
         },
       },
       {
@@ -42,7 +43,10 @@ export default defineConfig({
           fileParallelism: false,
           testTimeout: 60_000,
           hookTimeout: 360_000,
-          globalSetup: ['./test/global-setup.ts'],
+          globalSetup: [
+            './test/temp-root-global-setup.ts',
+            './test/global-setup.ts',
+          ],
         },
       },
     ],

@@ -199,12 +199,12 @@ describe('buildBotFromAddFlags', () => {
       docSubscribeDefaultMode: 'mention-only',
       multiUserIsolation: {
         enabled: true,
-        root: join(homedir(), 'BotmuxUsers', 'cli_x'),
+        root: join(homedir(), 'AgentUsers', 'cli_x'),
         ownerOnlyTopics: true,
         sharedCodexHome: join(homedir(), '.codex'),
         defaultGitIdentity: {
-          name: 'Botmux Agent',
-          email: 'botmux-agent@botmux.local',
+          name: 'Agent',
+          email: 'agent@users.invalid',
         },
       },
       workingDir: '~',
@@ -236,7 +236,7 @@ describe('buildBotFromAddFlags', () => {
       executable: 'vendor-codex',
       update: { provider: 'auto' },
     });
-    expect(bot.cliPathOverride).toBe('vendor-codex');
+    expect(bot.cliPathOverride).toBeUndefined();
   });
 
   it('rejects malformed --cli-runtime JSON and invalid runtime structure', () => {

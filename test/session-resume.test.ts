@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for resumeSession (src/core/session-manager.ts).
  *
@@ -10,9 +11,19 @@
  * Run:  pnpm vitest run test/session-resume.test.ts
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/session-resume-test-1': null,
+  });
+});
+import { rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { } from 'os';
 
 let tempDir: string;
 const daemonConfig = vi.hoisted(() => ({ backendType: 'pty' as 'pty' | 'tmux' }));
@@ -161,9 +172,9 @@ import { writeDeferredTopicBinding } from '../src/core/deferred-topic-binding.js
 import type { DaemonSession } from '../src/core/types.js';
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'session-resume-test-'));
+  tempDir = '/fixtures/session-resume-test-1';
   daemonConfig.backendType = 'pty';
-  sessionStore.init();
+  sessionStore.init('test-bot');
   wp.registry = null;
   vi.mocked(closeSession).mockClear();
 });

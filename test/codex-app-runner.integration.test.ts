@@ -3,16 +3,15 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeRunnerInput } from '../src/adapters/cli/runner-input.js';
 import type { CodexAppTurnInput } from '../src/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const RUNNER_PATH = resolve('src/codex-app-runner.ts');
 const FAKE_SERVER_FIXTURE = resolve('test/fixtures/fake-codex-app-server.mjs');
@@ -145,7 +144,7 @@ async function exerciseRunner(opts: {
   includeMissingImage?: boolean;
   includeSidecar?: boolean;
 }): Promise<RunResult> {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-runner-'));
+  const dir = makeTestTempDir('botmux-codex-runner-');
   const fakeCodex = join(dir, 'fake-codex');
   const logPath = join(dir, 'requests.jsonl');
   const imagePath = join(dir, 'image.png');
@@ -171,10 +170,17 @@ async function exerciseRunner(opts: {
     ],
     clientUserMessageId: 'om_integration_123',
   };
-  const harness = startRunner(fakeCodex, dir, logPath, opts.version, opts.behavior ?? 'success');
+  const harness = startRunner(
+    fakeCodex,
+    dir,
+    logPath,
+    opts.version,
+    opts.behavior ?? 'success',
+    ['--bot-name', 'Example Agent'],
+  );
 
   try {
-    await waitForOutput(harness, output => output.includes('Codex App connected.'));
+    await waitForOutput(harness, output => output.includes('Codex Desktop connected.'));
     const encoded = encodeRunnerInput(
       'legacy <sender>prompt</sender>',
       opts.includeSidecar === false ? undefined : sidecar,
@@ -201,6 +207,12 @@ describe('codex-app-runner app-server protocol integration', () => {
     const result = await exerciseRunner({ version: '0.136.0', includeMissingImage: true });
     const initialize = result.requests.find(request => request.method === 'initialize');
     expect(initialize?.params.capabilities).toEqual({ experimentalApi: true });
+    expect(initialize?.params.clientInfo).toMatchObject({
+      name: 'agent-runtime',
+      title: 'Example Agent',
+    });
+    const threadStart = result.requests.find(request => request.method === 'thread/start');
+    expect(threadStart?.params.serviceName).toBe('Example Agent');
 
     const turns = result.requests.filter(request => request.method === 'turn/start');
     expect(turns).toHaveLength(1);
@@ -262,7 +274,7 @@ describe('codex-app-runner app-server protocol integration', () => {
     expect(turns).toHaveLength(1);
     expect(turns[0].params.input[0].text).toBe('clean user text');
     expect(result.output).not.toContain('retrying this turn with the legacy prompt');
-    expect(result.final.content).toContain('Codex App runner error: turn/start:');
+    expect(result.final.content).toContain('Codex Desktop runner error: turn/start:');
     expect(result.final.content).toContain('model overloaded');
     expect(result.final.replyTurnId).toBe('om_integration_123');
     expect(result.final.appTurnId).toMatch(/^codex-app-error-/);
@@ -293,7 +305,7 @@ describe('codex-app-runner app-server protocol integration', () => {
   });
 
   it('sends two ordered turn/steer requests, emits both acceptances, then one final', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-steer-'));
+    const dir = makeTestTempDir('botmux-codex-steer-');
     const fakeCodex = join(dir, 'fake-codex');
     const logPath = join(dir, 'requests.jsonl');
     copyFileSync(FAKE_SERVER_FIXTURE, fakeCodex);
@@ -315,7 +327,7 @@ describe('codex-app-runner app-server protocol integration', () => {
     };
 
     try {
-      await waitForOutput(harness, output => output.includes('Codex App connected.'));
+      await waitForOutput(harness, output => output.includes('Codex Desktop connected.'));
       send('first', 'om_first');
       await waitForOutput(harness, output => (
         decodeLifecycleMarkers(output).some(entry => entry.payload.kind === 'turn_started')
@@ -381,7 +393,7 @@ describe('codex-app-runner app-server protocol integration', () => {
   it('forwards --model + --reasoning-effort into thread/start (top-level model + config.model_reasoning_effort, xhigh verbatim)', async () => {
     // Runs the REAL codex-app-runner against the fake app-server and asserts the
     // actual thread/start params — the hop the adapter-flag test cannot cover.
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-effort-'));
+    const dir = makeTestTempDir('botmux-codex-effort-');
     const fakeCodex = join(dir, 'fake-codex');
     const logPath = join(dir, 'requests.jsonl');
     copyFileSync(FAKE_SERVER_FIXTURE, fakeCodex);
@@ -390,7 +402,7 @@ describe('codex-app-runner app-server protocol integration', () => {
       '--model', 'gpt-5.6-terra', '--reasoning-effort', 'xhigh',
     ]);
     try {
-      await waitForOutput(harness, output => output.includes('Codex App connected.'));
+      await waitForOutput(harness, output => output.includes('Codex Desktop connected.'));
       harness.child.stdin.write(`${CONTROL_PREFIX}${encodeRunnerInput('hi', { text: 'hi' })}\r`);
       await waitForOutput(harness, output => FINAL_MARKER.test(output));
       const threadStart = readRequests(logPath).find(r => r.method === 'thread/start');
@@ -410,7 +422,7 @@ describe('codex-app-runner app-server protocol integration', () => {
     // top-level model NOR config.model_reasoning_effort — else the app-server's
     // model-resume-override short-circuit drops the persisted triple to the
     // current default. Fresh thread/start (the test above) still stamps both.
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-resume-suppress-'));
+    const dir = makeTestTempDir('botmux-codex-resume-suppress-');
     const fakeCodex = join(dir, 'fake-codex');
     const logPath = join(dir, 'requests.jsonl');
     copyFileSync(FAKE_SERVER_FIXTURE, fakeCodex);
@@ -419,7 +431,7 @@ describe('codex-app-runner app-server protocol integration', () => {
       '--thread-id', 'thread-existing-1', '--model', 'gpt-5.6-terra', '--reasoning-effort', 'xhigh',
     ]);
     try {
-      await waitForOutput(harness, output => output.includes('Codex App connected.'));
+      await waitForOutput(harness, output => output.includes('Codex Desktop connected.'));
       harness.child.stdin.write(`${CONTROL_PREFIX}${encodeRunnerInput('hi', { text: 'hi' })}\r`);
       await waitForOutput(harness, output => FINAL_MARKER.test(output));
       const requests = readRequests(logPath);
@@ -438,7 +450,7 @@ describe('codex-app-runner app-server protocol integration', () => {
   it('folds thread/tokenUsage/updated into the final marker usage (four buckets)', async () => {
     // Real runner + fake app-server emitting a token-usage notification; assert
     // the emitted final marker carries the per-turn four-bucket usage.
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-usage-'));
+    const dir = makeTestTempDir('botmux-codex-usage-');
     const fakeCodex = join(dir, 'fake-codex');
     const logPath = join(dir, 'requests.jsonl');
     copyFileSync(FAKE_SERVER_FIXTURE, fakeCodex);
@@ -451,7 +463,7 @@ describe('codex-app-runner app-server protocol integration', () => {
     child.stdout.on('data', c => { stdout += c.toString('utf8'); });
     const harness: Harness = { child, get stdout() { return stdout; }, get stderr() { return ''; } };
     try {
-      await waitForOutput(harness, o => o.includes('Codex App connected.'));
+      await waitForOutput(harness, o => o.includes('Codex Desktop connected.'));
       child.stdin.write(`${CONTROL_PREFIX}${encodeRunnerInput('hi', { text: 'hi' })}\r`);
       await waitForOutput(harness, o => FINAL_MARKER.test(o));
       const final = decodeFinalMarker(harness.stdout);
@@ -466,7 +478,7 @@ describe('codex-app-runner app-server protocol integration', () => {
   it('omits usage when a malformed tokenUsage notification poisons the turn (sticky)', async () => {
     // malformed-then-valid same turn: the runner must NOT report only the later
     // completion. Final marker usage is omitted.
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-poison-'));
+    const dir = makeTestTempDir('botmux-codex-poison-');
     const fakeCodex = join(dir, 'fake-codex');
     const logPath = join(dir, 'requests.jsonl');
     copyFileSync(FAKE_SERVER_FIXTURE, fakeCodex);
@@ -479,7 +491,7 @@ describe('codex-app-runner app-server protocol integration', () => {
     child.stdout.on('data', c => { stdout += c.toString('utf8'); });
     const harness: Harness = { child, get stdout() { return stdout; }, get stderr() { return ''; } };
     try {
-      await waitForOutput(harness, o => o.includes('Codex App connected.'));
+      await waitForOutput(harness, o => o.includes('Codex Desktop connected.'));
       child.stdin.write(`${CONTROL_PREFIX}${encodeRunnerInput('hi', { text: 'hi' })}\r`);
       await waitForOutput(harness, o => FINAL_MARKER.test(o));
       const final = decodeFinalMarker(harness.stdout);
@@ -495,7 +507,7 @@ describe('codex-app-runner app-server protocol integration', () => {
     // 0-default on the missing side would misattribute cache-create into fresh
     // input; the runner must poison. A subsequent symmetric packet must not
     // resurrect a plausible-looking wrong split → final marker usage OMITTED.
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-asym-'));
+    const dir = makeTestTempDir('botmux-codex-asym-');
     const fakeCodex = join(dir, 'fake-codex');
     const logPath = join(dir, 'requests.jsonl');
     copyFileSync(FAKE_SERVER_FIXTURE, fakeCodex);
@@ -508,7 +520,7 @@ describe('codex-app-runner app-server protocol integration', () => {
     child.stdout.on('data', c => { stdout += c.toString('utf8'); });
     const harness: Harness = { child, get stdout() { return stdout; }, get stderr() { return ''; } };
     try {
-      await waitForOutput(harness, o => o.includes('Codex App connected.'));
+      await waitForOutput(harness, o => o.includes('Codex Desktop connected.'));
       child.stdin.write(`${CONTROL_PREFIX}${encodeRunnerInput('hi', { text: 'hi' })}\r`);
       await waitForOutput(harness, o => FINAL_MARKER.test(o));
       const final = decodeFinalMarker(harness.stdout);

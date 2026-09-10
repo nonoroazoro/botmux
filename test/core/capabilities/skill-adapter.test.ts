@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -7,6 +6,7 @@ import {
   createCapability,
   resolvePersonalCapabilitySkills,
 } from '../../../src/core/capabilities/index.js';
+import { makeTestTempDir } from '../../helpers/test-temp-dir.js';
 
 describe('capability skill adapter', () => {
   const cleanupPaths: string[] = [];
@@ -18,7 +18,7 @@ describe('capability skill adapter', () => {
   });
 
   it('stores a canonical delivery root when the data directory uses a symlinked prefix', () => {
-    const container = mkdtempSync(join(tmpdir(), 'botmux-capability-symlink-'));
+    const container = makeTestTempDir('botmux-capability-symlink-');
     cleanupPaths.push(container);
     const realHome = join(container, 'real-home');
     const linkedHome = join(container, 'linked-home');

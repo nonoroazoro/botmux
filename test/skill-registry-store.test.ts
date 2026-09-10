@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { skillRegistryPath } from '../src/core/skills/registry-paths.js';
 import { buildSkillInstallAuditSummary, discoverLocalSkillCandidates, installLocalSkill, installLocalSkillLinks, readSkillRegistry, removeInstalledSkill, removeInstalledSkills } from '../src/services/skill-registry-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function write(file: string, content: string): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -16,8 +16,8 @@ describe('skill registry store', () => {
   let src: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-skill-home-'));
-    src = mkdtempSync(join(tmpdir(), 'botmux-skill-src-'));
+    home = makeTestTempDir('botmux-skill-home-');
+    src = makeTestTempDir('botmux-skill-src-');
     vi.stubEnv('HOME', home);
   });
 

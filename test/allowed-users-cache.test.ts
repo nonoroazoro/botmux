@@ -1,6 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/auc-1': null,
+  });
+});
+import { rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   allowedUsersCachePath,
@@ -11,7 +21,7 @@ import {
 const APP = 'app-cache-test';
 let dir: string;
 
-beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'auc-')); });
+beforeEach(() => { dir = '/fixtures/auc-1'; });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 describe('allowed-users-cache sidecar', () => {

@@ -29,13 +29,13 @@ vi.mock('../src/services/groups-store.js', async (importOriginal) => {
   return { ...actual, addBotToChat: (...a: any[]) => addBotMock(...a) };
 });
 
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tryHandleInviteCommand, parseInviteArgs, readBotsInfoEntries } from '../src/im/lark/invite-command.js';
 import { isCommandTargetOnly } from '../src/im/lark/mention-targets.js';
 import { registerBot } from '../src/bot-registry.js';
 import { config } from '../src/config.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const OWNER = 'ou_owner';
 const ME = 'ou_bot';
@@ -85,7 +85,7 @@ beforeEach(() => {
   const bot = registerBot({ larkAppId: 'b1', larkAppSecret: 's', cliId: 'claude-code', allowedUsers: [OWNER] });
   bot.botOpenId = ME;
   bot.resolvedAllowedUsers = [OWNER];
-  tmpDir = mkdtempSync(join(tmpdir(), 'invite-cmd-'));
+  tmpDir = makeTestTempDir('invite-cmd-');
   config.session.dataDir = tmpDir;
 });
 afterEach(() => {

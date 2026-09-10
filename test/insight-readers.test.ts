@@ -1,7 +1,17 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-insight-readers-1': null,
+  });
+});
 import { parseAntigravityInsight } from '../src/services/insight/antigravity-span-reader.js';
 import { parseClaudeInsight } from '../src/services/insight/claude-span-reader.js';
 import { parseCodexInsight } from '../src/services/insight/codex-span-reader.js';
@@ -9,7 +19,7 @@ import { parseCodexInsight } from '../src/services/insight/codex-span-reader.js'
 let dir = '';
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'botmux-insight-readers-'));
+  dir = '/fixtures/botmux-insight-readers-1';
 });
 
 afterEach(() => {

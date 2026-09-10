@@ -3,12 +3,12 @@
  * CLI binding validation, and immediate opener ack.
  * Run: pnpm vitest run test/card-handler-open-local-cli.test.ts
  */
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { DaemonSession } from '../src/core/types.js';
 import type { CliId } from '../src/adapters/cli/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -103,7 +103,7 @@ async function fresh() {
 beforeEach(() => {
   deps.activeSessions = new Map();
   deps.sessionReply = vi.fn(async () => 'mid');
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-open-local-cli-'));
+  const dir = makeTestTempDir('botmux-open-local-cli-');
   const cfg = join(dir, 'bots.json');
   writeFileSync(cfg, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'codex', lang: 'en', allowedUsers: ['ou_owner'] }], null, 2));
   process.env.BOTS_CONFIG = cfg;

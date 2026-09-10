@@ -1,7 +1,17 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-pi-limit-1': null,
+  });
+});
 import { createPiAdapter } from '../src/adapters/cli/pi.js';
 import { createGrokAdapter } from '../src/adapters/cli/grok.js';
 import { createGeminiAdapter } from '../src/adapters/cli/gemini.js';
@@ -104,7 +114,7 @@ describe('initial prompt argv byte-limit fallback', () => {
   it('routes long Pi first prompts through @file argv instead of the worker queue', () => {
     const adapter = createPiAdapter('/bin/pi');
     const prompt = '长卡片'.repeat(2500); // > 10KB UTF-8, above Pi's old tmux-safe argv budget.
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-pi-limit-'));
+    const dataDir = '/fixtures/botmux-pi-limit-1';
     try {
       const prepared = adapter.prepareInitialPromptArg!({
         initialPrompt: prompt,

@@ -6,11 +6,11 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RELAY_ORIGIN_CAPABILITY_BASENAME } from '../src/core/managed-origin-capability.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CLI_PATH = join(__dirname, '..', 'src', 'cli.ts');
 const tempDirs: string[] = [];
@@ -57,8 +57,8 @@ function runSessionReady(
 
 describe('botmux session-ready — isolated CLI fallback', () => {
   it('uses the injected daemon port when the discovery directory is absent', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-session-ready-data-'));
-    const relayDir = mkdtempSync(join(tmpdir(), 'botmux-session-ready-relay-'));
+    const dataDir = makeTestTempDir('botmux-session-ready-data-');
+    const relayDir = makeTestTempDir('botmux-session-ready-relay-');
     tempDirs.push(dataDir, relayDir);
     const capability = 'a'.repeat(64);
     mkdirSync(relayDir, { recursive: true });

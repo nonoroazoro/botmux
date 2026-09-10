@@ -1,14 +1,23 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import {
   mkdirSync,
-  mkdtempSync,
   rmSync,
   utimesSync,
 } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import type { Socket } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-codex-side-chat-1': null,
+  });
+});
 import {
   applyCodexConversationPatches,
   CodexSideConversationMonitor,
@@ -328,7 +337,7 @@ describe('Codex Side Chat state tracking', () => {
 
 describe('Codex Side Chat candidate discovery', () => {
   it('returns recent UUID directories only and applies the requested limit', () => {
-    const codexHome = mkdtempSync(join(tmpdir(), 'botmux-codex-side-chat-'));
+    const codexHome = '/fixtures/botmux-codex-side-chat-1';
     tempDirs.push(codexHome);
     const now = new Date(2026, 6, 24, 12, 0, 0).getTime();
     const day = join(codexHome, 'visualizations', '2026', '07', '24');

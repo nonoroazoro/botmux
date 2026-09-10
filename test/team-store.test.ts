@@ -1,19 +1,29 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Team store: trust-boundary membership, keyed canonically by union_id but
  * matchable on any identifier.
  * Run: pnpm vitest run test/team-store.test.ts
  */
-import { mkdtempSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-team-1': null,
+  });
+});
 import {
   DEFAULT_TEAM_ID, listTeams, getTeam, getDefaultTeam, ensureDefaultTeam,
   createTeam, addMember, removeMember, isMember, deleteTeam, listTeamsForMember,
 } from '../src/services/team-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-team-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-team-1'; });
 
 describe('team-store', () => {
   it('starts empty; getDefaultTeam synthesizes without persisting', () => {

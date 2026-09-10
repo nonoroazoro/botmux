@@ -1,5 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -9,10 +8,11 @@ import {
   listWebhookSecretRefs,
   setWebhookSecret,
 } from '../src/services/webhook-key.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('webhook-key', () => {
   it('stores encrypted secrets and decrypts by ref', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-webhook-key-'));
+    const dir = makeTestTempDir('botmux-webhook-key-');
     const record = createWebhookSecret('super-secret', dir);
     expect(record.ref).toMatch(/^whsec_/);
     expect(getWebhookSecret(record.ref, dir)).toBe('super-secret');
@@ -24,7 +24,7 @@ describe('webhook-key', () => {
   });
 
   it('rotates a known ref and lists metadata without ciphertext', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-webhook-key-'));
+    const dir = makeTestTempDir('botmux-webhook-key-');
     setWebhookSecret('whsec_known', 'old', dir);
     setWebhookSecret('whsec_known', 'new', dir);
     expect(getWebhookSecret('whsec_known', dir)).toBe('new');
@@ -35,7 +35,7 @@ describe('webhook-key', () => {
   });
 
   it('deletes secrets', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-webhook-key-'));
+    const dir = makeTestTempDir('botmux-webhook-key-');
     setWebhookSecret('whsec_delete', 'secret', dir);
     expect(deleteWebhookSecret('whsec_delete', dir)).toBe(true);
     expect(deleteWebhookSecret('whsec_delete', dir)).toBe(false);

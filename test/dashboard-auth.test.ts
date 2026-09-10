@@ -3,15 +3,15 @@ import { createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import {
-  mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, statSync,
+  mkdirSync, rmSync, writeFileSync, existsSync, statSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   verifyHmac, generateToken, parseCookie, decideDashboardAuth,
   loadPersistedToken, loadOrCreatePersistedToken, persistToken,
   loadDashboardSecret, loadOrCreateDashboardSecret,
 } from '../src/dashboard/auth.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const SECRET = 'a'.repeat(43); // base64url 32 bytes
 
@@ -69,7 +69,7 @@ describe('token persistence (survives restart, rotates only on `botmux dashboard
   let tokenPath: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'botmux-token-'));
+    dir = makeTestTempDir('botmux-token-');
     tokenPath = join(dir, 'nested', '.dashboard-token');
   });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
@@ -142,7 +142,7 @@ describe('dashboard secret persistence', () => {
   let secretPath: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'botmux-secret-'));
+    dir = makeTestTempDir('botmux-secret-');
     secretPath = join(dir, 'nested', '.dashboard-secret');
   });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
@@ -244,52 +244,20 @@ describe('parseCookie', () => {
 
 // ─── decideDashboardAuth ─────────────────────────────────────────────────────
 //
-// Locks the per-request public-vs-protected matrix added in canary.3
-// (src/dashboard.ts public-read split for workflow run links from Lark
-// approval cards).  If anyone narrows or widens the public surface by
-// accident, these matrix tests fail and CI catches it.
-// codex's HTTP integration smoke covers the same routes end-to-end; this
-// pure-function layer is the cheap unit safety net.
+// Verify the public allowlist and authentication for all other API paths.
 
 describe('decideDashboardAuth — public surface', () => {
   const TOK = 'active-token-xyz';
 
-  it('GET /api/workflows/* — allow without any token', () => {
+  it('GET an unknown API requires authentication', () => {
     const d = decideDashboardAuth({
       method: 'GET',
-      pathname: '/api/workflows/run-123/snapshot',
-      hasTokenParam: false,
-      presentedToken: undefined,
-      activeToken: TOK,
-    });
-    expect(d.kind).toBe('allow');
-  });
-
-  it('GET /api/workflows/runs/.../terminal-log/raw — NOT public (PTY bytes)', () => {
-    // PTY transcript may have logged API keys / env / token reads that
-    // happened to scroll the terminal — keep it behind cookie auth even
-    // though sibling workflow read paths are link-shareable.
-    const d = decideDashboardAuth({
-      method: 'GET',
-      pathname:
-        '/api/workflows/runs/run-1/attempts/att-1/node-a/terminal-log/raw',
+      pathname: '/api/unknown',
       hasTokenParam: false,
       presentedToken: undefined,
       activeToken: TOK,
     });
     expect(d.kind).toBe('deny401');
-  });
-
-  it('GET /api/workflows/...terminal-log/raw with valid cookie → allow', () => {
-    const d = decideDashboardAuth({
-      method: 'GET',
-      pathname:
-        '/api/workflows/runs/run-1/attempts/att-1/node-a/terminal-log/raw',
-      hasTokenParam: false,
-      presentedToken: TOK,
-      activeToken: TOK,
-    });
-    expect(d.kind).toBe('allow');
   });
 
   it('GET / — static SPA shell allow without any token', () => {
@@ -374,10 +342,10 @@ describe('decideDashboardAuth — public surface', () => {
 describe('decideDashboardAuth — protected surface', () => {
   const TOK = 'active-token-xyz';
 
-  it('POST /api/workflows/<id>/cancel without token → deny401', () => {
+  it('POST /api/sessions/<id>/close without token → deny401', () => {
     const d = decideDashboardAuth({
       method: 'POST',
-      pathname: '/api/workflows/run-123/cancel',
+      pathname: '/api/sessions/sess-123/close',
       hasTokenParam: false,
       presentedToken: undefined,
       activeToken: TOK,
@@ -385,7 +353,7 @@ describe('decideDashboardAuth — protected surface', () => {
     expect(d.kind).toBe('deny401');
   });
 
-  it('GET /api/sessions without token → deny401 (non-workflow API)', () => {
+  it('GET /api/sessions without token → deny401', () => {
     const d = decideDashboardAuth({
       method: 'GET',
       pathname: '/api/sessions',
@@ -405,19 +373,6 @@ describe('decideDashboardAuth — protected surface', () => {
       activeToken: TOK,
     });
     expect(d.kind).toBe('deny401');
-  });
-
-  it('GET /api/v3 run list/detail without token → deny401', () => {
-    for (const pathname of ['/api/v3/runs', '/api/v3/runs/project-review-1']) {
-      const d = decideDashboardAuth({
-        method: 'GET',
-        pathname,
-        hasTokenParam: false,
-        presentedToken: undefined,
-        activeToken: TOK,
-      });
-      expect(d.kind, pathname).toBe('deny401');
-    }
   });
 
   it('POST / static-looking path is NOT public (only GET is)', () => {
@@ -445,7 +400,7 @@ describe('decideDashboardAuth — protected surface', () => {
   it('POST protected with valid cookie → allow', () => {
     const d = decideDashboardAuth({
       method: 'POST',
-      pathname: '/api/workflows/run-123/cancel',
+      pathname: '/api/sessions/sess-123/close',
       hasTokenParam: false,
       presentedToken: TOK,
       activeToken: TOK,
@@ -482,7 +437,7 @@ describe('decideDashboardAuth — ?t=<token> cookie set redirect', () => {
   it('?t=<correct> on deep path → set-cookie + redirect preserves path', () => {
     const d = decideDashboardAuth({
       method: 'GET',
-      pathname: '/api/workflows/run-99/snapshot',
+      pathname: '/api/connectors/conn-99',
       hasTokenParam: true,
       presentedToken: TOK,
       activeToken: TOK,
@@ -490,7 +445,7 @@ describe('decideDashboardAuth — ?t=<token> cookie set redirect', () => {
     expect(d).toEqual({
       kind: 'allow+set-cookie',
       token: TOK,
-      redirectTo: '/api/workflows/run-99/snapshot',
+      redirectTo: '/api/connectors/conn-99',
     });
   });
 
@@ -506,12 +461,12 @@ describe('decideDashboardAuth — ?t=<token> cookie set redirect', () => {
   });
 
   it('?t=<wrong> on public route → allow but no set-cookie (no auth granted)', () => {
-    // Public workflow GET works regardless of token, but the cookie must
+    // The static shell works regardless of token, but the cookie must
     // NOT be minted to the wrong value — otherwise the cookie would override
     // a legit later cookie.
     const d = decideDashboardAuth({
       method: 'GET',
-      pathname: '/api/workflows/run-1/snapshot',
+      pathname: '/',
       hasTokenParam: true,
       presentedToken: 'wrong-token',
       activeToken: TOK,
@@ -534,7 +489,7 @@ describe('decideDashboardAuth — ?t=<token> cookie set redirect', () => {
   it('empty active token never authenticates (server not yet rotated)', () => {
     const d = decideDashboardAuth({
       method: 'POST',
-      pathname: '/api/workflows/run-1/cancel',
+      pathname: '/api/sessions/sess-1/close',
       hasTokenParam: false,
       presentedToken: '',
       activeToken: '',
@@ -570,15 +525,15 @@ describe('decideDashboardAuth — publicReadOnly mode', () => {
     expect(d.kind).toBe('deny401');
   });
 
-  it('tokenless GET raw PTY log → still deny401 (sensitive carve-out)', () => {
+  it('tokenless GET connector secrets requires authentication', () => {
     const d = decideDashboardAuth({
-      method: 'GET', pathname: '/api/workflows/run-1/nodes/n1/terminal-log/raw', hasTokenParam: false,
+      method: 'GET', pathname: '/api/webhook-secrets', hasTokenParam: false,
       presentedToken: undefined, activeToken: TOK, publicReadOnly: true,
     });
     expect(d.kind).toBe('deny401');
   });
 
-  it('publicReadOnly off → tokenless GET /api/sessions denied (legacy behavior)', () => {
+  it('publicReadOnly off → tokenless GET /api/sessions denied', () => {
     const d = decideDashboardAuth({
       method: 'GET', pathname: '/api/sessions', hasTokenParam: false,
       presentedToken: undefined, activeToken: TOK, publicReadOnly: false,
@@ -608,9 +563,6 @@ describe('decideDashboardAuth — publicReadOnly mode', () => {
       '/api/bots',
       '/api/skills',
       '/api/cli-options',
-      // Workflow projections contain user-authored goals and identifiers.
-      '/api/v3/runs',
-      '/api/v3/runs/project-review-1',
       // Mints a token-bearing writable terminal URL — never public, even in
       // publicReadOnly (the daemon IPC behind it is also loopback-HMAC gated).
       '/api/sessions/sess-1/write-link',

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { createCliAdapterSync } from '../src/adapters/cli/registry.js';
 import { prepareClaudeSkillPlugin } from '../src/core/skills/claude-plugin-delivery.js';
 import { prepareSkillDelivery } from '../src/core/skills/delivery.js';
 import type { SessionSkillManifest } from '../src/core/skills/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function write(file: string, content: string): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -18,8 +18,8 @@ describe('Claude scoped skill delivery', () => {
   let dataDir: string;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'botmux-skill-plugin-'));
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-data-'));
+    root = makeTestTempDir('botmux-skill-plugin-');
+    dataDir = makeTestTempDir('botmux-data-');
     vi.stubEnv('SESSION_DATA_DIR', dataDir);
   });
 

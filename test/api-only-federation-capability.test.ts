@@ -1,7 +1,17 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-fed-cap-1': null,
+  });
+});
 import { registerDeployment, syncDeployment, type FederatedBot } from '../src/services/federation-store.js';
 import { buildFederatedRoster } from '../src/services/federation-roster.js';
 
@@ -14,7 +24,7 @@ import { buildFederatedRoster } from '../src/services/federation-roster.js';
  * Local classes are covered by the createTeamGroup config read.
  */
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-fed-cap-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-fed-cap-1'; });
 afterEach(() => { rmSync(dataDir, { recursive: true, force: true }); });
 
 function bot(larkAppId: string, extra: Partial<FederatedBot> = {}): FederatedBot {

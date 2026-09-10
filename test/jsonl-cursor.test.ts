@@ -1,6 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/bmx-jsonl-cursor-1': null,
+  });
+});
+import { appendFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { baselineJsonlCursor, scanJsonlFromOffset } from '../src/services/jsonl-cursor.js';
@@ -9,7 +19,7 @@ let dir: string;
 let path: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'bmx-jsonl-cursor-'));
+  dir = '/fixtures/bmx-jsonl-cursor-1';
   path = join(dir, 'events.jsonl');
 });
 

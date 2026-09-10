@@ -2,10 +2,10 @@
  * `/botconfig` 交互卡片：usageDisplay 是三态枚举,经 config_set 选项写入,
  * coerce 校验枚举值并即时落盘 + 同步内存 config。
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -30,7 +30,7 @@ async function fresh() {
 }
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'botmux-card-config-'));
+  root = makeTestTempDir('botmux-card-config-');
   configPath = join(root, 'bots.json');
   writeFileSync(configPath, JSON.stringify([{
     larkAppId: 'app_config',

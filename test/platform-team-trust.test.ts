@@ -4,9 +4,6 @@
  * parity with legacy federation team trust — 双模式都免 /grant.
  * Run: pnpm vitest run test/platform-team-trust.test.ts
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
@@ -19,10 +16,11 @@ import { registerBot } from '../src/bot-registry.js';
 import { canOperate, evaluateTalk, isTrustedTeamBotSender } from '../src/im/lark/event-dispatcher.js';
 import { applyPlatformTeamSync } from '../src/services/platform-team-store.js';
 import { recordTeamBot } from '../src/services/team-bots-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let dataDir: string;
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-pftrust-'));
+  dataDir = makeTestTempDir('botmux-pftrust-');
   config.session.dataDir = dataDir;
   const bot = registerBot({ larkAppId: 'pf1', larkAppSecret: 's', cliId: 'claude-code', allowedUsers: ['ou_owner'] });
   bot.resolvedAllowedUsers = ['ou_owner'];

@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * `botmux dashboard` / start-restart-hint loopback client.
  *
@@ -12,10 +13,19 @@
  *
  * Run: pnpm vitest run test/dashboard-endpoint.test.ts
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/bmx-dash-1': null,
+  });
+});
+import { writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { createHmac } from 'node:crypto';
 import {
   classifyDashboard404,
@@ -59,7 +69,7 @@ function makeFetch(ports: Record<number, PortBehaviour>): typeof fetch {
 
 let dir: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'bmx-dash-'));
+  dir = '/fixtures/bmx-dash-1';
   writeFileSync(join(dir, '.dashboard-secret'), SECRET);
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));

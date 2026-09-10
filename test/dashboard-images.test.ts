@@ -1,7 +1,17 @@
-import { existsSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { existsSync, } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-dashboard-images-1': null,
+  });
+});
 import {
   cleanupMaterializedDashboardImages,
   DASHBOARD_IMAGE_MAX_COUNT,
@@ -40,7 +50,7 @@ describe('parseDashboardImageUploads', () => {
 
   it('cleans the exact dashboard materialization directory', () => {
     const previousDataDir = config.session.dataDir;
-    config.session.dataDir = mkdtempSync(join(tmpdir(), 'botmux-dashboard-images-'));
+    config.session.dataDir = '/fixtures/botmux-dashboard-images-1';
     try {
       const parsed = parseDashboardImageUploads([{
         name: 'shot.png', mimeType: 'image/png', dataBase64: PNG_1X1,

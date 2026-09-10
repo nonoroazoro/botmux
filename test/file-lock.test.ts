@@ -14,7 +14,6 @@ import {
   existsSync,
   linkSync,
   lstatSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   statSync,
@@ -22,7 +21,6 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { readLinuxBootIdentity, readProcessStartIdentity } from '../src/core/session-marker.js';
@@ -31,6 +29,7 @@ import {
   withFileLock,
   withFileLockSync,
 } from '../src/utils/file-lock.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function staleClaimPathForTest(lockPath: string): string {
   const observed = statSync(lockPath);
@@ -65,7 +64,7 @@ describe('withFileLock', () => {
   let target: string;
 
   beforeEach(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-file-lock-'));
+    const dir = makeTestTempDir('botmux-file-lock-');
     target = join(dir, 'data.json');
     writeFileSync(target, '{}', 'utf-8');
   });

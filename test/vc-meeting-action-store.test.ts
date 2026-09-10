@@ -1,14 +1,23 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import {
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-vc-action-1': null,
+  });
+});
 import {
   approveAndClaimVcMeetingAction,
   beginVcMeetingAction,
@@ -70,7 +79,7 @@ describe('vc meeting action store', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'botmux-vc-action-'));
+    dir = '/fixtures/botmux-vc-action-1';
   });
 
   afterEach(() => {

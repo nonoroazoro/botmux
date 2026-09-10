@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { globalConfigPath } from '../src/global-config.js';
 import { config } from '../src/config.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 /**
  * `config.bypassCodexHookTrust` is a live getter over
@@ -19,7 +19,7 @@ describe('config.bypassCodexHookTrust (default-ON global toggle)', () => {
   let home: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-hook-trust-'));
+    home = makeTestTempDir('botmux-hook-trust-');
     vi.stubEnv('HOME', home);
     mkdirSync(dirname(globalConfigPath()), { recursive: true });
   });

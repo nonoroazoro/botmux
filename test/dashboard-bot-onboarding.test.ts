@@ -1,6 +1,14 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+
+// Store and rendering behavior uses a fresh in-memory filesystem.
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+beforeEach(() => {
+  resetMemoryFs({ '/fixtures': null });
+});
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { BotOnboardingManager } from '../src/dashboard/bot-onboarding.js';
 import type { RegisterAppOptions, RegisterAppResult } from '../src/setup/register-app.js';
@@ -59,7 +67,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('publishes a scannable QR status while registration is waiting', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const pending = deferred<RegisterAppResult>();
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
@@ -86,7 +94,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('uses one Feishu Web QR as the primary path and carries the chosen app name through the job', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-web-'));
+    const dir = '/fixtures';
     const pending = deferred<any>();
     const registerApp = vi.fn(async () => ({ ok: false as const, error: 'unknown' as const, message: 'must not run' }));
     const manager = new BotOnboardingManager({
@@ -134,7 +142,7 @@ describe('BotOnboardingManager', () => {
   it('auto-confirms the owner from the web session email and completes without needs_owner', async () => {
     // Web 主路径没有 device-flow 的 userOpenId, 但 session identity 里有创建者邮箱——
     // 能解析成 union_id 时直接落 on_ 完成, 不再让用户手填一遍 owner。
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-web-owner-'));
+    const dir = '/fixtures';
     batchGetIdMock.mockResolvedValueOnce({
       code: 0,
       data: { user_list: [{ email: 'creator@example.com', user_id: 'on_creator' }] },
@@ -172,12 +180,12 @@ describe('BotOnboardingManager', () => {
       docSubscribeDefaultMode: 'mention-only',
       multiUserIsolation: {
         enabled: true,
-        root: join(homedir(), 'BotmuxUsers', 'cli_web_owner'),
+        root: join(homedir(), 'AgentUsers', 'cli_web_owner'),
         ownerOnlyTopics: true,
         sharedCodexHome: join(homedir(), '.codex'),
         defaultGitIdentity: {
-          name: 'Botmux Agent',
-          email: 'botmux-agent@botmux.local',
+          name: 'Agent',
+          email: 'agent@users.invalid',
         },
       },
     });
@@ -188,7 +196,7 @@ describe('BotOnboardingManager', () => {
 
   it('falls back to the raw session email when union_id resolution is inconclusive', async () => {
     // scope 未生效 / 网络错误等无法证伪 → 直接落邮箱, 运行时 resolveAllowedUsers 再解析。
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-web-email-'));
+    const dir = '/fixtures';
     batchGetIdMock.mockRejectedValueOnce(new Error('scope not effective yet'));
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
@@ -217,7 +225,7 @@ describe('BotOnboardingManager', () => {
   it('keeps needs_owner with a prefill suggestion when the session email is conclusively unusable', async () => {
     // 确凿不在本企业（成功响应但查不到 user_id, 如个人邮箱）→ 不落盘, 回落 needs_owner
     // 并把邮箱作为 suggestedOwner 预填给前端复核。
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-web-unusable-'));
+    const dir = '/fixtures';
     // 默认 batchGetIdMock 即 code 0 + 空 user_list（见 beforeEach）。
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
@@ -246,7 +254,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('reuses a UI-confirmed session without a QR and binds creation to that account and tenant', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-reuse-'));
+    const dir = '/fixtures';
     const createApp = vi.fn(async (opts) => {
       expect(opts.forceQrLogin).toBeUndefined();
       expect(opts.disableQrLogin).toBe(true);
@@ -276,12 +284,12 @@ describe('BotOnboardingManager', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('defaults the app name to the next botmux process index', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-name-'));
+  it('suggests an unbranded name for the next bot', () => {
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     writeFileSync(botsJsonPath, JSON.stringify([{ larkAppId: 'cli_0' }, { larkAppId: 'cli_1' }]));
     const manager = new BotOnboardingManager({ botsJsonPath, registerApp: async () => ({ ok: false, error: 'aborted', message: 'stop' }) });
-    expect(manager.suggestedAppName()).toBe('botmux-2');
+    expect(manager.suggestedAppName()).toBe('Bot 3');
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -316,7 +324,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('does not invoke the SDK fallback when Web creation already returned an app id', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-orphan-'));
+    const dir = '/fixtures';
     const registerApp = vi.fn(async () => ({ ok: false as const, error: 'unknown' as const, message: 'must not run' }));
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
@@ -331,7 +339,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('does not silently fall back to a second QR when Web creation fails before creating an app', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-no-fallback-'));
+    const dir = '/fixtures';
     const registerApp = vi.fn(async () => ({ ok: false as const, error: 'unknown' as const, message: 'must not run' }));
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
@@ -348,7 +356,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('uses the SDK only after compatibility mode is explicitly selected and does not claim a custom app name', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-compat-'));
+    const dir = '/fixtures';
     const createApp = vi.fn();
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
@@ -367,7 +375,7 @@ describe('BotOnboardingManager', () => {
     // 回归：扫码人身份验证不了时绝不在磁盘留下「空 allowedUsers 的可启动 bot」——
     // 它一旦被 botmux start/restart 读到, 运行时按无白名单全开放, 任何人可 operate。
     // 改走 needs_owner, 且 bots.json 此刻根本没有这个 bot（待手动填 owner 后才落盘）。
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
       registerApp: async () => ({
@@ -407,7 +415,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('submitOwner writes a usable email owner and only then completes', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
       registerApp: async () => ({
@@ -449,7 +457,7 @@ describe('BotOnboardingManager', () => {
     // the `emails` query → code 0 + empty user_list → a valid mobile owner was
     // wrongly rejected as "unusable". The mobile must go through the `mobiles`
     // field, and a resolvable one must be accepted.
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-mobile-'));
+    const dir = '/fixtures';
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
       registerApp: async () => ({
@@ -487,7 +495,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('restores a needs_owner job after a dashboard restart and then completes it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-restart-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const pendingStorePath = `${botsJsonPath}.onboarding-pending.json`;
     const firstManager = new BotOnboardingManager({
@@ -541,7 +549,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('submitOwner rejects a cross-app open_id and stays in needs_owner', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
       registerApp: async () => ({
@@ -572,7 +580,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('submitOwner rejects malformed entries (bare email prefix)', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
       registerApp: async () => ({
@@ -598,7 +606,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('writes the scanner union_id to allowedUsers when the new app can resolve it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     userGetMock.mockResolvedValueOnce({
       code: 0,
       data: {
@@ -640,7 +648,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('writes the CLI / workingDir / model chosen in the form', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
       registerApp: async () => ({ ok: true, appId: 'cli_x', appSecret: 's', brand: 'feishu' }),
@@ -681,7 +689,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('dirMode=fixed persists defaultWorkingDir (direct start) instead of workingDir', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
       registerApp: async () => ({ ok: true, appId: 'cli_x', appSecret: 's', brand: 'feishu' }),
@@ -709,7 +717,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('surfaces the second (open-platform) QR and finishes with a permission summary', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const gate = deferred<void>();
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
@@ -748,7 +756,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('always forces a command-scoped owner QR for a compat-created App', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-owner-session-'));
+    const dir = '/fixtures';
     const gate = deferred<void>();
     const calls: Array<Parameters<NonNullable<ConstructorParameters<typeof BotOnboardingManager>[0]['automateOpenPlatform']>>[0]> = [];
     const manager = new BotOnboardingManager({
@@ -792,7 +800,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('recovers permissions for the exact existing bot without creating or registering another app', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-permission-recovery-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -886,7 +894,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('fails closed when permission recovery cannot resolve exactly one existing bot', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-permission-recovery-ambiguous-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([
@@ -906,7 +914,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('issues a fresh owner QR only after the caller advances the exact failed recovery lineage', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-permission-recovery-retry-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -965,7 +973,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('restores an interrupted recovery as failed and continues with a fresh durable attempt', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-permission-recovery-restart-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const permissionRecoveryStorePath = join(dir, 'permission-recoveries.json');
     const workingDir = join(dir, 'space-agent');
@@ -1057,7 +1065,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('fails before QR automation when the recovery intent cannot be persisted', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-permission-recovery-store-fail-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -1083,7 +1091,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('fails closed on a malformed durable recovery ledger', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-permission-recovery-store-corrupt-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const permissionRecoveryStorePath = join(dir, 'permission-recoveries.json');
     const workingDir = join(dir, 'space-agent');
@@ -1107,7 +1115,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('fails closed on an ambiguous durable recovery lineage', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-permission-recovery-lineage-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const permissionRecoveryStorePath = join(dir, 'permission-recoveries.json');
     const workingDir = join(dir, 'space-agent');
@@ -1133,7 +1141,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('fails closed on expected App drift and on a missing critical scope readback', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-permission-recovery-scope-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -1179,7 +1187,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('still adds the bot but falls back to manual steps when auto-permission fails', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),
       registerApp: async () => ({ ok: true, appId: 'cli_f', appSecret: 's', brand: 'feishu' }),
@@ -1213,7 +1221,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('keeps a MOSA bot activation-pending until every critical scope is readable', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-activation-'));
+    const dir = '/fixtures';
     userGetMock.mockResolvedValueOnce({
       code: 0,
       data: { user: { union_id: 'on_scanner', name: 'Scanner' } },
@@ -1294,7 +1302,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('keeps a fresh MOSA bot activation-pending when scopes are ready but the second QR was never scanned', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-initial-no-scan-'));
+    const dir = '/fixtures';
     userGetMock.mockResolvedValueOnce({
       code: 0,
       data: { user: { union_id: 'on_scanner', name: 'Scanner' } },
@@ -1345,7 +1353,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('does not activate a fresh MOSA bot until critical scopes remain complete across consecutive readbacks', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-stable-'));
+    const dir = '/fixtures';
     userGetMock.mockResolvedValueOnce({
       code: 0,
       data: { user: { union_id: 'on_scanner', name: 'Scanner' } },
@@ -1433,7 +1441,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('keeps a fresh MOSA bot activation-pending when managed automation lacks the exact event/version ack', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-managed-ack-missing-'));
+    const dir = '/fixtures';
     userGetMock.mockResolvedValueOnce({
       code: 0,
       data: { user: { union_id: 'on_scanner', name: 'Scanner' } },
@@ -1493,7 +1501,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('activates an exact pending MOSA bot only after permission recovery reads every critical scope', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-recovery-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -1548,7 +1556,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('lets botmux finish exact scope propagation and live-start without another owner QR', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-propagation-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -1645,7 +1653,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('restores the exact managed ACK and completes propagation after a dashboard restart', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-propagation-restart-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const permissionRecoveryStorePath = join(dir, 'permission-recoveries.json');
     const workingDir = join(dir, 'space-agent');
@@ -1742,7 +1750,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('restores an initial managed activation tail after restart without another App or QR', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-initial-propagation-restart-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const permissionRecoveryStorePath = join(dir, 'permission-recoveries.json');
     const workingDir = join(dir, 'space-agent');
@@ -1836,7 +1844,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('refuses initial activation when its managed ACK ledger cannot be persisted', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-initial-ledger-failure-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     userGetMock.mockResolvedValueOnce({
@@ -1896,7 +1904,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('singleflights overlapping scope completion retries and starts the exact bot once', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-propagation-singleflight-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -1970,7 +1978,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('keeps an exact pending MOSA bot inactive when scopes are ready but the second QR scan was not confirmed', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-recovery-no-scan-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -2024,7 +2032,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('keeps the exact MOSA bot activation-pending when the single-bot live start is not acknowledged', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-start-failed-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -2083,7 +2091,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('reconciles a crashed deactivating recovery by stopping the exact App before any new QR', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-deactivation-restart-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const permissionRecoveryStorePath = join(dir, 'permission-recoveries.json');
     const workingDir = join(dir, 'space-agent');
@@ -2142,7 +2150,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('does not permit a new recovery while a crashed deactivation stop is unacknowledged', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-deactivation-ack-fence-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const permissionRecoveryStorePath = join(dir, 'permission-recoveries.json');
     const workingDir = join(dir, 'space-agent');
@@ -2215,7 +2223,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('fails closed on a persisted activation commit by stopping and restoring pending after restart', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-commit-restart-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const permissionRecoveryStorePath = join(dir, 'permission-recoveries.json');
     const workingDir = join(dir, 'space-agent');
@@ -2280,7 +2288,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('reconciles a crashed activating marker by stopping the exact App before restoring pending', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-activation-restart-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     writeFileSync(botsJsonPath, JSON.stringify([{
       larkAppId: 'cli_interrupted_activation',
@@ -2314,7 +2322,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('fails closed when the exact pending MOSA bot binding drifts during permission recovery', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-target-drift-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -2370,7 +2378,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('fails before owner QR when the exact MOSA bot cannot be stopped for managed recovery', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-critical-stop-failed-'));
+    const dir = '/fixtures';
     const botsJsonPath = join(dir, 'bots.json');
     const workingDir = join(dir, 'space-agent');
     writeFileSync(botsJsonPath, JSON.stringify([{
@@ -2422,7 +2430,7 @@ describe('BotOnboardingManager', () => {
 
   it('auto-owner completion calls startBotLive and records liveStarted on the snapshot', async () => {
     // 免重启：落盘后自动拉起新 bot 的 daemon，把结果记进快照供前端展示。
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     userGetMock.mockResolvedValueOnce({
       code: 0,
       data: { user: { union_id: 'on_scanner', name: 'Scanner' } },
@@ -2451,7 +2459,7 @@ describe('BotOnboardingManager', () => {
   });
 
   it('submitOwner calls startBotLive; a throwing hook still completes with liveStarted=false', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-onboard-'));
+    const dir = '/fixtures';
     const startBotLive = vi.fn(async () => { throw new Error('pm2 down'); });
     const manager = new BotOnboardingManager({
       botsJsonPath: join(dir, 'bots.json'),

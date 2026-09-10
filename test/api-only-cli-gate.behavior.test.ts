@@ -23,7 +23,7 @@ const VIRTUAL_SID = 'sess_behavior_virtual';
 const REAL_SID = 'sess_behavior_real';
 
 function writeSession(sid: string, chatId: string, larkAppId: string) {
-  const fp = join(DATA_DIR, 'sessions.json');
+  const fp = join(DATA_DIR, `sessions-${larkAppId}.json`);
   const existing = existsSync(fp) ? JSON.parse(readFileSync(fp, 'utf8')) : [];
   existing.push({ sessionId: sid, chatId, larkAppId, rootMessageId: '', scope: 'chat', status: 'active' });
   writeFileSync(fp, JSON.stringify(existing));

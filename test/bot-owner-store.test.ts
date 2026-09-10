@@ -1,15 +1,24 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Bot ownership store: auto-assign (no steal) + explicit override.
  * Run: pnpm vitest run test/bot-owner-store.test.ts
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-owner-1': null,
+  });
+});
 import { getBotOwner, setBotOwner, clearBotOwner, listBotOwners } from '../src/services/bot-owner-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-owner-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-owner-1'; });
 
 describe('bot-owner-store', () => {
   it('auto-assigns when unowned, does NOT steal an existing owner', () => {

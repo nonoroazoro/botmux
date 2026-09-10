@@ -1,5 +1,4 @@
-import { lstatSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { lstatSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -8,11 +7,12 @@ import {
   type DeviceEnrollmentApi,
 } from '../src/platform/device-command.js';
 import { DeviceIsolationDaemonActivationError } from '../src/platform/device-isolation-activation-client.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
 function tempHome(): string {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-device-command-'));
+  const root = makeTestTempDir('botmux-device-command-');
   roots.push(root);
   return root;
 }
@@ -47,7 +47,7 @@ describe('botmux device host command', () => {
     });
     expect(code).toBe(2);
     expect(readBinding).not.toHaveBeenCalled();
-    expect(output.join('\n')).toContain('宿主终端');
+    expect(output.join('\n')).toContain('服务器终端');
   });
 
   it('enrolls, writes 0600, and never prints any machine/grant/device secret', async () => {
@@ -96,7 +96,7 @@ describe('botmux device host command', () => {
     }
   });
 
-  it('prints a stable token-free JSON status for Electron and logout is idempotent', async () => {
+  it('prints a stable token-free JSON status and logout is idempotent', async () => {
     const homeDir = tempHome();
     const api: DeviceEnrollmentApi = {
       issuer: 'https://platform.example.test',

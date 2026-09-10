@@ -1,7 +1,20 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-pi-prompt-1': null,
+    '/fixtures/botmux-pi-prompt-2': null,
+    '/fixtures/botmux-pi-isolation-3': null,
+    '/fixtures/botmux-pi-extension-4': null,
+  });
+});
 import { shouldQueueInitialPrompt } from '../src/codex-rpc-lifecycle.js';
 import { createPiAdapter } from '../src/adapters/cli/pi.js';
 import {
@@ -51,7 +64,7 @@ describe('Pi initial prompt @file delivery', () => {
   });
 
   it('writes short multiline prompts to @file so Herdr can forward control-free argv on resume', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-pi-prompt-'));
+    const dataDir = '/fixtures/botmux-pi-prompt-1';
     try {
       const prompt = '<user_message>\nresume message\n</user_message>';
       const result = preparePiInitialPromptArg({
@@ -68,7 +81,7 @@ describe('Pi initial prompt @file delivery', () => {
   });
 
   it('writes long first prompts to a session-lifetime UTF-8 file and passes @file', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-pi-prompt-'));
+    const dataDir = '/fixtures/botmux-pi-prompt-2';
     try {
       const prompt = longBotmuxPrompt();
       const result = preparePiInitialPromptArg({
@@ -127,7 +140,7 @@ describe('Pi initial prompt @file delivery', () => {
   });
 
   it('uses a distinct readonly directory for every session', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-pi-isolation-'));
+    const dataDir = '/fixtures/botmux-pi-isolation-3';
     try {
       const first = preparePiInitialPromptArg({
         prompt: longBotmuxPrompt(),
@@ -158,7 +171,7 @@ describe('Pi initial prompt @file delivery', () => {
 
 describe('Pi deferred initial prompt extension', () => {
   it('loads the worker-selected file and submits it as one native user message', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-pi-extension-'));
+    const dataDir = '/fixtures/botmux-pi-extension-4';
     const filePath = join(dataDir, 'initial.prompt.md');
     const prompt = longBotmuxPrompt();
     writeFileSync(filePath, prompt);

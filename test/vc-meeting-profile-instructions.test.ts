@@ -39,7 +39,7 @@ describe('vc meeting profile instructions', () => {
     ]) {
       expect(normalizeVcMeetingProfileInstructions(value)).toEqual({
         ok: false,
-        error: 'contains a reserved botmux instruction marker',
+        error: 'contains a reserved internal instruction marker',
       });
     }
   });

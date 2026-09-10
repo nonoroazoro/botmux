@@ -16,13 +16,13 @@ vi.mock('../src/im/lark/client.js', async (importOriginal) => {
   return { ...actual, replyMessage: (...a: any[]) => replyMock(...a) };
 });
 
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseGrantTarget, parseGrantTargets, parseGrantQuota, tryHandleGrantCommand, isGrantTargetOnly } from '../src/im/lark/grant-command.js';
 import { registerBot, getBot, loadBotConfigs } from '../src/bot-registry.js';
 import { addChatGrant } from '../src/services/grant-store.js';
 import * as pending from '../src/im/lark/grant-pending.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function findCardCallbackValue(card: any, action: string): any {
   const visit = (node: any): any => {
@@ -508,7 +508,7 @@ describe('tryHandleGrantCommand two bots co-addressed (@Claude @Codex /grant)', 
   beforeEach(() => {
     replyMock.mockClear();
     pending._resetForTest();
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-grant-co-'));
+    const dir = makeTestTempDir('botmux-grant-co-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
     process.env.SESSION_DATA_DIR = dir; // isolate allowedUsers sidecar (revokeGrant writes it)
@@ -541,7 +541,7 @@ describe('tryHandleGrantCommand whole-chat grant (@bot /grant, no target)', () =
   beforeEach(() => {
     replyMock.mockClear();
     pending._resetForTest();
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-grant-cmd-'));
+    const dir = makeTestTempDir('botmux-grant-cmd-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
     process.env.SESSION_DATA_DIR = dir; // isolate allowedUsers sidecar (revokeGrant writes it)

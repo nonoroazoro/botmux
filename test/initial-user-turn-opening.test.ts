@@ -23,8 +23,7 @@
  * Run:  pnpm vitest run test/initial-user-turn-opening.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const mocks = vi.hoisted(() => {
@@ -117,6 +116,7 @@ import {
   __testOnly_activeSessions as activeSessions,
   __testOnly_handleThreadReply as handleThreadReply,
 } from '../src/daemon.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const APP = 'initial_turn_app';
 const CHAT = 'oc_initial_turn_chat';
@@ -242,7 +242,7 @@ function openingExpectations(cliId: CliId, mode: 'prompt' | 'off' | 'global') {
 describe('empty-started session — first real business turn must use the new-topic opening', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    home = mkdtempSync(join(tmpdir(), 'botmux-initial-turn-'));
+    home = makeTestTempDir('botmux-initial-turn-');
     vi.stubEnv('HOME', home);
     vi.stubEnv('CODEX_HOME', '');
     invalidateGlobalConfigCache();

@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * canOperate team-peer trust (option B): a cross-deployment TEAM peer bot gets
  * daemon-command operate by its tenant-stable union_id, at parity with same-
@@ -5,10 +6,18 @@
  * team group.
  * Run: pnpm vitest run test/team-operate.test.ts
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-teamop-1': null,
+  });
+});
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -23,7 +32,7 @@ import { recordTeamGroup } from '../src/services/team-groups-store.js';
 
 let dataDir: string;
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-teamop-'));
+  dataDir = '/fixtures/botmux-teamop-1';
   config.session.dataDir = dataDir; // canOperate reads team-bots from here
   // Restricted bot (has an allowlist) so canOperate isn't open-mode.
   const bot = registerBot({ larkAppId: 'op1', larkAppSecret: 's', cliId: 'claude-code', allowedUsers: ['ou_owner'] });

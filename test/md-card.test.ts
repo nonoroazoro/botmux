@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for src/im/lark/md-card.ts.
  *
@@ -6,9 +7,21 @@
  * Covers the two production rendering bugs that motivated the markdown-it
  * rewrite plus baseline behaviors that must not regress.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    [homedir()]: null,
+    '/fixtures/botmux-md-card-case-1': null,
+    '/fixtures/botmux-md-card-cwd-2': null,
+  });
+});
 import { homedir, tmpdir } from 'node:os';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   appendReplyCardFooterToV2Card,
@@ -256,7 +269,7 @@ describe('normalizeLocalHomeLinks', () => {
   });
 
   it('preserves an exact-case relative file using real filesystem checks', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-md-card-case-'));
+    const root = '/fixtures/botmux-md-card-case-1';
     const fakeHome = join(root, 'home', 'alice');
     const cwd = join(root, 'project');
     const canonicalRelative = fakeHome.replace(/^\/+/, '');
@@ -647,7 +660,7 @@ describe('normalizeLocalHomeLinks', () => {
   });
 
   it('uses the caller working directory when the card pipeline disambiguates a relative target', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'botmux-md-card-cwd-'));
+    const cwd = '/fixtures/botmux-md-card-cwd-2';
     const relativeHome = homedir().replace(/^\/+|\/+$/g, '');
     mkdirSync(join(cwd, relativeHome), { recursive: true });
     try {
@@ -832,7 +845,7 @@ describe('buildReplyCardFooter', () => {
     });
 
     expect(footer?.content).toContain(
-      'Acme [·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1) '
+      'Acme [·](https://www.feishu.cn/#agent-reply-card-footer-v1) '
       + '上下文 12.3K · '
       + '发送给：<at id=ou_owner></at> <at id=ou_reviewer></at>',
     );
@@ -841,7 +854,7 @@ describe('buildReplyCardFooter', () => {
     expect(footer?.content).not.toContain('\u200B');
     expect(footer?.element).toMatchObject({
       tag: 'markdown',
-      element_id: 'botmux_reply_footer',
+      element_id: 'agent_reply_footer',
       text_size: 'notation_small_v2',
       content: footer?.content,
     });
@@ -862,11 +875,11 @@ describe('buildReplyCardFooter', () => {
     expect(original.body.elements).toHaveLength(1);
     expect(card.body.elements.at(-1)).toMatchObject({
       tag: 'markdown',
-      element_id: 'botmux_reply_footer',
+      element_id: 'agent_reply_footer',
       content: expect.stringContaining('Sent to: <at id=ou_owner></at>'),
     });
     expect(card.body.elements.at(-1).content).toContain(
-      '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)',
+      '[·](https://www.feishu.cn/#agent-reply-card-footer-v1)',
     );
   });
 
@@ -890,7 +903,7 @@ describe('buildReplyCardFooter', () => {
             tag: 'column_set',
             columns: [{
               tag: 'column',
-              elements: [{ tag: 'markdown', element_id: 'botmux_reply_footer', content: 'x' }],
+              elements: [{ tag: 'markdown', element_id: 'agent_reply_footer', content: 'x' }],
             }],
           }],
         },
@@ -907,7 +920,7 @@ describe('buildReplyCardFooter', () => {
           i18n_text_tag_list: {
             zh_cn: [{
               tag: 'text_tag',
-              element_id: 'botmux_reply_footer',
+              element_id: 'agent_reply_footer',
               text: { tag: 'plain_text', content: '状态' },
             }],
           },
@@ -928,7 +941,7 @@ describe('buildReplyCardFooter', () => {
             text: { tag: 'plain_text', content: '提交' },
             behaviors: [{
               type: 'callback',
-              value: { tag: 'deploy', element_id: 'botmux_reply_footer' },
+              value: { tag: 'deploy', element_id: 'agent_reply_footer' },
             }],
           }],
         },
@@ -937,7 +950,7 @@ describe('buildReplyCardFooter', () => {
     ) as any;
 
     expect(card).not.toBeNull();
-    expect(card.body.elements.at(-1).element_id).toBe('botmux_reply_footer');
+    expect(card.body.elements.at(-1).element_id).toBe('agent_reply_footer');
   });
 
   it('omits the footer when brand, usage, and recipient are all absent', () => {
@@ -950,7 +963,7 @@ describe('buildReplyCardFooter', () => {
       usage: { context: { usedTokens: 5_000, windowTokens: 200_000, percentUsed: 2.5 }, tokens: null, turnTokens: null },
     });
     expect(footer?.content).toContain(
-      '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)',
+      '[·](https://www.feishu.cn/#agent-reply-card-footer-v1)',
     );
   });
 
@@ -960,7 +973,7 @@ describe('buildReplyCardFooter', () => {
       recipientOpenIds: ['ou_abc'],
     });
     expect(footer?.content).toContain(
-      '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)',
+      '[·](https://www.feishu.cn/#agent-reply-card-footer-v1)',
     );
     expect(footer?.content).toContain('<at id=ou_abc></at>');
   });
@@ -971,7 +984,7 @@ describe('buildReplyCardFooter', () => {
     });
     expect(footer?.content).not.toContain('[botmux]');
     expect(footer?.content).toContain(
-      '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)',
+      '[·](https://www.feishu.cn/#agent-reply-card-footer-v1)',
     );
   });
 });

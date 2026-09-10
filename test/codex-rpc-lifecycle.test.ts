@@ -49,7 +49,6 @@ describe('codexRpcEligible — every fail-closed gate degrades to paste', () => 
     ['non-tmux backend (pty)', { backendType: 'pty' as any }],
     ['non-tmux backend (herdr)', { backendType: 'herdr' as any }],
     ['adopt mode', { adoptMode: true }],
-    ['read isolation', { readIsolation: true }],
     ['sandbox', { sandbox: true }],
     ['disableCliBypass (approval-gated — must not become dangerFullAccess)', { disableCliBypass: true }],
     ['has startupCommands (/effort ordering)', { startupCommands: ['/effort high'] }],

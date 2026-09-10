@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { computeRuntimeBuildId, resolveRuntimeBuildIdentity } from '../src/utils/runtime-build-id.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach(path => rmSync(path, { recursive: true, force: true })));
@@ -18,7 +18,7 @@ describe('runtime build identity', () => {
   });
 
   it('accepts only a valid generated artifact', () => {
-    const root = mkdtempSync(join(tmpdir(), 'runtime-id-'));
+    const root = makeTestTempDir('runtime-id-');
     dirs.push(root);
     const artifactPath = join(root, '.runtime-build-id');
     writeFileSync(artifactPath, `${'a'.repeat(64)}\n`);

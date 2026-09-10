@@ -11,13 +11,13 @@
  * Run:  pnpm vitest run test/opencode-input.e2e.ts
  */
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import * as pty from 'node-pty';
 import { IdleDetector } from '../src/utils/idle-detector.js';
 import { createOpenCodeAdapter } from '../src/adapters/cli/opencode.js';
 import { resolveCommand } from '../src/adapters/cli/registry.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // ─── Constants (match production worker.ts) ─────────────────────────────────
 
@@ -56,7 +56,7 @@ describe('OpenCode first input submission', () => {
   let tmpDir: string | null = null;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'opencode-e2e-'));
+    tmpDir = makeTestTempDir('opencode-e2e-');
   });
 
   afterEach(() => {

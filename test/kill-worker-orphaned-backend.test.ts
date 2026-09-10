@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for killWorker's orphaned-backing-session teardown (worker-pool.ts).
  *
@@ -15,10 +16,23 @@
  *
  * Run:  pnpm vitest run test/kill-worker-orphaned-backend.test.ts
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-zmx-cli-change-1': null,
+    '/fixtures/botmux-zmx-global-cli-change-2': null,
+    '/fixtures/botmux-zmx-mismatch-cleanup-3': null,
+    '/fixtures/botmux-herdr-orphan-cleanup-4': null,
+    '/fixtures/botmux-herdr-cli-change-5': null,
+  });
+});
 import type { DaemonSession } from '../src/core/types.js';
 
 const {
@@ -124,7 +138,7 @@ beforeEach(() => {
 
 describe('killStalePids — ZMX CLI-change cleanup', () => {
   it('keeps the complete owning session identity and does not issue a second name-only kill', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-zmx-cli-change-'));
+    const dataDir = '/fixtures/botmux-zmx-cli-change-1';
     const previousDataDirEnv = process.env.SESSION_DATA_DIR;
     const previousBackendType = config.daemon.backendType;
     const previousCliId = config.daemon.cliId;
@@ -145,7 +159,7 @@ describe('killStalePids — ZMX CLI-change cleanup', () => {
       expect(zmxKill).toHaveBeenCalledTimes(1);
       expect(zmxKill).toHaveBeenCalledWith(EXPECTED_NAME, SID);
     } finally {
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.daemon.cliId = previousCliId;
       config.daemon.backendType = previousBackendType;
       if (previousDataDirEnv === undefined) delete process.env.SESSION_DATA_DIR;
@@ -155,7 +169,7 @@ describe('killStalePids — ZMX CLI-change cleanup', () => {
   });
 
   it('continues global CLI-change cleanup after one managed ZMX kill refuses ownership', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-zmx-global-cli-change-'));
+    const dataDir = '/fixtures/botmux-zmx-global-cli-change-2';
     const previousDataDirEnv = process.env.SESSION_DATA_DIR;
     const previousBackendType = config.daemon.backendType;
     const previousCliId = config.daemon.cliId;
@@ -181,7 +195,7 @@ describe('killStalePids — ZMX CLI-change cleanup', () => {
       expect(zmxKill).toHaveBeenNthCalledWith(1, 'bmx-33333333', firstId);
       expect(zmxKill).toHaveBeenNthCalledWith(2, 'bmx-44444444', secondId);
     } finally {
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.daemon.cliId = previousCliId;
       config.daemon.backendType = previousBackendType;
       if (previousDataDirEnv === undefined) delete process.env.SESSION_DATA_DIR;
@@ -191,7 +205,7 @@ describe('killStalePids — ZMX CLI-change cleanup', () => {
   });
 
   it('continues cleaning other CLI-mismatch rows when one exact ZMX kill fails closed', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-zmx-mismatch-cleanup-'));
+    const dataDir = '/fixtures/botmux-zmx-mismatch-cleanup-3';
     const previousDataDirEnv = process.env.SESSION_DATA_DIR;
     const previousBackendType = config.daemon.backendType;
     const previousCliId = config.daemon.cliId;
@@ -240,7 +254,7 @@ describe('killStalePids — ZMX CLI-change cleanup', () => {
       expect(zmxKill).toHaveBeenNthCalledWith(1, 'bmx-11111111', firstId);
       expect(zmxKill).toHaveBeenNthCalledWith(2, 'bmx-22222222', secondId);
     } finally {
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.daemon.cliId = previousCliId;
       config.daemon.backendType = previousBackendType;
       if (previousDataDirEnv === undefined) delete process.env.SESSION_DATA_DIR;
@@ -252,7 +266,7 @@ describe('killStalePids — ZMX CLI-change cleanup', () => {
 
 describe('killStalePids — shared Herdr orphan cleanup', () => {
   it('kills only strongly-bound persisted agents that are no longer active', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-herdr-orphan-cleanup-'));
+    const dataDir = '/fixtures/botmux-herdr-orphan-cleanup-4';
     const previousDataDirEnv = process.env.SESSION_DATA_DIR;
     const previousBackendType = config.daemon.backendType;
     const previousCliId = config.daemon.cliId;
@@ -366,7 +380,7 @@ describe('killStalePids — shared Herdr orphan cleanup', () => {
       );
       expect(herdrKill).not.toHaveBeenCalledWith('botmux');
     } finally {
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.daemon.cliId = previousCliId;
       config.daemon.backendType = previousBackendType;
       if (previousDataDirEnv === undefined) delete process.env.SESSION_DATA_DIR;
@@ -376,7 +390,7 @@ describe('killStalePids — shared Herdr orphan cleanup', () => {
   });
 
   it('preserves a current runtime agent while a global CLI change removes stale exact agents', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-herdr-cli-change-'));
+    const dataDir = '/fixtures/botmux-herdr-cli-change-5';
     const previousDataDirEnv = process.env.SESSION_DATA_DIR;
     const previousBackendType = config.daemon.backendType;
     const previousCliId = config.daemon.cliId;
@@ -435,7 +449,7 @@ describe('killStalePids — shared Herdr orphan cleanup', () => {
         ]),
       );
     } finally {
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.daemon.cliId = previousCliId;
       config.daemon.backendType = previousBackendType;
       if (previousDataDirEnv === undefined) delete process.env.SESSION_DATA_DIR;

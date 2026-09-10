@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const childProcess = vi.hoisted(() => ({
   spawnSync: vi.fn(),
@@ -15,7 +15,7 @@ describe('plugin PM2 environment', () => {
   let home: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-plugin-pm2-env-'));
+    home = makeTestTempDir('botmux-plugin-pm2-env-');
     vi.stubEnv('HOME', home);
     vi.stubEnv('kill_timeout', '3500');
     vi.resetModules();

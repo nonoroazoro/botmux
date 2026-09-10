@@ -1,8 +1,18 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-client-secret-1': null,
+  });
+});
 
 import {
   createDaemonClient,
@@ -98,7 +108,7 @@ describe('secret loading', () => {
   });
 
   it('throws clearly when the default-loaded secret file is whitespace-only', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-client-secret-'));
+    const dir = '/fixtures/botmux-client-secret-1';
     dirs.push(dir);
     const secretPath = join(dir, '.dashboard-secret');
     writeFileSync(secretPath, '  \n');

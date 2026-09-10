@@ -1,8 +1,19 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-codex-context-1': null,
+    '/fixtures/botmux-codex-context-boundary-2': null,
+  });
+});
 import {
   codexNotifierEventId,
   detectScreenLock,
@@ -214,7 +225,7 @@ describe('Codex turn context', () => {
   });
 
   it('reads app provenance from the bounded head of a transcript larger than the tail window', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-context-'));
+    const dir = '/fixtures/botmux-codex-context-1';
     const file = join(dir, 'rollout.jsonl');
     const threadId = '019f8d92-df7c-7572-83ca-b1e99f20204c';
     try {
@@ -258,7 +269,7 @@ describe('Codex turn context', () => {
   });
 
   it('keeps a complete task_started record at the exact tail boundary', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-context-boundary-'));
+    const dir = '/fixtures/botmux-codex-context-boundary-2';
     const file = join(dir, 'rollout.jsonl');
     const taskStarted = `${JSON.stringify({
       type: 'event_msg',

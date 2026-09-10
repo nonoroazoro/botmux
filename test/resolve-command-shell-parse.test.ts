@@ -1,48 +1,15 @@
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { resolveCommand } from '../src/adapters/cli/registry.js';
-import { shellPathProbes } from '../src/desktop/shared/shell-path-probes.js';
-
-describe('shellPathProbes ladder', () => {
-  it('defaults to zsh, interactive flavor first', () => {
-    expect(shellPathProbes({})).toEqual([
-      { shell: '/bin/zsh', flags: '-ic' },
-      { shell: '/bin/zsh', flags: '-lc' },
-    ]);
-  });
-
-  it('probes the bash login shell before the zsh fallback for bash users', () => {
-    expect(shellPathProbes({ SHELL: '/bin/bash' })).toEqual([
-      { shell: '/bin/bash', flags: '-ic' },
-      { shell: '/bin/bash', flags: '-lc' },
-      { shell: '/bin/zsh', flags: '-ic' },
-      { shell: '/bin/zsh', flags: '-lc' },
-    ]);
-  });
-
-  it('dedupes when $SHELL already is /bin/zsh', () => {
-    expect(shellPathProbes({ SHELL: '/bin/zsh' })).toEqual([
-      { shell: '/bin/zsh', flags: '-ic' },
-      { shell: '/bin/zsh', flags: '-lc' },
-    ]);
-  });
-
-  it('ignores non-POSIX shells like fish', () => {
-    expect(shellPathProbes({ SHELL: '/usr/local/bin/fish' })).toEqual([
-      { shell: '/bin/zsh', flags: '-ic' },
-      { shell: '/bin/zsh', flags: '-lc' },
-    ]);
-  });
-});
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('resolveCommand shell output parsing', () => {
   let dir: string;
   let savedShell: string | undefined;
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'botmux-shell-parse-'));
+    dir = makeTestTempDir('botmux-shell-parse-');
   });
 
   afterAll(() => {

@@ -1,6 +1,16 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-forward-followup-1': null,
+  });
+});
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   listForwardFollowups,
@@ -12,7 +22,7 @@ describe('forward-followup-store', () => {
   let dataDir: string;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-forward-followup-'));
+    dataDir = '/fixtures/botmux-forward-followup-1';
     vi.stubEnv('SESSION_DATA_DIR', dataDir);
   });
 

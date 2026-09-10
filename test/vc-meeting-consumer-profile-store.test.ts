@@ -1,7 +1,7 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => ({
   Client: class FakeClient {},
@@ -19,7 +19,7 @@ describe('vc meeting consumer profile store', () => {
   let configPath: string;
 
   beforeEach(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-vc-profile-store-'));
+    const dir = makeTestTempDir('botmux-vc-profile-store-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
   });
@@ -196,38 +196,6 @@ describe('vc meeting consumer profile store', () => {
     expect(result.ok).toBe(true);
     expect(readRaw().vcMeetingAgent.meetingConsumer.defaultProfileBootstrap).toBeUndefined();
     if (result.ok) expect(result.snapshot.defaultProfileBootstrap).toBeUndefined();
-  });
-
-  it('offers an explicit default activation only for the exact legacy generated seed', async () => {
-    const legacyProfile = {
-      id: 'minutes',
-      agentAppId: 'cli_agent',
-      label: '会议纪要',
-      role: 'minutes',
-      instructions: '持续整理会议纪要，重点记录已确认的决策、待办事项（含负责人和截止时间）以及未解决风险；字幕修订时更新已有条目，不重复记录同一事项。',
-      responseMode: 'silent',
-      capabilities: ['meeting.read'],
-    };
-    writeConfig({
-      vcMeetingAgent: {
-        enabled: true,
-        meetingConsumer: {
-          enabled: true,
-          injectIntervalMs: 30_000,
-          defaultMode: 'listenOnly',
-          consumerProfiles: [legacyProfile],
-        },
-      },
-    });
-    const { store } = await freshModules();
-    expect((await store.readVcMeetingConsumerProfiles('cli_listener'))?.migrationOffer)
-      .toBe('enable_seeded_minutes_default');
-
-    const raw = readRaw();
-    raw.vcMeetingAgent.meetingConsumer.consumerProfiles[0].label = '我的纪要';
-    writeFileSync(configPath, JSON.stringify([raw], null, 2), 'utf8');
-    expect((await store.readVcMeetingConsumerProfiles('cli_listener'))?.migrationOffer)
-      .toBeUndefined();
   });
 
   it('returns a DTO field path for invalid instructions and does not write', async () => {

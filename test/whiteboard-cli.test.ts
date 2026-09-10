@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CLI_PATH = join(__dirname, '..', 'dist', 'cli.js');
 
@@ -11,7 +11,7 @@ let dataDir: string;
 
 beforeAll(() => {
   if (!existsSync(CLI_PATH)) throw new Error('dist/cli.js missing — run `pnpm build` first');
-  home = mkdtempSync(join(tmpdir(), 'botmux-whiteboard-cli-'));
+  home = makeTestTempDir('botmux-whiteboard-cli-');
   dataDir = join(home, '.botmux', 'data');
   mkdirSync(dataDir, { recursive: true });
 });

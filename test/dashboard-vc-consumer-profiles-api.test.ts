@@ -510,18 +510,6 @@ describe('handleVcMeetingConsumerProfilesGet', () => {
     });
   });
 
-  it('GET exposes an explicit legacy-seed migration offer without mutating config', async () => {
-    const deps = makeDeps({
-      readSnapshot: vi.fn(async () => snapshot({
-        migrationOffer: 'enable_seeded_minutes_default',
-      })),
-    });
-    const out = await handleVcMeetingConsumerProfilesGet('app_listener', deps);
-    expect(out.status).toBe(200);
-    if (out.status !== 200) return;
-    expect(out.body.migrationOffer).toBe('enable_seeded_minutes_default');
-    expect(deps.updateSnapshot).not.toHaveBeenCalled();
-  });
 });
 
 describe('handleVcMeetingConsumerProfilesPut', () => {

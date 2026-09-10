@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -11,10 +10,11 @@ import {
   botmuxVersionAt,
   botmuxCliEntryAt,
 } from '../src/utils/install-info.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('isLocalDevInstallAt', () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'botmux-install-')); });
+  beforeEach(() => { dir = makeTestTempDir('botmux-install-'); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
   it('true when a .git directory is present (checkout)', () => {
@@ -53,7 +53,7 @@ describe('botmuxVersion', () => {
   });
 
   it('can read a stable package root selected by the updater', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-version-at-'));
+    const root = makeTestTempDir('botmux-version-at-');
     try {
       writeFileSync(join(root, 'package.json'), JSON.stringify({ version: '9.8.7' }));
       expect(botmuxVersionAt(root)).toBe('9.8.7');

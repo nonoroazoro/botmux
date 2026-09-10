@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for async-trigger-store: recordPending, recordCompleted, lookup,
  * deleteResults — the durable backing that lets trigger-result survive a daemon
@@ -9,9 +10,18 @@
  * Run:  pnpm vitest run test/async-trigger-store.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/async-trigger-store-test-1': null,
+  });
+});
+import { rmSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 let tempDir: string;
 
@@ -35,7 +45,7 @@ import {
 } from '../src/services/async-trigger-store.js';
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'async-trigger-store-test-'));
+  tempDir = '/fixtures/async-trigger-store-test-1';
 });
 
 afterEach(() => {

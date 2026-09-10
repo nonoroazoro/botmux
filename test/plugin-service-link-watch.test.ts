@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const pm2 = vi.hoisted(() => ({
@@ -16,6 +15,7 @@ vi.mock('../src/core/plugins/pm2.js', () => ({
 
 import { installLocalPlugin } from '../src/core/plugins/install.js';
 import { startPluginServices } from '../src/core/plugins/service-manager.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function pm2List(hash: string, status = 'online'): string {
   return JSON.stringify([{
@@ -62,7 +62,7 @@ describe('linked plugin service watcher', () => {
   let source: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-plugin-link-watch-'));
+    home = makeTestTempDir('botmux-plugin-link-watch-');
     source = join(home, 'source');
     vi.stubEnv('HOME', home);
     pm2.capture.mockReset();

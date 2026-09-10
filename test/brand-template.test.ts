@@ -1,16 +1,26 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { utimesSync } from 'node:fs';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderBrandTemplate, renderPlainBrandLabel } from '../src/im/lark/brand-template.js';
 
-// 镜像 brand-template.ts 的 safeText：脚注里显示的文本会走 escapeLarkMd（& < > * _ ~ `）
-// + 剥离链接结构 [ ] ( )。路径派生的显示值也过它，所以下面用它算期望。
-const escText = (s: string) =>
-  s.replace(/[\r\n]+/g, ' ')
-    .replace(/\\/g, '\\\\')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/([*_~`])/g, '\\$1').replace(/[[\]()]/g, '');
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+
+let revision = 0;
+
+beforeEach(() => {
+  resetMemoryFs({});
+});
+
+/**
+ * Supply metadata with a new revision so the production cache observes updates.
+ * Rendering needs metadata and path strings, not directories on the host.
+ */
+function setMetadataFile(path: string, content: string): void {
+  resetMemoryFs({ [path]: content });
+  utimesSync(path, ++revision, revision);
+}
 
 describe('renderPlainBrandLabel', () => {
   it('renders the bot name as plain text without a link', () => {
@@ -32,14 +42,14 @@ describe('renderBrandTemplate', () => {
   });
 
   it('{cwdName} 取目录 basename，{cwd} 取全路径', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-'));
-    expect(renderBrandTemplate('{cwdName}', dir)).toBe(escText(basename(dir)));
-    expect(renderBrandTemplate('{cwd}', dir)).toBe(escText(dir));
+    const dir = '/fixtures/brand';
+    expect(renderBrandTemplate('{cwdName}', dir)).toBe('brand');
+    expect(renderBrandTemplate('{cwd}', dir)).toBe('/fixtures/brand');
   });
 
   it('.botmux-dir.json 的 name 覆盖 basename、url 填充 {cwdUrl}', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({ name: '售后客服', url: 'https://x.feishu.cn/docx/abc' }));
+    const dir = '/fixtures/brand';
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({ name: '售后客服', url: 'https://x.feishu.cn/docx/abc' }));
     expect(renderBrandTemplate('[{cwdName}]({cwdUrl})', dir)).toBe('[售后客服](https://x.feishu.cn/docx/abc)');
   });
 
@@ -48,20 +58,16 @@ describe('renderBrandTemplate', () => {
     // 字面量 `~/...` 直接流到这里；Node 的 fs 不认 ~ → statSync ENOENT → 角色名丢失。
     // 其它消费方（session-manager.ts spawn 的 cwd）都 expandHome 了，只有这里漏了。
     const home = homedir();
-    const dir = mkdtempSync(join(home, '.brand-tilde-'));
-    try {
-      writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({ name: '默认助理', url: 'https://x.feishu.cn/docx/abc' }));
-      const tilde = `~/${basename(dir)}`;             // 字面量 ~，正是 oncall 绑定里存的形态
-      expect(renderBrandTemplate('[{cwdName}]({cwdUrl})', tilde)).toBe('[默认助理](https://x.feishu.cn/docx/abc)');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const dir = join(home, '.brand-tilde');
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({ name: '默认助理', url: 'https://x.feishu.cn/docx/abc' }));
+    expect(renderBrandTemplate('[{cwdName}]({cwdUrl})', `~/${basename(dir)}`))
+      .toBe('[默认助理](https://x.feishu.cn/docx/abc)');
   });
 
   // ── codex review 抓出的 4 条（均已复现）──────────────────────────────
   it('name/url 是不可信输入：剥离 []、换行，拒绝非 http(s) 与含 ) 的 url（防卡片注入）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-inj-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({
+    const dir = '/fixtures/brand-inj';
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({
       name: 'role]\n**伪造正文**',
       url: 'https://safe.example/x) 后续正文',
     }));
@@ -76,7 +82,7 @@ describe('renderBrandTemplate', () => {
   it('目录名本身含 ] 时也要消毒（basename fallback / {cwd} 同样落在链接文本位）', () => {
     // `mkdir 'a]b'` 完全合法 —— 没有 .botmux-dir.json 时 {cwdName} 回落到 basename(wd)，
     // 目录名里的 ] 照样能击穿 [text](url)。
-    const dir = mkdtempSync(join(tmpdir(), 'brand-]evil-'));
+    const dir = '/fixtures/brand-]evil';
     const out = renderBrandTemplate('[{cwdName}](https://x.example/)', dir)!;
     expect(out).toContain('](https://x.example/)');       // 链接结构完好
     expect(out.split('](https://x.example/)')[0]).not.toContain(']');  // 文本位没有裸 ]
@@ -84,15 +90,15 @@ describe('renderBrandTemplate', () => {
   });
 
   it('javascript: 等危险 scheme 一律丢弃', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-js-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'x', url: 'javascript:alert(1)' }));
+    const dir = '/fixtures/brand-js';
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'x', url: 'javascript:alert(1)' }));
     expect(renderBrandTemplate('[{cwdName}]({cwdUrl})', dir)).toBe('x');
   });
 
   it('safeUrl 拒绝 userinfo 钓鱼形态与反斜杠', () => {
     const mk = (url: string) => {
-      const dir = mkdtempSync(join(tmpdir(), 'brand-url-'));
-      writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'x', url }));
+      const dir = '/fixtures/brand-url';
+      setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'x', url }));
       return renderBrandTemplate('[{cwdName}]({cwdUrl})', dir);
     };
     expect(mk('https://trusted.example@evil.example/p')).toBe('x');  // userinfo → 丢弃 → 降级
@@ -110,8 +116,8 @@ describe('renderBrandTemplate', () => {
 
   // ── codex 复验抓出的 2 条残留 ────────────────────────────────────────
   it('name 不能注入 lark_md 标签（</font><at> 伪造 @提及）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-font-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({
+    const dir = '/fixtures/brand-font';
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({
       name: "x</font><at id=ou_x></at><font color='grey'>",
     }));
     const out = renderBrandTemplate('{cwdName}', dir)!;
@@ -122,9 +128,8 @@ describe('renderBrandTemplate', () => {
   });
 
   it('目录名含 < 或 markdown 强调字符时被转义（路径派生值同样过 escapeLarkMd）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-lt-'));
+    const dir = '/fixtures/brand-lt';
     const evil = join(dir, 'a<font>b');   // 单段名（不含 /，否则会被当嵌套路径）
-    mkdirSync(evil);
     const out = renderBrandTemplate('{cwdName}', evil)!;
     expect(out).not.toContain('<font>');
     expect(out).toContain('a&lt;font&gt;b');
@@ -132,9 +137,8 @@ describe('renderBrandTemplate', () => {
 
   it('变量落在 URL 位时也安全：路径里的 ) 不能提前闭合链接', () => {
     // brandLabel 是用户可配的，{cwd} 完全可能被放进 URL 位；而目录名可以含 `)`。
-    const dir = mkdtempSync(join(tmpdir(), 'brand-paren-'));
+    const dir = '/fixtures/brand-paren';
     const evil = join(dir, 'a) **spoof**');
-    mkdirSync(evil);
     const out = renderBrandTemplate('[repo]({cwd})', evil)!;
     expect(out).not.toContain(') **spoof**');   // 没有提前闭合
     expect(out.endsWith(')')).toBe(true);
@@ -142,17 +146,17 @@ describe('renderBrandTemplate', () => {
   });
 
   it('反斜杠先转义：`\\*bold\\*` 不能靠偶数反斜杠让 * 复活', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-bs-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({ name: '\\*bold\\*' }));
+    const dir = '/fixtures/brand-bs';
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({ name: '\\*bold\\*' }));
     const out = renderBrandTemplate('{cwdName}', dir)!;
     // 每个反斜杠翻倍 + 每个 * 前补一个 \\ → * 前面是奇数个反斜杠 → 被吃掉，不成强调
     expect(out).not.toMatch(/(?<!\\)(?:\\\\)*\*/);  // 没有「偶数反斜杠 + 裸 *」
   });
 
   it('截断不切断转义序列：末尾不留落单反斜杠（会转义模板的 ]）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-trunc-'));
+    const dir = '/fixtures/brand-trunc';
     // name 恰好 64 码点、末尾是需转义的 * → 先转义后截断会把 \* 切成落单 \
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({
       name: 'a'.repeat(63) + '*', url: 'https://x.feishu.cn/docx/abc',
     }));
     const out = renderBrandTemplate('[{cwdName}]({cwdUrl})', dir)!;
@@ -161,21 +165,21 @@ describe('renderBrandTemplate', () => {
   });
 
   it('safeUrl 挡掉 https://// 归一混淆', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-slash-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'x', url: 'https:////evil.example' }));
+    const dir = '/fixtures/brand-slash';
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'x', url: 'https:////evil.example' }));
     expect(renderBrandTemplate('[{cwdName}]({cwdUrl})', dir)).toBe('x');  // 丢弃 → 降级
   });
 
   it('name 按码点截断，不切坏 emoji', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-emoji-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'a'.repeat(63) + '😀' }));
+    const dir = '/fixtures/brand-emoji';
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'a'.repeat(63) + '😀' }));
     const out = renderBrandTemplate('{cwdName}', dir)!;
     expect(out.endsWith('😀')).toBe(true);      // 完整的 emoji，不是半个代理对
     expect(out).not.toContain('\uFFFD');
   });
 
   it('url 缺失时空链接降级为纯文本', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-'));
+    const dir = '/fixtures/brand';
     expect(renderBrandTemplate('[{cwdName}]({cwdUrl})', dir)).toBe(basename(dir));
   });
 
@@ -184,14 +188,14 @@ describe('renderBrandTemplate', () => {
   });
 
   it('元文件损坏时按不存在处理', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), '{not json');
+    const dir = '/fixtures/brand';
+    setMetadataFile(join(dir, '.botmux-dir.json'), '{not json');
     expect(renderBrandTemplate('{cwdName}', dir)).toBe(basename(dir));
   });
 
   it('替换进去的值含变量字面量时不被二次替换', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'brand-'));
-    writeFileSync(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'foo{cwd}bar' }));
+    const dir = '/fixtures/brand';
+    setMetadataFile(join(dir, '.botmux-dir.json'), JSON.stringify({ name: 'foo{cwd}bar' }));
     expect(renderBrandTemplate('{cwdName}', dir)).toBe('foo{cwd}bar');
   });
 });

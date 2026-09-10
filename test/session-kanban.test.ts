@@ -1,7 +1,20 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/team-groups-1': null,
+    '/fixtures/team-groups-2': null,
+    '/fixtures/team-board-3': null,
+    '/fixtures/team-board-4': null,
+  });
+});
 import { listTeamGroups, recordTeamGroup } from '../src/services/team-groups-store.js';
 import {
   listTeamReports,
@@ -110,7 +123,7 @@ describe('team-groups-store', () => {
   afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); });
 
   it('records and lists team↔chat bindings, deduped', () => {
-    dir = mkdtempSync(join(tmpdir(), 'team-groups-'));
+    dir = '/fixtures/team-groups-1';
     expect(listTeamGroups(dir)).toEqual([]);
     recordTeamGroup(dir, 'team-a', 'oc_1', 1000);
     recordTeamGroup(dir, 'team-a', 'oc_2', 2000);
@@ -122,7 +135,7 @@ describe('team-groups-store', () => {
   });
 
   it('ignores empty ids and survives a missing file', () => {
-    dir = mkdtempSync(join(tmpdir(), 'team-groups-'));
+    dir = '/fixtures/team-groups-2';
     recordTeamGroup(dir, '', 'oc_1');
     recordTeamGroup(dir, 'team-a', '');
     expect(listTeamGroups(dir)).toEqual([]);
@@ -134,7 +147,7 @@ describe('team-board-store', () => {
   afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); });
 
   it('writes and reads shared board entries with validation', () => {
-    dir = mkdtempSync(join(tmpdir(), 'team-board-'));
+    dir = '/fixtures/team-board-3';
     expect(setTeamBoardEntry(dir, 't1', 'sid-1', 'in_progress', 1024, 5)).toEqual({ column: 'in_progress', position: 1024, updatedAt: 5 });
     expect(setTeamBoardEntry(dir, 't1', 'sid-1', 'nope', 1)).toBeNull();
     expect(setTeamBoardEntry(dir, 't1', 'sid-1', 'done', Number.NaN)).toBeNull();
@@ -144,7 +157,7 @@ describe('team-board-store', () => {
   });
 
   it('records per-deployment session reports, overwriting previous snapshots', () => {
-    dir = mkdtempSync(join(tmpdir(), 'team-board-'));
+    dir = '/fixtures/team-board-4';
     recordTeamSessions(dir, 't1', 'dep-a', 'A 部署', [
       { sessionId: 's1', chatId: 'oc_1', botName: 'B', cliId: 'codex', status: 'working', lastMessageAt: 1 },
     ], 100);

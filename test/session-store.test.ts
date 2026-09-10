@@ -1,31 +1,11 @@
-/**
- * Unit tests for services/session-store.
- *
- * Uses a real temp directory for each test to exercise the actual
- * file-based persistence without mocking fs.
- *
- * Run:  pnpm vitest run test/session-store.test.ts
- */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────
 
-const fsControl = vi.hoisted(() => ({ failSessionWrite: false }));
-vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs')>();
-  return {
-    ...actual,
-    writeFileSync: (...args: Parameters<typeof actual.writeFileSync>) => {
-      if (fsControl.failSessionWrite && String(args[0]).includes('sessions.json.')) {
-        throw new Error('simulated session repair write failure');
-      }
-      return actual.writeFileSync(...args);
-    },
-  };
-});
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
 
 // Mock config so we can point session.dataDir at a temp directory
 let tempDir: string;
@@ -65,27 +45,16 @@ import {
   updateSession,
   updateSessionPid,
   findActiveSessionsByRoot,
-  repairMissingChatScope,
 } from '../src/services/session-store.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-function makeTempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'session-store-test-'));
-}
-
-// ─── Setup / Teardown ─────────────────────────────────────────────────────
-
 beforeEach(() => {
-  tempDir = makeTempDir();
-  fsControl.failSessionWrite = false;
+  tempDir = '/fixtures/session-store';
+  resetMemoryFs({ [tempDir]: null });
   mockDeleteFrozenCards.mockReset();
   // Reset module state for each test
-  init();
-});
-
-afterEach(() => {
-  try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  init('test-bot');
 });
 
 // ─── init() ───────────────────────────────────────────────────────────────
@@ -103,7 +72,7 @@ describe('init()', () => {
   it('should create the data directory on first operation if it does not exist', () => {
     const subDir = join(tempDir, 'nested', 'data');
     tempDir = subDir;
-    init();
+    init('test-bot');
     // The directory is created lazily on first load (e.g. createSession)
     createSession('chat1', 'root1', 'Test');
     expect(existsSync(subDir)).toBe(true);
@@ -122,124 +91,14 @@ describe('init()', () => {
         createdAt: '2026-01-01T00:00:00.000Z',
       },
     };
-    writeFileSync(join(tempDir, 'sessions.json'), JSON.stringify(session));
+    writeFileSync(join(tempDir, 'sessions-test-bot.json'), JSON.stringify(session));
 
     // Re-init to pick up the file
-    init();
+    init('test-bot');
     const loaded = getSession('s1');
     expect(loaded).toBeDefined();
     expect(loaded!.title).toBe('Pre-existing');
     expect(loaded!.status).toBe('active');
-  });
-
-  it('repairs only the scope-less oc_=root chat corruption signature', () => {
-    mkdirSync(tempDir, { recursive: true });
-    const records = {
-      broken: {
-        sessionId: 'broken',
-        chatId: 'oc_chat',
-        rootMessageId: 'oc_chat',
-        title: 'Broken repo switch',
-        status: 'active',
-        createdAt: '2026-07-18T00:00:00.000Z',
-      },
-      legacyThread: {
-        sessionId: 'legacyThread',
-        chatId: 'oc_chat',
-        rootMessageId: 'om_thread',
-        title: 'Legacy thread',
-        status: 'active',
-        createdAt: '2026-01-01T00:00:00.000Z',
-      },
-    };
-    const fp = join(tempDir, 'sessions.json');
-    writeFileSync(fp, JSON.stringify(records));
-
-    init();
-
-    expect(getSession('broken')?.scope).toBe('chat');
-    expect(getSession('legacyThread')?.scope).toBeUndefined();
-    const persisted = JSON.parse(readFileSync(fp, 'utf-8'));
-    expect(persisted.broken.scope).toBe('chat');
-    expect(persisted.legacyThread.scope).toBeUndefined();
-  });
-
-  it('ignores malformed entries while repairing healthy sessions', () => {
-    mkdirSync(tempDir, { recursive: true });
-    const fp = join(tempDir, 'sessions.json');
-    writeFileSync(fp, JSON.stringify({
-      missingChatId: { sessionId: 'missing-chat-id' },
-      primitive: 'not-a-session',
-      broken: {
-        sessionId: 'broken',
-        chatId: 'oc_chat',
-        rootMessageId: 'oc_chat',
-        title: 'Broken repo switch',
-        status: 'active',
-        createdAt: '2026-07-18T00:00:00.000Z',
-      },
-      healthy: {
-        sessionId: 'healthy',
-        chatId: 'oc_chat',
-        rootMessageId: 'om_thread',
-        scope: 'thread',
-        title: 'Healthy thread',
-        status: 'active',
-        createdAt: '2026-07-18T00:00:00.000Z',
-      },
-    }));
-
-    init();
-
-    expect(getSession('broken')?.scope).toBe('chat');
-    expect(getSession('healthy')?.title).toBe('Healthy thread');
-    expect(listSessions()).toHaveLength(4);
-  });
-
-  it('repairs the corruption signature through the shared deserialization helper', () => {
-    const record: Record<string, unknown> = {
-      sessionId: 'broken',
-      chatId: 'oc_chat',
-      rootMessageId: 'oc_chat',
-    };
-
-    expect(repairMissingChatScope(record)).toBe(true);
-    expect(record.scope).toBe('chat');
-    expect(repairMissingChatScope(record)).toBe(false);
-    expect(repairMissingChatScope(null)).toBe(false);
-    expect(repairMissingChatScope({ sessionId: 'malformed' })).toBe(false);
-  });
-
-  it('keeps loaded sessions available when persisting a scope repair fails', () => {
-    mkdirSync(tempDir, { recursive: true });
-    const fp = join(tempDir, 'sessions.json');
-    writeFileSync(fp, JSON.stringify({
-      broken: {
-        sessionId: 'broken',
-        chatId: 'oc_chat',
-        rootMessageId: 'oc_chat',
-        title: 'Broken repo switch',
-        status: 'active',
-        createdAt: '2026-07-18T00:00:00.000Z',
-      },
-      healthy: {
-        sessionId: 'healthy',
-        chatId: 'oc_chat',
-        rootMessageId: 'om_thread',
-        scope: 'thread',
-        title: 'Healthy thread',
-        status: 'active',
-        createdAt: '2026-07-18T00:00:00.000Z',
-      },
-    }));
-
-    fsControl.failSessionWrite = true;
-    init();
-
-    expect(getSession('broken')?.scope).toBe('chat');
-    expect(getSession('healthy')?.title).toBe('Healthy thread');
-    expect(listSessions()).toHaveLength(2);
-    expect(JSON.parse(readFileSync(fp, 'utf-8')).broken.scope).toBeUndefined();
   });
 
   it('should reset state when called again', () => {
@@ -276,7 +135,7 @@ describe('createSession()', () => {
 
   it('should persist session to disk', () => {
     const session = createSession('chat1', 'root1', 'Persisted');
-    const fp = join(tempDir, 'sessions.json');
+    const fp = join(tempDir, 'sessions-test-bot.json');
     expect(existsSync(fp)).toBe(true);
     const data = JSON.parse(readFileSync(fp, 'utf-8'));
     expect(data[session.sessionId]).toBeDefined();
@@ -365,7 +224,7 @@ describe('closeSession()', () => {
     closeSession(session.sessionId);
 
     // Re-init and reload from disk
-    init();
+    init('test-bot');
     const reloaded = getSession(session.sessionId);
     expect(reloaded!.status).toBe('closed');
     expect(reloaded!.closedAt).toBeDefined();
@@ -418,7 +277,7 @@ describe('updateSession()', () => {
     updateSession(session);
 
     // Re-init to reload from disk
-    init();
+    init('test-bot');
     const reloaded = getSession(session.sessionId);
     expect(reloaded!.webPort).toBe(9999);
   });
@@ -426,7 +285,7 @@ describe('updateSession()', () => {
   it('skips the disk write when an update produces byte-identical content', () => {
     // save() does writeFile(tmp) + rename(tmp → fp), so every REAL write
     // replaces the file's inode. A skipped write leaves the inode untouched.
-    const fp = join(tempDir, 'sessions.json');
+    const fp = join(tempDir, 'sessions-test-bot.json');
     const session = createSession('chat1', 'root1', 'NoChange');
     const inodeAfterCreate = statSync(fp).ino;
 
@@ -442,7 +301,7 @@ describe('updateSession()', () => {
     expect(statSync(fp).ino).not.toBe(inodeAfterCreate);
 
     // Content is still correct after the skip/write sequence.
-    init();
+    init('test-bot');
     expect(getSession(session.sessionId)!.title).toBe('Changed');
   });
 
@@ -519,45 +378,6 @@ describe('Multi-bot isolation', () => {
     init('app-alpha');
     expect(listSessions()).toHaveLength(2);
   });
-
-  it('should use legacy sessions.json when no appId is set', () => {
-    init();
-    createSession('c1', 'r1', 'Legacy');
-    expect(existsSync(join(tempDir, 'sessions.json'))).toBe(true);
-  });
-
-  it('should migrate matching sessions from legacy file to per-bot file', () => {
-    // Write a legacy sessions.json with sessions from two different apps
-    mkdirSync(tempDir, { recursive: true });
-    const legacyData = {
-      s1: {
-        sessionId: 's1',
-        chatId: 'c1',
-        rootMessageId: 'r1',
-        title: 'App A Session',
-        status: 'active',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        larkAppId: 'app-A',
-      },
-      s2: {
-        sessionId: 's2',
-        chatId: 'c2',
-        rootMessageId: 'r2',
-        title: 'App B Session',
-        status: 'active',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        larkAppId: 'app-B',
-      },
-    };
-    writeFileSync(join(tempDir, 'sessions.json'), JSON.stringify(legacyData));
-
-    // Init with app-A; should migrate only app-A sessions
-    init('app-A');
-    const sessions = listSessions();
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0].title).toBe('App A Session');
-    expect(existsSync(join(tempDir, 'sessions-app-A.json'))).toBe(true);
-  });
 });
 
 // ─── findActiveSessionsByRoot() — cross-bot lookup ───────────────────────
@@ -629,20 +449,20 @@ describe('findActiveSessionsByRoot()', () => {
 describe('Edge cases', () => {
   it('should handle corrupted JSON gracefully', () => {
     mkdirSync(tempDir, { recursive: true });
-    writeFileSync(join(tempDir, 'sessions.json'), 'NOT VALID JSON!!!');
+    writeFileSync(join(tempDir, 'sessions-test-bot.json'), 'NOT VALID JSON!!!');
 
-    init();
+    init('test-bot');
     // Should not throw, should start with empty sessions
     const sessions = listSessions();
     expect(sessions).toEqual([]);
   });
 
   it('should survive multiple inits without data loss (same appId)', () => {
-    init();
+    init('test-bot');
     createSession('c1', 'r1', 'First');
     createSession('c2', 'r2', 'Second');
 
-    init(); // re-init loads from disk
+    init('test-bot'); // re-init loads from disk
     expect(listSessions()).toHaveLength(2);
   });
 
@@ -651,34 +471,5 @@ describe('Edge cases', () => {
     // The .tmp file should not persist after save
     const tmpFp = join(tempDir, 'sessions.json.tmp');
     expect(existsSync(tmpFp)).toBe(false);
-  });
-});
-
-// ─── legacy field sanitization ───────────────────────────────────────────────
-
-describe('legacy placeholder-card field stripping', () => {
-  it('removes pendingResponseCard* fields from disk on the next save', () => {
-    // A session persisted before the「处理中」placeholder card was removed still
-    // carries the three legacy fields on disk. The next save must drop them so
-    // the file converges to clean (nothing reads them anymore).
-    mkdirSync(tempDir, { recursive: true });
-    writeFileSync(join(tempDir, 'sessions.json'), JSON.stringify({
-      s1: {
-        sessionId: 's1', chatId: 'c1', rootMessageId: 'r1', title: 'Legacy',
-        status: 'active', createdAt: '2026-01-01T00:00:00.000Z',
-        pendingResponseCardId: 'om_old', pendingResponseCardState: 'open',
-        lastPatchedResponseCardId: 'om_prev',
-      },
-    }));
-
-    init();
-    const loaded = getSession('s1')!;
-    updateSession({ ...loaded, title: 'Touched' });
-
-    const onDisk = JSON.parse(readFileSync(join(tempDir, 'sessions.json'), 'utf-8'));
-    expect(onDisk.s1.title).toBe('Touched');
-    expect(onDisk.s1).not.toHaveProperty('pendingResponseCardId');
-    expect(onDisk.s1).not.toHaveProperty('pendingResponseCardState');
-    expect(onDisk.s1).not.toHaveProperty('lastPatchedResponseCardId');
   });
 });

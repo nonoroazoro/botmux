@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Phase 0 keystone — `botmux dispatch` pure core.
  *
@@ -9,9 +10,18 @@
  *
  * Run: pnpm vitest run test/dispatch.test.ts
  */
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-turn-marker-1': null,
+  });
+});
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { findAncestorSessionContext } from '../src/core/session-marker.js';
 import {
@@ -1000,7 +1010,7 @@ describe('resolveSendTarget — destination routing', () => {
 
 describe('botmux send turn marker context', () => {
   it('uses the latest JSON pid marker turnId for a long-lived CLI process', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-turn-marker-'));
+    const dir = '/fixtures/botmux-turn-marker-1';
     const pid = 424242;
     try {
       mkdirSync(join(dir, '.botmux-cli-pids'), { recursive: true });

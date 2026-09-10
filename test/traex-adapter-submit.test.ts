@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTraexAdapter } from '../src/adapters/cli/traex.js';
 import type { PtyHandle } from '../src/adapters/cli/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // TRAE submit verification polls the global submit log history.jsonl (written
 // at SUBMIT time), NOT the per-session rollout. This mirrors the codex adapter
@@ -144,7 +144,7 @@ describe.sequential('TRAE adapter submit verification (history.jsonl)', () => {
   beforeEach(() => {
     previousTraeHome = process.env.TRAE_HOME;
     previousScale = process.env.BOTMUX_TIME_SCALE;
-    traeHome = mkdtempSync(join(tmpdir(), 'traex-adapter-'));
+    traeHome = makeTestTempDir('traex-adapter-');
     historyPath = join(traeHome, 'cli', 'history.jsonl');
     process.env.TRAE_HOME = traeHome;
     process.env.BOTMUX_TIME_SCALE = '0.01';

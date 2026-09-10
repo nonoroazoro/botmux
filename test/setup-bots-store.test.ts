@@ -1,11 +1,21 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * 单测 src/setup/bots-store.ts — 原子写 bots.json.
  *
  * Run: pnpm vitest run test/setup-bots-store.test.ts
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-bots-store-1': null,
+  });
+});
+import { rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeBotsJsonAtomic, readBotsJsonOrEmpty } from '../src/setup/bots-store.js';
 
@@ -13,7 +23,7 @@ let tmpDir: string;
 let botsPath: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'botmux-bots-store-'));
+  tmpDir = '/fixtures/botmux-bots-store-1';
   botsPath = join(tmpDir, 'bots.json');
 });
 

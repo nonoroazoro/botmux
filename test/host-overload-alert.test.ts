@@ -147,7 +147,7 @@ describe('formatOverloadAlert', () => {
     expect(text).toContain('⚠️ 机器过载告警');
     expect(text).toContain('mac-mini');
     expect(text).toContain('CPU 负载');
-    expect(text).toContain('maxLiveWorkers');
+    expect(text).toContain('减少同时运行的会话');
   });
 
   it('renders a recovered alert', () => {

@@ -1,5 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { OnlineDaemonInfo } from '../src/utils/daemon-discovery.js';
@@ -9,11 +8,12 @@ import {
 } from '../src/platform/device-isolation-activation-client.js';
 import { deviceCredentialIsolationMarkerPath } from '../src/adapters/cli/read-isolation.js';
 import { readDeviceCredentialIsolationMarker } from '../src/platform/device-isolation.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-device-activation-'));
+  const root = makeTestTempDir('botmux-device-activation-');
   roots.push(root);
   return root;
 }

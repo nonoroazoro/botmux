@@ -1,18 +1,27 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for command-discovery (filesystem slash-command discovery) and the
  * customPassthroughCommands normalization in parseBotConfigsFromText.
  *
  * Run:  pnpm vitest run test/command-discovery.test.ts
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-disc-1': null,
+    '/fixtures/botmux-adapter-disc-2': null,
+  });
+});
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
   discoverSlashCommands,
   discoverSlashCommandsForAdapter,
-  listMcpServerNames,
   supportsFilesystemCommandDiscovery,
 } from '../src/core/command-discovery.js';
 import { parseBotConfigsFromText } from '../src/bot-registry.js';
@@ -28,7 +37,7 @@ describe('discoverSlashCommands', () => {
   const prevEnv = process.env.CLAUDE_CONFIG_DIR;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'botmux-disc-'));
+    root = '/fixtures/botmux-disc-1';
     claudeHome = join(root, 'home', '.claude');
     // Point personal discovery at an isolated fake ~/.claude.
     process.env.CLAUDE_CONFIG_DIR = claudeHome;
@@ -84,7 +93,7 @@ describe('discoverSlashCommandsForAdapter', () => {
   let root: string;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'botmux-adapter-disc-'));
+    root = '/fixtures/botmux-adapter-disc-2';
   });
 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -122,25 +131,6 @@ describe('discoverSlashCommandsForAdapter', () => {
     expect(supportsFilesystemCommandDiscovery({ claudeDataDir: join(root, '.claude') })).toBe(true);
     expect(supportsFilesystemCommandDiscovery({ pluginDir: join(root, 'plugin') })).toBe(true);
     expect(supportsFilesystemCommandDiscovery({})).toBe(false);
-  });
-});
-
-describe('listMcpServerNames', () => {
-  let root: string;
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'botmux-mcp-'));
-  });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
-
-  it('reads mcpServers keys from .mcp.json', () => {
-    writeFileSync(join(root, '.mcp.json'), JSON.stringify({ mcpServers: { figma: {}, chrome: {} } }));
-    expect(listMcpServerNames(root).sort()).toEqual(['chrome', 'figma']);
-  });
-
-  it('returns [] when .mcp.json is absent or malformed', () => {
-    expect(listMcpServerNames(root)).toEqual([]);
-    writeFileSync(join(root, '.mcp.json'), '{ not json');
-    expect(listMcpServerNames(root)).toEqual([]);
   });
 });
 

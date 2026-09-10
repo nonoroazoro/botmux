@@ -2,12 +2,10 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -41,6 +39,7 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 import { writeSecureHostFileSync } from '../src/platform/secure-host-file.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
@@ -52,7 +51,7 @@ afterEach(() => {
 describe('secure host authority directory pinning', () => {
   it('does not redirect a Linux write when an ancestor changes after directory open', () => {
     if (process.platform !== 'linux') return;
-    const root = mkdtempSync(join(tmpdir(), 'botmux-secure-host-race-'));
+    const root = makeTestTempDir('botmux-secure-host-race-');
     roots.push(root);
     chmodSync(root, 0o777);
     const visibleRoot = join(root, 'visible');

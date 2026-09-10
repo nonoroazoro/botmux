@@ -1,5 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -7,6 +6,7 @@ import {
   installCodexNotifierHook,
   isCodexNotifierHookInstalled,
 } from '../src/features/codex-notifier/index.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const tempDirs: string[] = [];
 
@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 function hooksPath(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-hooks-'));
+  const dir = makeTestTempDir('botmux-codex-hooks-');
   tempDirs.push(dir);
   return join(dir, 'hooks.json');
 }

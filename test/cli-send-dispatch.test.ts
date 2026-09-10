@@ -593,7 +593,7 @@ describe('sendVideoAttachments (best-effort media messages)', () => {
         { videoPath: '/tmp/a.mp4', coverPath: '/tmp/a.png', durationMs: 0 },
         { videoPath: '/tmp/b.mp4', coverPath: '/tmp/b.png', durationMs: 0 },
       ],
-    )).rejects.toThrow('受管 VC 回复一次最多发送 1 个视频');
+    )).rejects.toThrow('会议回复一次最多发送 1 个视频');
 
     expect(uploadFile).not.toHaveBeenCalled();
     expect(uploadImage).not.toHaveBeenCalled();

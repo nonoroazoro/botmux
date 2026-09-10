@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   runMaintenanceTick,
@@ -16,6 +15,7 @@ import {
 } from '../src/core/maintenance.js';
 import type { MaintenanceConfig } from '../src/global-config.js';
 import type { RestartIntent } from '../src/services/restart-intent-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // 2026-06-07T04:00:00Z === 2026-06-07 12:00 local (Asia/Shanghai)
 const NOON = Date.parse('2026-06-07T04:00:00.000Z');
@@ -233,7 +233,7 @@ describe('spawnDetachedRestart', () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it('passes the restart lease to the actual detached CLI driver', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-restart-driver-'));
+    const dir = makeTestTempDir('botmux-restart-driver-');
     const packageRoot = join(dir, 'package');
     const output = join(dir, 'driver.json');
     const dataDir = join(dir, 'data');
@@ -268,7 +268,7 @@ describe('spawnDetachedRestart', () => {
 
 describe('maintenance-state store', () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'botmux-mstate-')); });
+  beforeEach(() => { dir = makeTestTempDir('botmux-mstate-'); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
   it('reads {} when absent and round-trips after a write', () => {

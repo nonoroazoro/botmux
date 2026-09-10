@@ -6,16 +6,16 @@
  * symlink 目标穿透写真实文件不替换链接本体。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, statSync, readdirSync, writeFileSync, existsSync, symlinkSync, lstatSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, statSync, readdirSync, writeFileSync, existsSync, symlinkSync, lstatSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { atomicWriteFileSync, atomicWriteFile } from '../src/utils/atomic-write.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'atomic-write-test-'));
+  dir = makeTestTempDir('atomic-write-test-');
 });
 
 afterEach(() => {

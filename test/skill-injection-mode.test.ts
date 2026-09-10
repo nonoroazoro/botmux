@@ -1,6 +1,18 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-skill-mode-1': null,
+    '/fixtures/botmux-prompt-mode-2': null,
+    '/fixtures/botmux-inj-cmd-3': null,
+  });
+});
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { globalConfigPath, invalidateGlobalConfigCache } from '../src/global-config.js';
 import {
@@ -44,7 +56,7 @@ describe('skill injection-mode resolution', () => {
   let home: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-skill-mode-'));
+    home = '/fixtures/botmux-skill-mode-1';
     vi.stubEnv('HOME', home);
     // Keep codex's skillsDir at <home>/.codex/skills (not a stray CODEX_HOME).
     vi.stubEnv('CODEX_HOME', '');
@@ -163,11 +175,6 @@ describe('built-in skill catalog', () => {
     expect(entries.every((e) => e.description.length > 0)).toBe(true);
   });
 
-  it('keeps legacy Workflow instructions available only for explicit routes', () => {
-    expect(builtinSkillContent('botmux-workflow')).toContain('name: botmux-workflow');
-    expect(builtinSkillContent('botmux-workflow-create')).toContain('name: botmux-workflow-create');
-  });
-
   it('drops the ask skill when the CLI takes over via hook, and adds whiteboard when enabled', () => {
     const entries = builtinSkillEntries({ asksViaHook: true, whiteboardEnabled: true });
     const names = entries.map((e) => e.name);
@@ -257,7 +264,7 @@ describe('built-in skill catalog', () => {
 describe('buildNewTopicPrompt built-in skill delivery (codex)', () => {
   let home: string;
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-prompt-mode-'));
+    home = '/fixtures/botmux-prompt-mode-2';
     vi.stubEnv('HOME', home);
     vi.stubEnv('CODEX_HOME', '');
     invalidateGlobalConfigCache();
@@ -309,7 +316,7 @@ describe('buildNewTopicPrompt built-in skill delivery (codex)', () => {
 describe('botmux skills injection (machine-wide setter)', () => {
   let home: string;
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-inj-cmd-'));
+    home = '/fixtures/botmux-inj-cmd-3';
     vi.stubEnv('HOME', home);
     invalidateGlobalConfigCache();
   });

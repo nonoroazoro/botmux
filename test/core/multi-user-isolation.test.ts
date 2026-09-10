@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { resolveMultiUserSessionPaths } from '../../src/core/multi-user-isolation.js';
+import { makeTestTempDir } from '../helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 const defaultGitIdentity = {
@@ -32,7 +33,7 @@ afterEach(() => {
 
 describe('resolveMultiUserSessionPaths', () => {
   it('maps a shared default workspace into a stable principal workspace', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-multi-user-'));
+    const root = makeTestTempDir('botmux-multi-user-');
     chmodSync(root, 0o755);
     roots.push(root);
     const result = resolveMultiUserSessionPaths({
@@ -64,7 +65,7 @@ describe('resolveMultiUserSessionPaths', () => {
   });
 
   it('lets user Git identity override the Bot fallback', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-multi-user-'));
+    const root = makeTestTempDir('botmux-multi-user-');
     roots.push(root);
     const result = resolveAlice(root);
     const gitEnv = {
@@ -88,7 +89,7 @@ describe('resolveMultiUserSessionPaths', () => {
   });
 
   it('keeps the native local, global, system Git identity priority', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-multi-user-'));
+    const root = makeTestTempDir('botmux-multi-user-');
     roots.push(root);
     const result = resolveAlice(root);
     writeFileSync(
@@ -125,23 +126,8 @@ describe('resolveMultiUserSessionPaths', () => {
     }).trim()).toBe('repository@example.com');
   });
 
-  it('migrates a legacy Bot-owned global Git identity into the fallback layer', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-multi-user-'));
-    roots.push(root);
-    const result = resolveAlice(root);
-    writeFileSync(
-      join(result.homeDir, '.gitconfig'),
-      '[user]\n\tname = Product Assistant\n\temail = product-assistant@botmux.local\n',
-      { mode: 0o600 },
-    );
-
-    resolveAlice(root);
-
-    expect(() => statSync(join(result.homeDir, '.gitconfig'))).toThrow();
-  });
-
   it('rejects a symlinked principal SSH directory', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-multi-user-'));
+    const root = makeTestTempDir('botmux-multi-user-');
     roots.push(root);
     const input = {
       config: { enabled: true, root, ownerOnlyTopics: true },
@@ -161,7 +147,7 @@ describe('resolveMultiUserSessionPaths', () => {
   });
 
   it('uses different persistent roots for different principals', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-multi-user-'));
+    const root = makeTestTempDir('botmux-multi-user-');
     roots.push(root);
     const resolveFor = (principalOpenId: string) => resolveMultiUserSessionPaths({
       config: { enabled: true, root, ownerOnlyTopics: true },
@@ -174,7 +160,7 @@ describe('resolveMultiUserSessionPaths', () => {
   });
 
   it('creates the principal workspace without a shared default directory', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-multi-user-'));
+    const root = makeTestTempDir('botmux-multi-user-');
     roots.push(root);
     const result = resolveMultiUserSessionPaths({
       config: { enabled: true, root, ownerOnlyTopics: true },
@@ -187,7 +173,7 @@ describe('resolveMultiUserSessionPaths', () => {
   });
 
   it('rejects a working directory outside the principal workspace mapping', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-multi-user-'));
+    const root = makeTestTempDir('botmux-multi-user-');
     roots.push(root);
 
     expect(() => resolveMultiUserSessionPaths({

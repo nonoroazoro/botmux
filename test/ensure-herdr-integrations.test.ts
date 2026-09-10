@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const spawn = vi.fn();
 const spawnSync = vi.fn();
@@ -72,7 +72,7 @@ describe('TraeX herdr plugin installation', () => {
   let markerPath: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-herdr-int-'));
+    home = makeTestTempDir('botmux-herdr-int-');
     markerPath = join(home, '.botmux', 'state', 'herdr-traex-plugin.json');
     vi.stubEnv('HOME', home);
     vi.stubEnv('BOTMUX_HERDR_TRAEX_PLUGIN_ENABLED', '');

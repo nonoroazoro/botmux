@@ -1,6 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, appendFileSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/coco-transcript-1': null,
+  });
+});
+import { writeFileSync, appendFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { drainCocoEvents } from '../src/services/coco-transcript.js';
 
@@ -30,7 +40,7 @@ function originalUser(content: string) { return userMsg(content, { is_original_u
 function assistant(content: string) { return assistantMsg(content, 'stop'); }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'coco-transcript-'));
+  dir = '/fixtures/coco-transcript-1';
   path = join(dir, 'events.jsonl');
 });
 

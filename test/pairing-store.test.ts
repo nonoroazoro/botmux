@@ -1,17 +1,26 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Pairing-login store: device-code style browser ↔ Feishu identity binding.
  * Run: pnpm vitest run test/pairing-store.test.ts
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-pairing-1': null,
+  });
+});
 import {
   createPairing, claimPairing, getPairingStatus, consumePairing,
 } from '../src/services/pairing-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-pairing-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-pairing-1'; });
 
 describe('pairing-store', () => {
   it('full happy path: start → claim → consume', () => {

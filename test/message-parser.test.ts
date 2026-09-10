@@ -270,40 +270,9 @@ describe('Interactive card parsing: Format B (original card JSON)', () => {
   });
 });
 
-// ─── botmux footer chrome filtering ───────────────────────────────────────
+// ─── reply-card footer chrome filtering ──────────────────────────────────
 
-describe('Interactive card parsing: botmux footer is stripped from prompt', () => {
-  it('drops the Format B grey footer element but keeps body', () => {
-    const card = {
-      body: { elements: [
-        { tag: 'markdown', content: '正文内容' },
-        { tag: 'hr' },
-        { tag: 'markdown', text_size: 'notation_small_v2',
-          content: "<font color='grey'>[botmux](https://github.com/deepcoldy/botmux) · 发送给：<at id=ou_owner></at></font>" },
-      ] },
-    };
-    const result = parseApiMessage(makeMsg('interactive', card));
-    expect(result.content).toContain('正文内容');
-    expect(result.content).not.toContain('botmux');
-    expect(result.content).not.toContain('发送给');
-  });
-
-  it('drops the Format A (API simplified) footer line', () => {
-    const card = {
-      elements: [
-        [{ tag: 'text', text: '正文内容' }],
-        [
-          { tag: 'a', text: 'botmux', href: 'https://github.com/deepcoldy/botmux' },
-          { tag: 'text', text: ' · 发送给：' },
-          { tag: 'at', user_name: 'Owner' },
-        ],
-      ],
-    };
-    const result = parseApiMessage(makeMsg('interactive', card));
-    expect(result.content).toContain('正文内容');
-    expect(result.content).not.toContain('botmux');
-  });
-
+describe('Interactive card parsing: signed reply-card footer is stripped from prompt', () => {
   it('preserves an ambiguous legacy default-brand-only line', () => {
     const formatA = {
       elements: [[
@@ -324,7 +293,7 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
       .toContain('[botmux](https://github.com/deepcoldy/botmux)');
   });
 
-  it('only applies marker-less legacy footer compatibility at the card tail', () => {
+  it('preserves marker-less footer-shaped content at every position', () => {
     const formatA = {
       elements: [
         [
@@ -360,7 +329,7 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
           {
             tag: 'a',
             text: '·',
-            href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1',
+            href: 'https://www.feishu.cn/#agent-reply-card-footer-v1',
           },
           { tag: 'text', text: ' 发送给：' },
           { tag: 'at', user_name: 'Owner' },
@@ -383,7 +352,7 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
           {
             tag: 'a',
             text: '·',
-            href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1',
+            href: 'https://www.feishu.cn/#agent-reply-card-footer-v1',
           },
           { tag: 'text', text: ' 发送给：' },
           { tag: 'at', user_name: 'Owner' },
@@ -405,7 +374,7 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
           {
             tag: 'a',
             text: '·',
-            href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1',
+            href: 'https://www.feishu.cn/#agent-reply-card-footer-v1',
           },
           { tag: 'text', text: ' 发送给：' },
           { tag: 'at', user_name: 'Owner' },
@@ -428,7 +397,7 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
           {
             tag: 'a',
             text: '\u200B',
-            href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer',
+            href: 'https://www.feishu.cn/#agent-reply-card-footer-v1',
           },
         ],
       ],
@@ -448,7 +417,7 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
           {
             tag: 'a',
             text: '·',
-            href: 'https://github.com/deepcoldy/botmux#reply-card-footer-v1',
+            href: 'https://www.feishu.cn/#agent-reply-card-footer-v1',
           },
         ],
       ],
@@ -464,12 +433,12 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
         [{
           tag: 'a',
           text: '·',
-          href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1-guide',
+          href: 'https://www.feishu.cn/#agent-reply-card-footer-v1-guide',
         }],
         [{
           tag: 'a',
           text: '协议文档',
-          href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1',
+          href: 'https://www.feishu.cn/#agent-reply-card-footer-v1',
         }],
       ],
     };
@@ -478,12 +447,12 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
         {
           tag: 'markdown',
           content: "<font color='grey'>"
-            + '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1-guide)'
+            + '[·](https://www.feishu.cn/#agent-reply-card-footer-v1-guide)'
             + '</font>',
         },
         {
           tag: 'markdown',
-          content: '[协议文档](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)',
+          content: '[协议文档](https://www.feishu.cn/#agent-reply-card-footer-v1)',
         },
       ] },
     };
@@ -505,7 +474,7 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
           {
             tag: 'a',
             text: '·',
-            href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1',
+            href: 'https://www.feishu.cn/#agent-reply-card-footer-v1',
           },
           {
             tag: 'text',
@@ -624,7 +593,7 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
         { tag: 'text', text: '/repo /data00/home/bob.example/botmux/.worktree/peer-bot-repo-permission\n' },
         { tag: 'a', text: 'botmux', href: 'https://github.com/deepcoldy/botmux' },
         { tag: 'text', text: "<font color='grey'> </font>" },
-        { tag: 'a', text: '·', href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1' },
+        { tag: 'a', text: '·', href: 'https://www.feishu.cn/#agent-reply-card-footer-v1' },
         { tag: 'text', text: "<font color='grey'> 发送给：</font>" },
         { tag: 'at', user_name: 'Bob Example' },
       ]],
@@ -639,13 +608,13 @@ describe('Interactive card parsing: botmux footer is stripped from prompt', () =
         { tag: 'text', text: '正文提到 ' },
         { tag: 'a', text: 'botmux', href: 'https://github.com/deepcoldy/botmux' },
         { tag: 'text', text: ' 以及 ' },
-        { tag: 'a', text: 'footer spec', href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1' },
+        { tag: 'a', text: 'footer spec', href: 'https://www.feishu.cn/#agent-reply-card-footer-v1' },
         { tag: 'text', text: '，但这不是签名页脚。' },
       ]],
     };
     const result = parseApiMessage(makeMsg('interactive', card));
     expect(result.content).toContain('botmux(https://github.com/deepcoldy/botmux)');
-    expect(result.content).toContain('footer spec(https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)');
+    expect(result.content).toContain('footer spec(https://www.feishu.cn/#agent-reply-card-footer-v1)');
     expect(result.content).toContain('不是签名页脚');
   });
 
@@ -733,11 +702,11 @@ describe('Interactive card parsing: footer stripped structurally (custom brand)'
         { tag: 'markdown', content: '/repo /data00/home/bob.example/botmux/.worktree/peer-bot-repo-permission' },
         { tag: 'hr' },
         {
-          element_id: 'botmux_reply_footer',
+          element_id: 'agent_reply_footer',
           tag: 'markdown',
           content: '[botmux](https://github.com/deepcoldy/botmux)'
             + "<font color='grey'> </font>"
-            + '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)'
+            + '[·](https://www.feishu.cn/#agent-reply-card-footer-v1)'
             + "<font color='grey'> 发送给：</font><at id=ou_owner></at>",
         },
       ] },
@@ -751,28 +720,28 @@ describe('Interactive card parsing: footer stripped structurally (custom brand)'
     {
       name: 'wrong marker text',
       footer: {
-        element_id: 'botmux_reply_footer',
+        element_id: 'agent_reply_footer',
         tag: 'markdown',
-        content: '[footer spec](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)',
+        content: '[footer spec](https://www.feishu.cn/#agent-reply-card-footer-v1)',
       },
       expected: 'footer spec',
     },
     {
       name: 'wrong marker URL',
       footer: {
-        element_id: 'botmux_reply_footer',
+        element_id: 'agent_reply_footer',
         tag: 'markdown',
-        content: '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1-guide)',
+        content: '[·](https://www.feishu.cn/#agent-reply-card-footer-v1-guide)',
       },
       expected: 'reply-card-footer-v1-guide',
     },
     {
       name: 'unexpected text_size',
       footer: {
-        element_id: 'botmux_reply_footer',
+        element_id: 'agent_reply_footer',
         tag: 'markdown',
         text_size: 'normal_v2',
-        content: '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)',
+        content: '[·](https://www.feishu.cn/#agent-reply-card-footer-v1)',
       },
       expected: 'reply-card-footer-v1',
     },
@@ -812,7 +781,7 @@ describe('Interactive card parsing: footer stripped structurally (custom brand)'
     const card = {
       body: { elements: [{
         tag: 'markdown',
-        element_id: 'botmux_reply_footer',
+        element_id: 'agent_reply_footer',
         content: '这是第三方卡片正文',
       }] },
     };
@@ -827,7 +796,7 @@ describe('Interactive card parsing: footer stripped structurally (custom brand)'
         { tag: 'hr' },
         { tag: 'markdown', text_size: 'notation_small_v2',
           content: "<font color='grey'>[Acme](https://acme.test) "
-            + '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1) '
+            + '[·](https://www.feishu.cn/#agent-reply-card-footer-v1) '
             + '发送给：<at id=ou_owner></at></font>' },
       ] },
     };
@@ -902,14 +871,8 @@ describe('Interactive card parsing: footer stripped structurally (custom brand)'
 
 // ─── botmux internal callback buttons are stripped from flattened text ────
 
-describe('botmux internal callback buttons (🔊 语音总结 …) dropped from prompt', () => {
-  // botmux reply/session cards carry callback buttons whose only affordance is
-  // a callback into the sender bot's daemon. Flattening them as `[🔊 语音总结]`
-  // leaks unusable chrome into peer bots' prompts (history / cross-bot relay /
-  // quote) — the receiving bot can never click them. They are identified
-  // structurally by `value.action` from botmux's internal vocabulary + no
-  // jump URL; third-party and valueless buttons stay.
-  it('Format B: drops the production voice-summary button (column_set + behaviors callback), keeps the reply body', () => {
+describe('agent callback buttons are dropped from prompts', () => {
+  it('keeps unmarked callback buttons from foreign cards', () => {
     // Exact shape the cli.ts reply path builds: the button lives inside a
     // column_set's auto-width column and carries its action under
     // behaviors:[{type:'callback', value}] — NOT top-level value.
@@ -934,10 +897,10 @@ describe('botmux internal callback buttons (🔊 语音总结 …) dropped from 
     };
     const result = parseApiMessage(makeMsg('interactive', card));
     expect(result.content).toContain('这是机器人的回复内容');
-    expect(result.content).not.toContain('语音总结');
+    expect(result.content).toContain('[🔊 语音总结]');
   });
 
-  it('Format B: drops session-card controls (关闭会话/重启), keeps third-party callbacks', () => {
+  it('does not infer ownership from callback action names', () => {
     const card = {
       body: { elements: [
         { tag: 'action', actions: [
@@ -954,15 +917,13 @@ describe('botmux internal callback buttons (🔊 语音总结 …) dropped from 
       ] },
     };
     const result = parseApiMessage(makeMsg('interactive', card));
-    expect(result.content).not.toContain('关闭会话');
-    expect(result.content).not.toContain('重启');
+    expect(result.content).toContain('[❌ 关闭会话]');
+    expect(result.content).toContain('[🔄 重启]');
     expect(result.content).toContain('[确认]');
     expect(result.content).toContain('[🖥️ 打开终端]');
   });
 
-  it('Format B: real buildReplyCardFooter + real voice button — neither chrome leaks', () => {
-    // End-to-end sanity with the REAL builders: footer signature strip (master)
-    // and callback-button strip (this change) must jointly leave only the body.
+  it('real footer and stamped voice button do not leak into prompts', () => {
     const footer = buildReplyCardFooter({ recipientOpenIds: ['ou_55cda5a6c00f49eef42043a7746499b4'] })!;
     const card = {
       body: { elements: [
@@ -983,14 +944,14 @@ describe('botmux internal callback buttons (🔊 语音总结 …) dropped from 
         ] },
       ] },
     };
-    const result = parseApiMessage(makeMsg('interactive', card));
+    const result = parseApiMessage(makeMsg('interactive', stampBotmuxCallbackMarkers(JSON.stringify(card))));
     expect(result.content).toContain('修复已完成，详见上面。');
     expect(result.content).not.toContain('语音总结');
     expect(result.content).not.toContain('发送给');
     expect(result.content).not.toContain('botmux');
   });
 
-  it('Format B: a jump-URL button is kept even under a botmux action name', () => {
+  it('keeps a jump-URL button regardless of its callback action name', () => {
     // A real link always wins over the cleanup heuristic — the open_url
     // behavior means the reader can actually follow it.
     const card = {
@@ -1004,9 +965,7 @@ describe('botmux internal callback buttons (🔊 语音总结 …) dropped from 
     expect(result.content).toContain('[分析报告](https://example.com/report)');
   });
 
-  it('Format A: drops the voice-summary button while keeping bare buttons', () => {
-    // Format A is the API simplified list view; nodes keep `value` when the
-    // card supplies it, so the same structural filter applies.
+  it('Format A keeps unmarked callback buttons', () => {
     const card = {
       title: '回复',
       elements: [[
@@ -1018,14 +977,11 @@ describe('botmux internal callback buttons (🔊 语音总结 …) dropped from 
     };
     const result = parseApiMessage(makeMsg('interactive', card));
     expect(result.content).toContain('回复正文');
-    expect(result.content).not.toContain('语音总结');
+    expect(result.content).toContain('[🔊 语音总结]');
     expect(result.content).toContain('[Option A]');
   });
 
-  it('marker path: a stamped button is dropped even with an UNKNOWN action (future-proof)', () => {
-    // The egress stamp (`__bm_cb`) is the long-term contract: a future botmux
-    // button with an action the legacy wordlist has never heard of must still
-    // be stripped, WITHOUT anyone updating the wordlist.
+  it('drops a stamped button even when the action is unknown', () => {
     const card = {
       body: { elements: [
         { tag: 'button', text: { tag: 'plain_text', content: '🆕 未来按钮' },
@@ -1036,7 +992,7 @@ describe('botmux internal callback buttons (🔊 语音总结 …) dropped from 
     expect(result.content).not.toContain('未来按钮');
   });
 
-  it('roundtrip: every callback button in a real egress-stamped card vanishes, jump URL stays', () => {
+  it('roundtrip: every callback button in an egress-stamped card vanishes while jump URLs stay', () => {
     // Full pipeline: stampBotmuxCallbackMarkers (what client.ts applies on
     // send/reply/ephemeral/update) → parseApiMessage (what the peer bot sees).
     // A custom-brand bot with a session card and a voice-reply card must leak
@@ -1068,7 +1024,7 @@ describe('botmux internal callback buttons (🔊 语音总结 …) dropped from 
 // ─── stampBotmuxCallbackMarkers: egress stamp unit behavior ───────────────
 
 describe('stampBotmuxCallbackMarkers (egress choke-point stamp)', () => {
-  it('stamps legacy top-level value and v2 behaviors callback, skips jump buttons', () => {
+  it('stamps top-level values and behaviors callbacks, skipping jump buttons', () => {
     const card = JSON.stringify({
       body: { elements: [
         { tag: 'button', text: { tag: 'plain_text', content: 'A' }, value: { action: 'close', session_id: 's' } },

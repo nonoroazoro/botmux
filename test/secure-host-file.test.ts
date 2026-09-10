@@ -2,13 +2,11 @@ import {
   chmodSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -16,11 +14,12 @@ import {
   unlinkSecureHostFileSync,
   writeSecureHostFileSync,
 } from '../src/platform/secure-host-file.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-secure-host-'));
+  const root = makeTestTempDir('botmux-secure-host-');
   roots.push(root);
   return root;
 }

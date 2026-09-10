@@ -232,19 +232,6 @@ describe('runHook', () => {
     });
   });
 
-  describe('BOTMUX_WORKFLOW=1 → passthrough（不弹 UI）', () => {
-    it('workflow gate → passthrough', async () => {
-      const stub = vi.fn(makeAnsweredStub([['继续']]));
-      const env = { ...FULL_ENV, BOTMUX_WORKFLOW: '1' };
-      const result = await runHook(claudeAskPayload, env, stub, 'claude-code');
-      // stub 不应被调用
-      expect(stub).not.toHaveBeenCalled();
-      // 回归（Codex P1.1）：放行 = 空 stdout，绝不输出 directive。直接断言空串，
-      // 不与实现的 passthrough() 比较，避免实现回退时测试跟着移动。
-      expect(result.stdout).toBe('');
-    });
-  });
-
   describe('未知 cliId → stdout 为空字符串', () => {
     it('getHookAdapter 返回 undefined → stdout=""', async () => {
       const stub = makeAnsweredStub([['继续']]);
@@ -315,46 +302,6 @@ describe('runHook', () => {
       };
       await runHook(claudeAskPayload, FULL_ENV, captureStub, 'claude-code');
       expect(capturedBody?.timeoutMs).toBe(86_400_000);
-    });
-  });
-
-  // 语义③（Codex 建议）：workflow subagent 里 `botmux ask` 必须被拒绝——审批走
-  // humanGate/decision 进 event log，不能用 ad-hoc ask 绕过。cmdAsk 用 process.exit(2)
-  // 拒绝，未导出、无法直接单测，这里用源码断言钉住该 gate，防被静默移除。
-  describe('语义③：workflow 里 botmux ask 拒绝（源码 gate 守卫）', () => {
-    it('cmdAsk 含 BOTMUX_WORKFLOW gate + exit 2 拒绝', () => {
-      const src = readFileSync(
-        new URL('../src/cli.ts', import.meta.url),
-        'utf-8',
-      );
-      const cmdAskIdx = src.indexOf('async function cmdAsk(');
-      expect(cmdAskIdx).toBeGreaterThanOrEqual(0);
-      // gate 在 cmdAsk 函数体起始处
-      const region = src.slice(cmdAskIdx, cmdAskIdx + 1500);
-      expect(region).toContain("process.env.BOTMUX_WORKFLOW === '1'");
-      expect(region).toContain('process.exit(2)');
-      expect(region.toLowerCase()).toContain('refused');
-    });
-  });
-
-  describe('workflow 里举手走 send 自身的 gate（attention 已并入 send，不再是独立命令）', () => {
-    it('cmdAttention 已移除，send --attention 由 send 的 BOTMUX_WORKFLOW gate 覆盖', () => {
-      const src = readFileSync(
-        new URL('../src/cli.ts', import.meta.url),
-        'utf-8',
-      );
-      // 旧的独立举手入口已删除——举手并入 `botmux send --attention`。
-      expect(src.includes('async function cmdAttention(')).toBe(false);
-      // send 顶部已有 workflow-subagent gate（subagent 里 send 直接 refused），
-      // --attention 是 send 的一个 flag，因此天然被同一道 gate 覆盖。
-      const cmdSendIdx = src.indexOf('async function cmdSend(');
-      expect(cmdSendIdx).toBeGreaterThanOrEqual(0);
-      // cmdSend also performs live VC-origin verification before reaching the
-      // workflow gate; inspect a bounded function prefix without coupling this
-      // source-contract test to the exact size of that verification block.
-      const region = src.slice(cmdSendIdx, cmdSendIdx + 5000);
-      expect(region).toContain("process.env.BOTMUX_WORKFLOW === '1'");
-      expect(region).toContain('process.exit(2)');
     });
   });
 });

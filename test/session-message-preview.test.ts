@@ -1,7 +1,17 @@
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-session-preview-1': null,
+  });
+});
 import { config } from '../src/config.js';
 import { buildSessionMessagePreview } from '../src/core/session-message-preview.js';
 import type { Session } from '../src/types.js';
@@ -29,7 +39,7 @@ function writeJsonl(relative: string, rows: unknown[]): void {
 
 beforeEach(() => {
   previousDataDir = process.env.SESSION_DATA_DIR;
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-session-preview-'));
+  dataDir = '/fixtures/botmux-session-preview-1';
   config.session.dataDir = dataDir;
 });
 

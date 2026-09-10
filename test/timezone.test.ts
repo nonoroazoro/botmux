@@ -1,7 +1,19 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 // test/timezone.test.ts
-import { afterEach, describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-tz-1': null,
+    '/fixtures/botmux-tz-2': null,
+  });
+});
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   normalizeScheduleTimeZone,
@@ -114,7 +126,7 @@ describe('scheduleTimeZone — env → config → host precedence', () => {
 
   it('dashboard config (~/.botmux/config.json) is used when no env override', () => {
     delete process.env[ENV];
-    const home = mkdtempSync(join(tmpdir(), 'botmux-tz-'));
+    const home = '/fixtures/botmux-tz-1';
     mkdirSync(join(home, '.botmux'), { recursive: true });
     writeFileSync(
       join(home, '.botmux', 'config.json'),
@@ -127,7 +139,7 @@ describe('scheduleTimeZone — env → config → host precedence', () => {
 
   it('falls back to the host local zone when neither env nor config is set', () => {
     delete process.env[ENV];
-    const home = mkdtempSync(join(tmpdir(), 'botmux-tz-'));
+    const home = '/fixtures/botmux-tz-2';
     process.env.HOME = home; // no config.json in this fresh home
     invalidateGlobalConfigCache();
     expect(scheduleTimeZone()).toBe(hostLocalTimeZone());

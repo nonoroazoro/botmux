@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -8,11 +7,12 @@ import {
   resolveSoul,
   writeSoul,
 } from '../../../src/core/personality/index.js';
+import { makeTestTempDir } from '../../helpers/test-temp-dir.js';
 
 const tempRoots: string[] = [];
 
 function tempDataDir(): string {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-soul-'));
+  const root = makeTestTempDir('botmux-soul-');
   tempRoots.push(root);
   return join(root, 'data');
 }

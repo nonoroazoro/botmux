@@ -12,9 +12,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -69,7 +69,7 @@ async function loadWithBot(
 }
 
 beforeEach(() => {
-  tempRoot = realpathSync(mkdtempSync(join(tmpdir(), 'default-worktree-test-')));
+  tempRoot = realpathSync(makeTestTempDir('default-worktree-test-'));
   configPath = join(tempRoot, 'bots.json');
   process.env.BOTS_CONFIG = configPath;
 });

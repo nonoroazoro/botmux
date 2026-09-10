@@ -1,18 +1,28 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Team-level roster builder for the platform UI.
  * Run: pnpm vitest run test/team-roster.test.ts
  */
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-roster-1': null,
+  });
+});
 import { buildTeamRoster, resolveLiveBotTransport } from '../src/services/team-roster.js';
 import { setBotCapability } from '../src/services/bot-profile-store.js';
 import { setBotOwner } from '../src/services/bot-owner-store.js';
 import { ensureDefaultTeam, addMember, DEFAULT_TEAM_ID } from '../src/services/team-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-roster-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-roster-1'; });
 
 function writeBotsInfo(entries: any[]) {
   writeFileSync(join(dataDir, 'bots-info.json'), JSON.stringify(entries));

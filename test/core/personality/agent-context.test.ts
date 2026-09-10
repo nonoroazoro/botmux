@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { registerBot } from '../../../src/bot-registry.js';
 import { writeRoleFile } from '../../../src/core/role-resolver.js';
 import { resolveAgentContext, writeSoul } from '../../../src/core/personality/index.js';
+import { makeTestTempDir } from '../../helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 const originalDataDir = process.env.SESSION_DATA_DIR;
@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe('agent context', () => {
   it('composes reaction policy, effective Soul, and current Role into one revision', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-agent-context-'));
+    const root = makeTestTempDir('botmux-agent-context-');
     roots.push(root);
     process.env.SESSION_DATA_DIR = join(root, 'data');
     const appId = `cli_personality_${Date.now()}`;
@@ -39,7 +39,7 @@ describe('agent context', () => {
   });
 
   it('omits reaction instructions when the kill switch is off', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-agent-context-disabled-'));
+    const root = makeTestTempDir('botmux-agent-context-disabled-');
     roots.push(root);
     process.env.SESSION_DATA_DIR = join(root, 'data');
     const appId = `cli_personality_off_${Date.now()}`;

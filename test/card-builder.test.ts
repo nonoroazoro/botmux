@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for card-builder: buildSessionCard, buildStreamingCard,
  * buildRepoSelectCard, getCliDisplayName.
@@ -7,8 +8,17 @@
  * Run:  pnpm vitest run test/card-builder.test.ts
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-card-builder-1': null,
+  });
+});
+import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   buildSessionCard,
@@ -39,7 +49,7 @@ import { globalConfigPath, mergeDashboardConfig } from '../src/global-config.js'
 let cardTestHome: string;
 let platformSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
-  cardTestHome = mkdtempSync(join(tmpdir(), 'botmux-card-builder-'));
+  cardTestHome = '/fixtures/botmux-card-builder-1';
   vi.stubEnv('HOME', cardTestHome);
   platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
   mkdirSync(dirname(globalConfigPath()), { recursive: true });
@@ -340,7 +350,6 @@ describe('buildSlashListCard', () => {
       custom: [],
       discovered: [],
       workingDir: '/workspace',
-      mcpServers: [],
       discoverySupported: false,
     }, 'en'));
 
@@ -790,7 +799,7 @@ describe('buildStreamingCard', () => {
       expect(card.header.title.content).toContain('等待输入');
     });
 
-    // ── Read-only service-tier badge (19th positional arg) ─────────────────
+    // ── Read-only service-tier badge (18th positional arg) ─────────────────
     it('omits the tier badge by default', () => {
       const card = parse(buildStreamingCard(SID, ROOT, URL, TITLE, '', 'working', 'codex'));
       expect(card.header.title.content).not.toContain('⚡');
@@ -799,10 +808,10 @@ describe('buildStreamingCard', () => {
     it('renders the actual tier id after the CLI name (not a hardcoded "Fast")', () => {
       const card = parse(buildStreamingCard(
         SID, ROOT, URL, TITLE, '', 'working', 'codex',
-        'hidden', undefined, undefined, false, false, undefined, undefined, undefined, false,
-        undefined, // 17th arg: usage snapshot
-        undefined, // 18th arg: runtimeDisplayName
-        '⚡ priority', // 19th arg: serviceTierBadge
+        'hidden', undefined, undefined, false, undefined, undefined, undefined, false,
+        undefined, // 16th arg: usage snapshot
+        undefined, // 17th arg: runtimeDisplayName
+        '⚡ priority', // 18th arg: serviceTierBadge
       ));
       expect(card.header.title.content).toContain('⚡ priority');
       // Badge sits between the CLI name and the ` · title` separator.
@@ -822,7 +831,6 @@ describe('buildStreamingCard', () => {
         'hidden',
         undefined,
         undefined,
-        false,
         false,
         undefined,
         {
@@ -853,7 +861,6 @@ describe('buildStreamingCard', () => {
         'hidden',
         'nonce_123',
         undefined,
-        false,
         false,
         undefined,
         {
@@ -917,7 +924,7 @@ describe('buildStreamingCard', () => {
     it('renders a grey Context / Token line when a usage snapshot is supplied', () => {
       const card = parse(buildStreamingCard(
         SID, ROOT, URL, TITLE, CONTENT, 'working', 'codex', 'hidden',
-        undefined, undefined, false, false, 'en', undefined, undefined, false, USAGE,
+        undefined, undefined, false, 'en', undefined, undefined, false, USAGE,
       ));
       const md = card.elements.filter((e: any) => e.tag === 'markdown');
       const usageEl = md.find((e: any) => typeof e.content === 'string' && e.content.includes('Context'));
@@ -940,7 +947,7 @@ describe('buildStreamingCard', () => {
     it('renders only the present metric (context missing → cumulative token only)', () => {
       const card = parse(buildStreamingCard(
         SID, ROOT, URL, TITLE, CONTENT, 'working', 'codex', 'hidden',
-        undefined, undefined, false, false, 'en', undefined, undefined, false,
+        undefined, undefined, false, 'en', undefined, undefined, false,
         { context: null, tokens: { in: 1_200, out: 3_400 } },
       ));
       const md = card.elements.filter((e: any) => e.tag === 'markdown');
@@ -956,7 +963,7 @@ describe('buildStreamingCard', () => {
     it('renders nothing for a fully-empty snapshot (unsupported CLI)', () => {
       const card = parse(buildStreamingCard(
         SID, ROOT, URL, TITLE, CONTENT, 'working', 'gemini', 'hidden',
-        undefined, undefined, false, false, 'en', undefined, undefined, false,
+        undefined, undefined, false, 'en', undefined, undefined, false,
         { context: null, tokens: null },
       ));
       const hasUsage = card.elements.some(
@@ -1051,7 +1058,7 @@ describe('buildStreamingCard', () => {
       enableLocalCliOpen();
       const card = parse(buildStreamingCard(
         SID, ROOT, '', TITLE, '', 'idle', 'codex', 'hidden',
-        undefined, undefined, false, false, 'en', undefined, undefined, true,
+        undefined, undefined, false, 'en', undefined, undefined, true,
       ));
       const actions = findActions(card);
 
@@ -1079,7 +1086,7 @@ describe('buildStreamingCard', () => {
 
     it('should include Open TRAE beside Web Terminal for traex streaming cards', () => {
       enableLocalCliOpen();
-      const card = parse(buildStreamingCard(SID, ROOT, URL, TITLE, '', 'idle', 'traex', 'hidden', undefined, undefined, false, false, 'en', undefined, undefined, true));
+      const card = parse(buildStreamingCard(SID, ROOT, URL, TITLE, '', 'idle', 'traex', 'hidden', undefined, undefined, false, 'en', undefined, undefined, true));
       const actions = findActions(card);
       expect(actions.map((a: any) => a.value?.action ?? 'url')).toEqual(['toggle_display', 'url', 'open_local_cli', 'get_write_link', 'close']);
       expect(actions[2].text.content).toBe('Open TRAE');
@@ -1088,8 +1095,8 @@ describe('buildStreamingCard', () => {
 
     it('shows streaming native CLI opening only when local CLI readiness is true', () => {
       enableLocalCliOpen();
-      const notReady = parse(buildStreamingCard(SID, ROOT, URL, TITLE, '', 'idle', 'codex', 'hidden', undefined, undefined, false, false, 'en', undefined, undefined, false));
-      const ready = parse(buildStreamingCard(SID, ROOT, URL, TITLE, '', 'idle', 'codex', 'hidden', undefined, undefined, false, false, 'en', undefined, undefined, true));
+      const notReady = parse(buildStreamingCard(SID, ROOT, URL, TITLE, '', 'idle', 'codex', 'hidden', undefined, undefined, false, 'en', undefined, undefined, false));
+      const ready = parse(buildStreamingCard(SID, ROOT, URL, TITLE, '', 'idle', 'codex', 'hidden', undefined, undefined, false, 'en', undefined, undefined, true));
 
       expect(findActions(notReady).some((a: any) => a.value?.action === 'open_local_cli')).toBe(false);
       expect(findActions(ready).some((a: any) => a.value?.action === 'open_local_cli')).toBe(true);
@@ -1108,7 +1115,7 @@ describe('buildStreamingCard', () => {
     enableLocalCliOpen();
     const card = parse(buildStreamingCard(
       SID, ROOT, URL, TITLE, '', 'limited', 'codex', 'hidden', undefined, undefined,
-      false, false, 'en', {
+      false, 'en', {
         limited: true,
         kind: 'usage',
         retryAtMs: Date.now() + 60_000,

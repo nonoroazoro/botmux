@@ -1,15 +1,24 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Team invite store: single-use, short-TTL admission codes.
  * Run: pnpm vitest run test/invite-store.test.ts
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-invite-1': null,
+  });
+});
 import { createInvite, consumeInvite, deleteInvitesForTeam } from '../src/services/invite-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-invite-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-invite-1'; });
 
 describe('invite-store', () => {
   it('creates a high-entropy code and consumes once', () => {

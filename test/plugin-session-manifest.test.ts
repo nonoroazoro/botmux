@@ -1,6 +1,16 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-plugin-session-1': null,
+  });
+});
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ensureSessionPluginManifest,
@@ -13,7 +23,7 @@ describe('plugin session manifest', () => {
   let dataDir: string;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-plugin-session-'));
+    dataDir = '/fixtures/botmux-plugin-session-1';
   });
 
   afterEach(() => {

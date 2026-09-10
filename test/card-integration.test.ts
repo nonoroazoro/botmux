@@ -54,7 +54,7 @@ vi.mock('../src/im/lark/client.js', () => ({
 vi.mock('../src/im/lark/card-builder.js', () => ({
   // Mirrors the real buildStreamingCard signature:
   //   (sessionId, rootId, terminalUrl, title, screenContent, status,
-  //    cliId?, displayMode='hidden', cardNonce?, imageKey?, adoptMode?, showTakeover?)
+  //    cliId?, displayMode='hidden', cardNonce?, imageKey?, adoptMode?)
   // The legacy `streamExpanded` boolean has been replaced by `displayMode`
   // ('hidden' | 'screenshot'). Tests still parse `expanded` from the rendered
   // card body for back-compat — derive it from displayMode.
@@ -66,7 +66,6 @@ vi.mock('../src/im/lark/card-builder.js', () => ({
       cardNonce?: string,
       _imageKey?: string,
       adoptMode?: boolean,
-      showTakeover?: boolean,
     ) =>
       JSON.stringify({
         type: 'streaming',
@@ -76,7 +75,6 @@ vi.mock('../src/im/lark/card-builder.js', () => ({
         status,
         cardNonce,
         adoptMode: !!adoptMode,
-        showTakeover: !!showTakeover,
       }),
   ),
   buildSessionCard: vi.fn(
@@ -1068,7 +1066,7 @@ describe('Card integration: full event flow', () => {
       expect(res?.toast?.type).not.toBe('success');
       expect(fakeLark.dms).toHaveLength(0);
       expect(vi.mocked(clientMod.sendEphemeralCard)).toHaveBeenCalledWith(
-        APP_ID, ds.chatId, 'ou_user', expect.stringContaining('不提供 Web 终端'),
+        APP_ID, ds.chatId, 'ou_user', expect.stringContaining('不支持 Web 终端'),
       );
       expect(vi.mocked(clientMod.sendEphemeralCard).mock.calls.at(-1)?.[3]).not.toContain('尚未就绪');
     });

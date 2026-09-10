@@ -1,7 +1,14 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+
+// Store and rendering behavior uses a fresh in-memory filesystem.
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+beforeEach(() => {
+  resetMemoryFs({ '/fixtures': null });
+});
 
 const hoisted = vi.hoisted(() => {
   const state = {
@@ -116,7 +123,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('does not call /members/bots when the experimental flag is disabled', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_self', botName: 'BotSelf', cliId: 'codex' },
     ]));
@@ -129,7 +136,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('strict current-members helper calls live /members/bots even when discovery fallback is disabled', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiEnabled = false;
     state.listBotsApiItems = [
       { bot_id: 'ou_live_peer', bot_name: 'Live Peer' },
@@ -147,7 +154,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('strict current-members helper fails closed and never returns observed fallback rows', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiError = new Error('gateway unavailable');
     const now = Date.now();
     writeFileSync(join(state.dataDir, 'observed-bots-cli_self-oc_chat.json'), JSON.stringify({
@@ -161,7 +168,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('resolves a stable app id to the receiver-scoped live open_id without cross-ref guessing', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiItems = [
       { bot_id: 'ou_peer_seen_by_receiver', bot_name: 'BotPeer' },
     ];
@@ -187,7 +194,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('fresh-loads a bot appended after the client cache was prewarmed without restarting the source daemon', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.botConfigs = [
       { larkAppId: 'cli_self', larkAppSecret: 's1', cliId: 'codex' },
     ];
@@ -222,7 +229,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('rejects a same-name live row when the configured subject app is not in chat', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiItems = [{ bot_id: 'ou_untrusted_same_name', bot_name: 'BotPeer' }];
     state.inChatByAppId.cli_peer = false;
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
@@ -239,7 +246,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('fails closed when a strict bot_name has duplicate live rows or configured in-chat claimants', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiItems = [
       { bot_id: 'ou_peer_one', bot_name: 'BotPeer' },
       { bot_id: 'ou_peer_two', bot_name: 'BotPeer' },
@@ -270,7 +277,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('fails closed when the configured app is_in_chat probe errors', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiItems = [{ bot_id: 'ou_peer_seen_by_receiver', bot_name: 'BotPeer' }];
     state.inChatErrorByAppId.cli_peer = new Error('subject API down');
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
@@ -283,7 +290,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('uses /members/bots as current-chat truth when enabled and does not resurrect stale observed rows', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiEnabled = true;
     state.listBotsApiItems = [
       { bot_id: 'ou_self_from_api', bot_name: 'BotSelf' },
@@ -313,7 +320,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('binds self by open_id when /members/bots display name drifts from bots-info, so self is not surfaced as a peer', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiEnabled = true;
     // /members/bots returns self under a drifted display name, but its
     // observer-scoped bot_id is self's self-view open_id (observer == self).
@@ -338,7 +345,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('treats /members/bots items: [] as authoritative and does not fall back to observed rows', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiEnabled = true;
     state.listBotsApiItems = [];
     const now = Date.now();
@@ -356,7 +363,7 @@ describe('listChatBotMembers', () => {
   it('caches /members/bots failures for 3 minutes before retrying and falls back to legacy discovery', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-30T00:00:00Z'));
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiEnabled = true;
     state.listBotsApiError = new Error('gateway unavailable');
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
@@ -374,7 +381,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('does not cache non-zero /members/bots business errors as capability failures', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiEnabled = true;
     state.listBotsApiCode = 99992356;
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
@@ -389,7 +396,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('returns larkAppId + source="configured" so callers can identify self and provenance', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_self_seen_by_self', botName: 'Botmux Oncall(Codex)', cliId: 'codex' },
       { larkAppId: 'cli_peer', botOpenId: 'ou_peer_seen_by_self', botName: 'Botmux Oncall(CoCo)', cliId: 'codex' },
@@ -410,7 +417,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('marks a peer NOT in cross-ref as known-but-not-reliably-mentionable', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     // cli_peer is in bots-info (so we know its self-view open_id) but NOT in the
     // cli_self cross-ref → cli_self cannot reliably @-mention it.
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
@@ -433,7 +440,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('upgrades a configured peer (no cross-ref) in place using an observed same-name handle', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_self', botName: 'BotSelf', cliId: 'codex' },
       { larkAppId: 'cli_peer', botOpenId: 'ou_peer_self_view', botName: 'BotPeer', cliId: 'codex' },
@@ -460,7 +467,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('includes observed bots from observed-bots-<larkAppId>-<chatId>.json with source="introduce"', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_self', botName: 'BotSelf', cliId: 'codex' },
     ]));
@@ -486,7 +493,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('observed entries do not leak across chats (uses observed-bots-<larkAppId>-<chatId>.json)', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_self', botName: 'BotSelf', cliId: 'codex' },
     ]));
@@ -503,7 +510,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('configured wins over observed when openId collides (no duplicates)', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_shared', botName: 'ConfiguredName', cliId: 'codex' },
     ]));
@@ -522,7 +529,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('filters out stale observed entries (older than 30 days)', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_self', botName: 'BotSelf', cliId: 'codex' },
     ]));
@@ -539,7 +546,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('observed entries carry larkAppId="" (external — not owned by any local daemon)', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), '[]');
     const now = Date.now();
     writeFileSync(join(state.dataDir, 'observed-bots-cli_self-oc_chat.json'), JSON.stringify({
@@ -558,7 +565,7 @@ describe('listChatBotMembers', () => {
     // Same chat, BUT two observer apps recorded conflicting open_ids for the
     // same bot. Listing for cli_self must yield A's view; listing for cli_peer
     // must yield B's view — never cross-pollute.
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), '[]');
     const now = Date.now();
     writeFileSync(join(state.dataDir, 'observed-bots-cli_self-oc_chat.json'), JSON.stringify({
@@ -579,7 +586,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('deduplicates same-name observed entries and keeps only the latest mentionable openId', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), '[]');
     const now = Date.now();
     writeFileSync(join(state.dataDir, 'observed-bots-cli_self-oc_chat.json'), JSON.stringify({
@@ -601,7 +608,7 @@ describe('listChatBotMembers', () => {
   });
 
   it('prefers a same-name bot-openids cross-ref over a stale observed external handle', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), '[]');
     writeFileSync(join(state.dataDir, 'bot-openids-cli_self.json'), JSON.stringify({
       NasCodex: 'ou_current_cross_ref',
@@ -630,7 +637,7 @@ describe('listChatBotMembers', () => {
     // The unified name-key normalizer is trim-only. A cross-ref key with stray
     // surrounding whitespace still matches an observed name (trim), but a
     // case-only difference does NOT — "Claude" and "claude" stay distinct bots.
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-list-chat-bots-'));
+    state.dataDir = '/fixtures';
     writeFileSync(join(state.dataDir, 'bots-info.json'), '[]');
     writeFileSync(join(state.dataDir, 'bot-openids-cli_self.json'), JSON.stringify({
       '  NasCodex  ': 'ou_cross_ref_padded', // whitespace-padded → must still match
@@ -679,7 +686,7 @@ describe('resolveSiblingBotBySenderOpenId', () => {
   });
 
   it('resolves a cold sibling by its receiver-scoped sender open_id (unique name + is_in_chat)', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-sibling-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiItems = [{ bot_id: 'ou_peer_seen_by_receiver', bot_name: 'BotPeer' }];
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_self', botName: 'BotSelf' },
@@ -695,7 +702,7 @@ describe('resolveSiblingBotBySenderOpenId', () => {
   });
 
   it('fails closed for a genuine external sender not backed by any local sibling of that name', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-sibling-'));
+    state.dataDir = '/fixtures';
     // Live roster shows a stranger bot whose name matches no configured sibling.
     state.listBotsApiItems = [{ bot_id: 'ou_stranger', bot_name: 'StrangerBot' }];
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
@@ -709,7 +716,7 @@ describe('resolveSiblingBotBySenderOpenId', () => {
   });
 
   it('fails closed when the sender open_id is absent from the live roster', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-sibling-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiItems = [{ bot_id: 'ou_peer_seen_by_receiver', bot_name: 'BotPeer' }];
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_self', botOpenId: 'ou_self', botName: 'BotSelf' },
@@ -722,7 +729,7 @@ describe('resolveSiblingBotBySenderOpenId', () => {
   });
 
   it('fails closed when two configured siblings share the roster name (anti-impersonation)', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-sibling-'));
+    state.dataDir = '/fixtures';
     state.botConfigs = [
       { larkAppId: 'cli_self', larkAppSecret: 's1', cliId: 'codex' },
       { larkAppId: 'cli_peer', larkAppSecret: 's2', cliId: 'codex' },
@@ -741,7 +748,7 @@ describe('resolveSiblingBotBySenderOpenId', () => {
   });
 
   it('fails closed when the live /members/bots call errors', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-sibling-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiError = new Error('gateway unavailable');
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([
       { larkAppId: 'cli_peer', botOpenId: 'ou_peer', botName: 'BotPeer' },
@@ -754,7 +761,7 @@ describe('resolveSiblingBotBySenderOpenId', () => {
   });
 
   it('returns no_sender_open_id when the sender open_id is missing', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-sibling-'));
+    state.dataDir = '/fixtures';
     const { resolveSiblingBotBySenderOpenId } = await import('../src/im/lark/client.js');
     await expect(resolveSiblingBotBySenderOpenId('cli_self', 'oc_chat', undefined))
       .resolves.toEqual({ ok: false, reason: 'no_sender_open_id' });
@@ -762,7 +769,7 @@ describe('resolveSiblingBotBySenderOpenId', () => {
   });
 
   it('fails closed when the matched sibling is not actually in the chat', async () => {
-    state.dataDir = mkdtempSync(join(tmpdir(), 'botmux-sibling-'));
+    state.dataDir = '/fixtures';
     state.listBotsApiItems = [{ bot_id: 'ou_peer_seen_by_receiver', bot_name: 'BotPeer' }];
     state.inChatByAppId = { cli_peer: false };
     writeFileSync(join(state.dataDir, 'bots-info.json'), JSON.stringify([

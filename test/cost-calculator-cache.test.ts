@@ -15,8 +15,7 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
-import { mkdtempSync, writeFileSync, appendFileSync, rmSync, readFileSync, truncateSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, appendFileSync, rmSync, readFileSync, truncateSync } from 'node:fs';
 import { join } from 'node:path';
 
 vi.mock('../src/utils/logger.js', () => ({
@@ -29,6 +28,7 @@ import {
   __resetSessionUsageCachesForTest,
 } from '../src/core/cost-calculator.js';
 import { logger } from '../src/utils/logger.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function claudeLine(id: string | null, input: number, output: number): string {
   return JSON.stringify({
@@ -55,7 +55,7 @@ let dir: string;
 let now: number;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'usage-cache-'));
+  dir = makeTestTempDir('usage-cache-');
   __resetSessionUsageCachesForTest();
   now = 1_000_000_000;
   vi.spyOn(Date, 'now').mockImplementation(() => now);

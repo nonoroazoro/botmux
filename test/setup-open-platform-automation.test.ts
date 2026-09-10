@@ -1,12 +1,43 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import iconUrl from '../src/dashboard/web/favicon.png?inline';
 /**
  * Unit tests for Open Platform setup automation helpers.
  *
  * Run: pnpm vitest run test/setup-open-platform-automation.test.ts
  */
-import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { join, resolve } from 'node:path';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    [resolve('src/dashboard/web/favicon.png')]: Buffer.from(iconUrl.split(',')[1], 'base64'),
+    '/fixtures/botmux-open-platform-1': null,
+    '/fixtures/botmux-open-platform-2': null,
+    '/fixtures/botmux-open-platform-scan-confirmation-3': null,
+    '/fixtures/botmux-open-platform-no-scan-confirmation-4': null,
+    '/fixtures/botmux-open-platform-force-5': null,
+    '/fixtures/botmux-open-platform-reuse-only-6': null,
+    '/fixtures/botmux-open-platform-7': null,
+    '/fixtures/botmux-open-platform-create-8': null,
+    '/fixtures/botmux-open-platform-fallback-9': null,
+    '/fixtures/botmux-open-platform-noid-10': null,
+    '/fixtures/botmux-open-platform-transport-11': null,
+    '/fixtures/botmux-open-platform-5xx-12': null,
+    '/fixtures/botmux-open-platform-identity-race-13': null,
+    '/fixtures/botmux-open-platform-auto-force-14': null,
+    '/fixtures/botmux-open-platform-owner-15': null,
+    '/fixtures/botmux-open-platform-owner-status-16': null,
+    '/fixtures/botmux-open-platform-17': null,
+    '/fixtures/botmux-open-platform-18': null,
+    '/fixtures/botmux-open-platform-19': null,
+    '/fixtures/botmux-open-platform-20': null,
+  });
+});
 import {
   automateOpenPlatformSetup,
   BOT_BASELINE_APP_EVENTS,
@@ -129,7 +160,7 @@ describe('parseSetupOpenPlatformAutoFlag', () => {
 
 describe('botmux Feishu session cookie adapter', () => {
   it('writes private botmux cookie jar and builds scoped cookie headers without expired cookies', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-'));
+    const dir = '/fixtures/botmux-open-platform-1';
     const file = join(dir, 'feishu_session.json');
     writeStoredCookiesToSessionFile(file, [
       cookie(),
@@ -203,7 +234,7 @@ describe('Open Platform payload helpers', () => {
 
 describe('prepareFeishuWebSession', () => {
   it('gets a new botmux session via built-in Feishu QR login and saves it privately', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-'));
+    const dir = '/fixtures/botmux-open-platform-2';
     const sessionFile = join(dir, 'feishu-session.json');
     const qrPayloads: string[] = [];
     const fetchImpl = (async (url: string | URL | Request) => {
@@ -253,7 +284,7 @@ describe('prepareFeishuWebSession', () => {
   });
 
   it('emits a structured scan confirmation only after Feishu reports the exact QR as scanned', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-scan-confirmation-'));
+    const dir = '/fixtures/botmux-open-platform-scan-confirmation-3';
     const sessionFile = join(dir, 'feishu-session.json');
     const confirmations: number[] = [];
     let pollingCount = 0;
@@ -310,7 +341,7 @@ describe('prepareFeishuWebSession', () => {
   });
 
   it('does not fabricate a scan confirmation when Feishu jumps directly to enter_app', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-no-scan-confirmation-'));
+    const dir = '/fixtures/botmux-open-platform-no-scan-confirmation-4';
     const sessionFile = join(dir, 'feishu-session.json');
     const onQrScanConfirmed = vi.fn();
     const fetchImpl = (async (url: string | URL | Request) => {
@@ -358,7 +389,7 @@ describe('prepareFeishuWebSession', () => {
   });
 
   it('forces a fresh QR login for onboarding even when a valid cache exists', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-force-'));
+    const dir = '/fixtures/botmux-open-platform-force-5';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     let initCount = 0;
@@ -405,7 +436,7 @@ describe('prepareFeishuWebSession', () => {
   });
 
   it('can require cache-only reuse so follow-up setup never displays a second QR', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-reuse-only-'));
+    const dir = '/fixtures/botmux-open-platform-reuse-only-6';
     const onQrCode = vi.fn();
     const fetchImpl = vi.fn(async () => {
       throw new Error('network must not be used without cached cookies');
@@ -425,7 +456,7 @@ describe('prepareFeishuWebSession', () => {
   });
 
   it('uses a configured external session file only after built-in QR login fails', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-'));
+    const dir = '/fixtures/botmux-open-platform-7';
     const sessionFile = join(dir, 'feishu-session.json');
     const fallbackSessionFile = join(dir, 'external-feishu-session.json');
     writeFileSync(fallbackSessionFile, JSON.stringify({ cookies: [cookie()] }));
@@ -450,7 +481,7 @@ describe('prepareFeishuWebSession', () => {
 
 describe('createFeishuOpenPlatformApp', () => {
   it('reuses one cached Web session to upload an icon, create/enable the bot, and read its secret', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-create-'));
+    const dir = '/fixtures/botmux-open-platform-create-8';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const calls: Array<{ path: string; body: unknown }> = [];
@@ -522,7 +553,7 @@ describe('createFeishuOpenPlatformApp', () => {
   });
 
   it('falls back to plain app/create when the one-click template endpoint fails', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-fallback-'));
+    const dir = '/fixtures/botmux-open-platform-fallback-9';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const calls: string[] = [];
@@ -589,7 +620,7 @@ describe('createFeishuOpenPlatformApp', () => {
   }
 
   it('fails closed without cross-endpoint fallback when the template succeeds without a ClientID', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-noid-'));
+    const dir = '/fixtures/botmux-open-platform-noid-10';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const calls: string[] = [];
@@ -607,7 +638,7 @@ describe('createFeishuOpenPlatformApp', () => {
   });
 
   it('fails closed without cross-endpoint fallback on ambiguous transport errors from the template endpoint', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-transport-'));
+    const dir = '/fixtures/botmux-open-platform-transport-11';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const calls: string[] = [];
@@ -624,7 +655,7 @@ describe('createFeishuOpenPlatformApp', () => {
   });
 
   it('fails closed without cross-endpoint fallback on HTTP 5xx from the template endpoint', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-5xx-'));
+    const dir = '/fixtures/botmux-open-platform-5xx-12';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const calls: string[] = [];
@@ -641,7 +672,7 @@ describe('createFeishuOpenPlatformApp', () => {
   });
 
   it('stops before app/create when the account or tenant changed after the UI confirmation', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-identity-race-'));
+    const dir = '/fixtures/botmux-open-platform-identity-race-13';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const post = vi.fn();
@@ -669,7 +700,7 @@ describe('createFeishuOpenPlatformApp', () => {
 
 describe('automateOpenPlatformSetup', () => {
   it('forwards forceQrLogin so configure --switch-account ignores a valid cache', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-auto-force-'));
+    const dir = '/fixtures/botmux-open-platform-auto-force-14';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     let initCount = 0;
@@ -720,7 +751,7 @@ describe('automateOpenPlatformSetup', () => {
   });
 
   it('classifies an exact app access denial as an owner-session mismatch', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-owner-'));
+    const dir = '/fixtures/botmux-open-platform-owner-15';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const fetchImpl = (async (url: string | URL | Request) => {
@@ -743,7 +774,7 @@ describe('automateOpenPlatformSetup', () => {
   });
 
   it('does not classify a non-403 code 10003 response as an owner-session mismatch', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-owner-status-'));
+    const dir = '/fixtures/botmux-open-platform-owner-status-16';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const fetchImpl = (async (url: string | URL | Request) => {
@@ -780,7 +811,7 @@ describe('automateOpenPlatformSetup', () => {
   });
 
   it('uses botmux session cookies, page csrf, and calls the expected Open Platform endpoints', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-'));
+    const dir = '/fixtures/botmux-open-platform-17';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const sub = openPlatformSubscriptionMock('cli_x');
@@ -845,7 +876,7 @@ describe('automateOpenPlatformSetup', () => {
   });
 
   it('uses the redirected Open Platform origin for API calls and referer', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-'));
+    const dir = '/fixtures/botmux-open-platform-18';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const sub = openPlatformSubscriptionMock('cli_x');
@@ -918,7 +949,7 @@ describe('automateOpenPlatformSetup', () => {
   });
 
   it('treats a rejected scope batch as success (partial-permission tenants) and still configures redirect + version', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-'));
+    const dir = '/fixtures/botmux-open-platform-19';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const sub = openPlatformSubscriptionMock('cli_x');
@@ -955,7 +986,7 @@ describe('automateOpenPlatformSetup', () => {
   });
 
   it('skips scope update when no manifest scope exists in this tenant catalog, still succeeding', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-open-platform-'));
+    const dir = '/fixtures/botmux-open-platform-20';
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     const sub = openPlatformSubscriptionMock('cli_x');
@@ -1013,7 +1044,7 @@ describe('automateOpenPlatformSetup', () => {
     calls: string[],
     options: { requireVerifiedEvents?: boolean; versionId?: string | null } = {},
   ) {
-    const dir = mkdtempSync(join(tmpdir(), sessionDirPrefix));
+    const dir = join('/fixtures', sessionDirPrefix);
     const sessionFile = join(dir, 'feishu-session.json');
     writeStoredCookiesToSessionFile(sessionFile, [cookie()]);
     return automateOpenPlatformSetup({

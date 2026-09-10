@@ -88,7 +88,7 @@ describe('clean Codex App document-comment input', () => {
     const message = buildDocCommentMessageContext(promptInput);
 
     expect(application).toContain('Document-comment turn rules');
-    expect(application).toContain('Botmux owns delivery');
+    expect(application).toContain('The host owns delivery');
     expect(application).not.toContain(promptInput.question);
     expect(message).toContain('https://feishu.cn/docx/doc_clean_123');
     expect(message).toContain(promptInput.selectedText);

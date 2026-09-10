@@ -3,14 +3,13 @@ import xtermHeadless from '@xterm/headless';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import {
   mkdirSync,
-  mkdtempSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const { Terminal } = xtermHeadless;
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
@@ -83,7 +82,7 @@ function makeTerminal(cols: number, modern = false): InstanceType<typeof Termina
 }
 
 function makeFixture(multiBot: boolean, titleFor?: (index: number) => string, adoptTmuxTarget?: string): { root: string; dataDir: string } {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-picker-responsive-'));
+  const root = makeTestTempDir('botmux-picker-responsive-');
   tempDirs.push(root);
   const dataDir = join(root, 'data');
   mkdirSync(dataDir, { recursive: true });
@@ -103,6 +102,7 @@ function makeFixture(multiBot: boolean, titleFor?: (index: number) => string, ad
     const sessionId = `${n}000000-1111-2222-3333-444444444444`;
     sessions[sessionId] = {
       sessionId,
+      larkAppId: 'cli_test_a',
       chatId: 'oc_picker_test',
       rootMessageId: `om_${n}`,
       title: titleFor ? titleFor(i) : `session-${n}`,
@@ -125,7 +125,7 @@ function makeFixture(multiBot: boolean, titleFor?: (index: number) => string, ad
       originalCliPid: process.pid,
     };
   }
-  writeFileSync(join(dataDir, 'sessions.json'), JSON.stringify(sessions));
+  writeFileSync(join(dataDir, 'sessions-cli_test_a.json'), JSON.stringify(sessions));
   return { root, dataDir };
 }
 

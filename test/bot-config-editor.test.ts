@@ -238,7 +238,7 @@ describe('applyBotConfigEdits', () => {
     expect(out.wrapperCli).toBe('custom-wrapper claude');
   });
 
-  it('sets and normalizes cliRuntime with an equal downgrade path shadow', () => {
+  it('sets cliRuntime as the sole persisted executable source', () => {
     const out = applyBotConfigEdits({
       larkAppId: 'app',
       larkAppSecret: 'secret',
@@ -259,7 +259,7 @@ describe('applyBotConfigEdits', () => {
       executable: 'vendor-codex',
       update: { provider: 'auto' },
     });
-    expect(out.cliPathOverride).toBe('vendor-codex');
+    expect(out.cliPathOverride).toBeUndefined();
   });
 
   it('implements cliRuntime tri-state and keeps it when the edit omits the field', () => {
@@ -276,7 +276,7 @@ describe('applyBotConfigEdits', () => {
     };
     const kept = applyBotConfigEdits(base, { model: 'gpt-5' });
     expect(kept.cliRuntime).toEqual(base.cliRuntime);
-    expect(kept.cliPathOverride).toBe('vendor-codex');
+    expect(kept.cliPathOverride).toBeUndefined();
     const cleared = applyBotConfigEdits(kept, { cliRuntime: null });
     expect(cleared.cliRuntime).toBeUndefined();
     expect(cleared.cliPathOverride).toBeUndefined();
@@ -293,7 +293,6 @@ describe('applyBotConfigEdits', () => {
         executable: 'vendor-codex',
         update: { provider: 'none' as const },
       },
-      cliPathOverride: 'vendor-codex',
     };
 
     const out = applyBotConfigEdits(base, {
@@ -302,7 +301,7 @@ describe('applyBotConfigEdits', () => {
     });
 
     expect(out.cliRuntime).toEqual(base.cliRuntime);
-    expect(out.cliPathOverride).toBe('vendor-codex');
+    expect(out.cliPathOverride).toBeUndefined();
     expect(out.model).toBe('gpt-5');
   });
 
@@ -332,24 +331,6 @@ describe('applyBotConfigEdits', () => {
         update: { provider: 'none' },
       },
     }, { cliChoice: 'claude-code' });
-    expect(out.cliId).toBe('claude-code');
-    expect(out.cliRuntime).toBeUndefined();
-    expect(out.cliPathOverride).toBeUndefined();
-  });
-
-  it('does not strand a runtime shadow when TUI switches to a non-Codex adapter with a blank path answer', () => {
-    const out = applyBotConfigEdits({
-      larkAppId: 'app',
-      larkAppSecret: 'secret',
-      cliId: 'codex',
-      cliRuntime: {
-        id: 'vendor-codex',
-        executable: 'vendor-codex',
-        update: { provider: 'none' },
-      },
-      cliPathOverride: 'vendor-codex',
-    }, { cliChoice: 'claude-code', cliPathOverride: '' });
-
     expect(out.cliId).toBe('claude-code');
     expect(out.cliRuntime).toBeUndefined();
     expect(out.cliPathOverride).toBeUndefined();

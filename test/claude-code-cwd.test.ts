@@ -15,7 +15,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   existsSync,
   lstatSync,
-  mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -28,6 +27,7 @@ import {
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { claudeJsonlPathForSession, syncClaudeResumeTargetToCwd } from '../src/adapters/cli/claude-code.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const SID = '01234567-89ab-cdef-0123-456789abcdef';
 
@@ -39,7 +39,7 @@ beforeEach(() => {
   // realpathSync: on macOS os.tmpdir() is a symlink (/var → /private/var). The
   // helper realpath-resolves cwd, so the "already a real path" case must start
   // from an already-resolved root or the expected hash would lack /private.
-  tmpRoot = realpathSync(mkdtempSync(join(tmpdir(), 'bmx-cwd-')));
+  tmpRoot = realpathSync(makeTestTempDir('bmx-cwd-'));
   realDir = join(tmpRoot, 'real-target');
   symDir = join(tmpRoot, 'sym-link');
   mkdirSync(realDir);

@@ -1,8 +1,22 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-delete-barrier-1': null,
+    '/fixtures/botmux-close-fence-2': null,
+    '/fixtures/botmux-kill-then-close-3': null,
+    '/fixtures/botmux-close-fence-timeout-4': null,
+    '/fixtures/botmux-close-fence-generation-5': null,
+  });
+});
 import { config } from '../src/config.js';
 import { dashboardEventBus, type DashboardEvent } from '../src/core/dashboard-events.js';
 import * as docComment from '../src/im/lark/doc-comment.js';
@@ -15,7 +29,7 @@ const tempDirs: string[] = [];
 
 afterEach(() => {
   workerPool.setActiveSessionsRegistry(new Map());
-  sessionStore.init();
+  sessionStore.init('test-bot');
   vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -24,7 +38,7 @@ afterEach(() => {
 
 describe('daemon close barrier used by botmux delete', () => {
   it('evicts activeSessions and persists closed before awaited doc cleanup', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-delete-barrier-'));
+    const dataDir = '/fixtures/botmux-delete-barrier-1';
     tempDirs.push(dataDir);
     const previousDataDir = config.session.dataDir;
     config.session.dataDir = dataDir;
@@ -121,7 +135,7 @@ describe('daemon close barrier used by botmux delete', () => {
   });
 
   it('keeps bridge send markers until the live worker acknowledges close', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-close-fence-'));
+    const dataDir = '/fixtures/botmux-close-fence-2';
     tempDirs.push(dataDir);
     const previousDataDir = config.session.dataDir;
     config.session.dataDir = dataDir;
@@ -183,7 +197,7 @@ describe('daemon close barrier used by botmux delete', () => {
   });
 
   it('defers default session-store marker cleanup after killWorker already nulled the live worker', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-kill-then-close-'));
+    const dataDir = '/fixtures/botmux-kill-then-close-3';
     tempDirs.push(dataDir);
     const previousDataDir = config.session.dataDir;
     config.session.dataDir = dataDir;
@@ -243,7 +257,7 @@ describe('daemon close barrier used by botmux delete', () => {
 
   it('does not clean markers on the close-fence warning timer while the worker is still alive', async () => {
     vi.useFakeTimers();
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-close-fence-timeout-'));
+    const dataDir = '/fixtures/botmux-close-fence-timeout-4';
     tempDirs.push(dataDir);
     const previousDataDir = config.session.dataDir;
     config.session.dataDir = dataDir;
@@ -304,7 +318,7 @@ describe('daemon close barrier used by botmux delete', () => {
   });
 
   it('creates an independent fence when a repo switch reuses the DaemonSession for a new session generation', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-close-fence-generation-'));
+    const dataDir = '/fixtures/botmux-close-fence-generation-5';
     tempDirs.push(dataDir);
     const previousDataDir = config.session.dataDir;
     config.session.dataDir = dataDir;

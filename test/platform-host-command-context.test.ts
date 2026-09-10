@@ -1,13 +1,23 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-host-command-context-1': null,
+  });
+});
 import { isManagedAgentHostCommandContext } from '../src/platform/host-command-context.js';
 
 const roots: string[] = [];
 
 function tempDataDir(): string {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-host-command-context-'));
+  const root = '/fixtures/botmux-host-command-context-1';
   roots.push(root);
   return root;
 }
@@ -17,15 +27,11 @@ afterEach(() => {
 });
 
 describe('managed agent host-command guard', () => {
-  it('recognizes detached session and workflow environment hints', () => {
+  it('recognizes detached session environment hints', () => {
     const dataDir = tempDataDir();
     expect(isManagedAgentHostCommandContext({
       dataDir,
       env: { BOTMUX_SESSION_ID: 'session-1' },
-    })).toBe(true);
-    expect(isManagedAgentHostCommandContext({
-      dataDir,
-      env: { BOTMUX_WORKFLOW: '1' },
     })).toBe(true);
     expect(isManagedAgentHostCommandContext({ dataDir, env: {} })).toBe(false);
   });

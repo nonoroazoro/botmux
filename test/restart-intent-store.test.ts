@@ -1,6 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-intent-1': null,
+  });
+});
+import { existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   clearRestartIntentTo,
@@ -19,7 +29,7 @@ const iso = (ms: number) => new Date(ms).toISOString();
 
 describe('restart-intent store', () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'botmux-intent-')); });
+  beforeEach(() => { dir = '/fixtures/botmux-intent-1'; });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
   it('consume returns a fresh intent and deletes the file (one report per restart)', () => {

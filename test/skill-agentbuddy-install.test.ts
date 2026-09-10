@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import {
   installAgentbuddySkill,
@@ -11,6 +10,7 @@ import {
   updateInstalledSkill,
   updateInstalledSkillAsync,
 } from '../src/services/skill-registry-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // A stand-in for the real `agentbuddy` CLI. It writes the SKILL.md tree that the
 // real binary would produce with `--agent claude-code --copy` into $CWD, and
@@ -91,9 +91,9 @@ describe('agentbuddy skill install', () => {
   let fakeBin: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-ab-home-'));
+    home = makeTestTempDir('botmux-ab-home-');
     vi.stubEnv('HOME', home);
-    fakeBin = join(mkdtempSync(join(tmpdir(), 'botmux-ab-bin-')), 'fake-agentbuddy.cjs');
+    fakeBin = join(makeTestTempDir('botmux-ab-bin-'), 'fake-agentbuddy.cjs');
     writeFileSync(fakeBin, FAKE_AGENTBUDDY);
     vi.stubEnv('BOTMUX_AGENTBUDDY_CMD', `node ${fakeBin}`);
     vi.stubEnv('FAKE_AB_FAIL', '');
@@ -224,7 +224,7 @@ describe('agentbuddy skill install', () => {
     // 'close' never fires — the runner must kill the whole process group and
     // settle on 'exit'. The shim runs the login-hang fake WITHOUT exec, so node
     // is a true grandchild that would outlive a direct-child-only kill.
-    const shim = join(mkdtempSync(join(tmpdir(), 'botmux-ab-shim-')), 'shim.sh');
+    const shim = join(makeTestTempDir('botmux-ab-shim-'), 'shim.sh');
     writeFileSync(shim, `#!/bin/bash\nnode ${fakeBin} "$@"\n`, { mode: 0o755 });
     vi.stubEnv('BOTMUX_AGENTBUDDY_CMD', shim);
     vi.stubEnv('FAKE_AB_LOGIN_HANG', '1');

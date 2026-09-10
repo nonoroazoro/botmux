@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { runSkillsAdminCommand } from '../src/core/skills/cli-admin-command.js';
 import { installLocalSkill, readSkillRegistry } from '../src/services/skill-registry-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function write(file: string, content: string): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -21,9 +21,9 @@ describe('botmux skills diagnostics commands', () => {
   let repo: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-skill-home-'));
-    src = mkdtempSync(join(tmpdir(), 'botmux-skill-src-'));
-    repo = mkdtempSync(join(tmpdir(), 'botmux-skill-repo-'));
+    home = makeTestTempDir('botmux-skill-home-');
+    src = makeTestTempDir('botmux-skill-src-');
+    repo = makeTestTempDir('botmux-skill-repo-');
     vi.stubEnv('HOME', home);
   });
 

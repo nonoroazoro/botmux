@@ -1,12 +1,23 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-reg-1': null,
+    '/fixtures/botmux-reg-empty-2': null,
+  });
+});
+import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DaemonRegistry } from '../src/dashboard/registry.js';
 
 let dir: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'botmux-reg-'));
+  dir = '/fixtures/botmux-reg-1';
   mkdirSync(dir, { recursive: true });
 });
 afterEach(() => {
@@ -19,7 +30,6 @@ function writeDesc(larkAppId: string, port: number, hbAgo = 0, bootInstanceId?: 
     larkAppId, botName: larkAppId, botIndex: 0, ipcPort: port,
     pid: 1, startedAt: Date.now(), lastHeartbeat: Date.now() - hbAgo,
     ...(bootInstanceId ? { bootInstanceId } : {}),
-    ...(bootInstanceId ? { workflowIpcProtocol: 'v1' } : {}),
   }));
 }
 
@@ -32,7 +42,6 @@ describe('DaemonRegistry', () => {
     expect(reg.list().length).toBe(1);
     expect(reg.getByAppId('appA')?.ipcPort).toBe(7892);
     expect(reg.getByAppId('appA')?.bootInstanceId).toBe(bootInstanceId);
-    expect(reg.getByAppId('appA')?.workflowIpcProtocol).toBe('v1');
     reg.stop();
   });
 
@@ -45,7 +54,7 @@ describe('DaemonRegistry', () => {
   });
 
   it('returns empty list when directory is missing or empty', async () => {
-    const empty = mkdtempSync(join(tmpdir(), 'botmux-reg-empty-'));
+    const empty = '/fixtures/botmux-reg-empty-2';
     const reg = new DaemonRegistry(empty);
     await reg.start();
     expect(reg.list()).toEqual([]);

@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Restore-time close decision for persistent backends (tmux/zellij/herdr/zmx).
  *
@@ -30,9 +31,19 @@
  * Run:  pnpm vitest run test/restore-zombie-close.test.ts
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/restore-zombie-test-1': null,
+  });
+});
+import { rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { } from 'os';
 
 let tempDir: string;
 
@@ -231,8 +242,8 @@ import type { DaemonSession } from '../src/core/types.js';
 import { logger } from '../src/utils/logger.js';
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'restore-zombie-test-'));
-  sessionStore.init();
+  tempDir = '/fixtures/restore-zombie-test-1';
+  sessionStore.init('test-bot');
   wp.registry = null;
   transferState.active = new WeakSet<object>();
   transferState.callbacks = new WeakMap<object, Set<() => void>>();
@@ -687,7 +698,7 @@ describe('restoreActiveSessions — persistent-backend zombie-close decision', (
 
     // Simulate a fresh daemon process: discard the in-memory store and reload
     // the active session from sessions.json before restoring workers.
-    sessionStore.init();
+    sessionStore.init('test-bot');
     const map = new Map<string, DaemonSession>();
     wp.registry = map;
 

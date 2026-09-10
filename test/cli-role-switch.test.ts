@@ -1,10 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 /** 角色切换命令 `botmux role switch <目录>`（第一次上线，未保留旧 `botmux cd` 别名——
  *  干净迭代）：daemon 侧硬校验目录必须在 ~/botmux-roles 下，名字→目录的解析由调用方
@@ -12,10 +11,9 @@ import { describe, expect, it } from 'vitest';
  *  role switch 用法文案带自己的命令名、旧 `botmux cd` 不再是已识别命令。真实切换需活跃
  *  daemon（自识别会话 → cd 路由 → 角色库校验 → respawn），属 live 验证范畴。 */
 function runCli(args: string[]): { status: number; stdout: string; stderr: string } {
-  const home = mkdtempSync(join(tmpdir(), 'botmux-role-switch-'));
+  const home = makeTestTempDir('botmux-role-switch-');
   try {
     const env = { ...process.env, HOME: home };
-    delete env.BOTMUX_WORKFLOW;
     try {
       const stdout = execFileSync(
         process.execPath,

@@ -66,6 +66,7 @@ describe('CodexRpcEngine — happy-path lifecycle against a fake app-server', ()
     const cfgFile = join(tmpdir(), `fake-thread-cfg-${Math.round(performance.now())}.json`);
     const engine = makeEngine({
       sessionId: 'effort-wiring',
+      botName: 'Example Agent',
       model: 'gpt-5.6-terra',
       reasoningEffort: 'xhigh',
       env: { ...process.env, FAKE_THREAD_CONFIG_FILE: cfgFile },
@@ -77,6 +78,7 @@ describe('CodexRpcEngine — happy-path lifecycle against a fake app-server', ()
     rmSync(cfgFile, { force: true });
     expect(params.config?.model).toBe('gpt-5.6-terra');
     expect(params.config?.model_reasoning_effort).toBe('xhigh');
+    expect(params.serviceName).toBe('Example Agent');
   }, 20_000);
 
   it('SUPPRESSES model + reasoningEffort on thread/resume (start keeps both) — no resume drift', async () => {

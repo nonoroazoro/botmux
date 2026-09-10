@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * 回归约束：**bot 路由闸不得再手抄一份 talk 源清单**。
  *
@@ -15,9 +16,18 @@
  * Run: pnpm vitest run test/bot-talk-parity.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-parity-1': null,
+    '/fixtures/botmux-crd-2': null,
+  });
+});
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 let tempDir: string;
 
@@ -179,7 +189,7 @@ const CASES: Record<Exclude<TalkReason, 'none'>, ParityCase> = {
 
 describe('bot talk parity — bot 闸门与人侧 evaluateTalk 同源', () => {
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'botmux-parity-'));
+    tempDir = '/fixtures/botmux-parity-1';
     const bot = registerBot({ larkAppId: APP, larkAppSecret: 's', cliId: 'claude-code', allowedUsers: [] });
     bot.resolvedAllowedUsers = [];
     bot.config.allowedUsers = [];
@@ -261,7 +271,7 @@ describe('canRunDaemonCommand — bot 发送方走 evaluateBotTalk（daemon 命�
   // 能 talk 却执行不了降权命令（/status）。canRunDaemonCommand 的 botSender 形参必须
   // 让 bot 分支走 evaluateBotTalk，与外层同源。
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'botmux-crd-'));
+    tempDir = '/fixtures/botmux-crd-2';
     const bot = registerBot({ larkAppId: APP, larkAppSecret: 's', cliId: 'claude-code', allowedUsers: [] });
     // 受限 bot（配了 allowlist）+ /status 降到 canTalk
     bot.config.allowedUsers = ['ou_owner'];

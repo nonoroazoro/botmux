@@ -87,6 +87,6 @@ describe('cmdBind 协议族兜底（不落盘 ipFamily）', () => {
     expect(postJson).not.toHaveBeenCalled();
     expect(readPlatformBinding).not.toHaveBeenCalled();
     expect(writePlatformBinding).not.toHaveBeenCalled();
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('宿主终端'));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('服务器终端'));
   });
 });

@@ -2,7 +2,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -11,16 +10,16 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { syncMultiUserBaselineDirectory } from '../../src/core/multi-user-baseline.js';
+import { makeTestTempDir } from '../helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
 function fixture(): { root: string; source: string; target: string } {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-baseline-'));
+  const root = makeTestTempDir('botmux-baseline-');
   roots.push(root);
   const source = join(root, 'host', 'skills');
   const target = join(root, 'user', 'skills');
@@ -172,7 +171,7 @@ describe('syncMultiUserBaselineDirectory', () => {
     mkdirSync(target, { recursive: true });
     const outside = join(root, 'outside.json');
     writeFileSync(outside, 'keep');
-    symlinkSync(outside, join(target, '.botmux-baseline.json'));
+    symlinkSync(outside, join(target, '.provider-baseline.json'));
 
     expect(() => syncMultiUserBaselineDirectory(source, target)).toThrow();
     expect(readFileSync(outside, 'utf8')).toBe('keep');
@@ -220,5 +219,39 @@ describe('syncMultiUserBaselineDirectory', () => {
 
     expect(result.linked).toEqual([]);
     expect(result.preserved).toEqual([join(userHome, '.local', 'bin')]);
+  });
+
+  it('does not unlink an external target through a redirected cache parent', () => {
+    const { root, source } = fixture();
+    addSkill(source, 'bits');
+    const userHome = join(root, 'user');
+    const outside = join(root, 'outside');
+    mkdirSync(userHome, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(source, join(outside, 'cache'), 'dir');
+    symlinkSync(outside, join(userHome, 'plugins'), 'dir');
+    const result = syncMultiUserBaselineDirectory(source, join(userHome, 'plugins/cache'), {
+      targetRoot: userHome, replaceCacheEntries: true,
+    });
+    expect(result.linked).toEqual([]);
+    expect(lstatSync(join(outside, 'cache')).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(source, 'bits/SKILL.md'), 'utf8')).toBe('bits');
+  });
+
+  it('replaces disposable cache entries without following their leaf symlinks', () => {
+    const { root, source, target } = fixture();
+    addSkill(source, 'bits', 'provider');
+    const outside = join(root, 'outside');
+    addSkill(outside, 'bits', 'private');
+    mkdirSync(target, { recursive: true });
+    symlinkSync(join(outside, 'bits'), join(target, 'bits'), 'dir');
+    const result = syncMultiUserBaselineDirectory(source, target, {
+      targetRoot: join(root, 'user'), replaceCacheEntries: true,
+    });
+    expect(result.linked).toEqual(['bits']);
+    expect(readFileSync(join(target, 'bits/SKILL.md'), 'utf8')).toBe('provider');
+    expect(readFileSync(join(outside, 'bits/SKILL.md'), 'utf8')).toBe('private');
+    expect(() => syncMultiUserBaselineDirectory(source, target, { replaceCacheEntries: true }))
+      .toThrow('requires a contained target root');
   });
 });

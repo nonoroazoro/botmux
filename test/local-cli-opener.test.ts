@@ -4,8 +4,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   appleScriptQuote,
@@ -22,9 +21,10 @@ import {
 } from '../src/services/local-cli-opener.js';
 import { createCliAdapterSync } from '../src/adapters/cli/registry.js';
 import type { DaemonSession } from '../src/core/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 async function withCommandFileTempRoot<T>(run: (root: string) => Promise<T>): Promise<T> {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-local-cli-opener-test-'));
+  const root = makeTestTempDir('botmux-local-cli-opener-test-');
   vi.stubEnv('TMPDIR', root);
   try {
     return await run(root);
@@ -594,7 +594,7 @@ describe('local-cli-opener', () => {
 
   it('falls back to an async iTerm Launch Services request with a self-cleaning command file', async () => {
     await withCommandFileTempRoot(async (root) => {
-      const fakeBin = mkdtempSync(join(root, 'bin-'));
+      const fakeBin = makeTestTempDir('bin-', root);
       symlinkSync('/usr/bin/true', join(fakeBin, 'codex'));
       const runOsascript = vi.fn(async () => ({ ok: false, stderr: 'automation denied (-1743)' }));
       const runOpenCommand = vi.fn(async () => ({ ok: true }));
@@ -652,10 +652,11 @@ describe('local-cli-opener', () => {
 
   it('sweeps stale command dirs without touching similarly named botmux temp dirs', async () => {
     await withCommandFileTempRoot(async (root) => {
-      const stale = mkdtempSync(join(root, 'botmux-open-command-'));
-      const legacyStale = mkdtempSync(join(root, 'botmux-open-'));
-      const recent = mkdtempSync(join(root, 'botmux-open-command-'));
-      const unrelated = mkdtempSync(join(root, 'botmux-open-local-cli-'));
+      const stale = join(root, 'botmux-open-command-ABC123');
+      const legacyStale = join(root, 'botmux-open-ABC123');
+      const recent = join(root, 'botmux-open-command-DEF456');
+      const unrelated = join(root, 'botmux-open-local-cli-ABC123');
+      for (const directory of [stale, legacyStale, recent, unrelated]) mkdirSync(directory);
       const similarlyNamed = join(root, 'botmux-open-command-user-data');
       mkdirSync(similarlyNamed);
       const sentinel = join(similarlyNamed, 'keep.txt');
@@ -676,7 +677,7 @@ describe('local-cli-opener', () => {
 
       expect(result.ok).toBe(false);
       expect(existsSync(stale)).toBe(false);
-      expect(existsSync(legacyStale)).toBe(false);
+      expect(existsSync(legacyStale)).toBe(true);
       expect(existsSync(recent)).toBe(true);
       expect(existsSync(unrelated)).toBe(true);
       expect(existsSync(sentinel)).toBe(true);

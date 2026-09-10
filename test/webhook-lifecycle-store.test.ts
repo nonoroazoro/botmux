@@ -1,7 +1,19 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-webhook-life-1': null,
+    '/fixtures/botmux-webhook-life-2': null,
+    '/fixtures/botmux-webhook-life-3': null,
+    '/fixtures/botmux-webhook-life-4': null,
+  });
+});
 import {
   activateWebhookLifecycleGroup,
   beginWebhookLifecycleFiring,
@@ -12,7 +24,7 @@ import {
 
 describe('webhook-lifecycle-store', () => {
   it('atomically claims one creator for the same connector and dedup key', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-webhook-life-'));
+    const dir = '/fixtures/botmux-webhook-life-1';
     const [a, b] = await Promise.all([
       beginWebhookLifecycleFiring('conn_1', 'alert_1', dir),
       beginWebhookLifecycleFiring('conn_1', 'alert_1', dir),
@@ -25,7 +37,7 @@ describe('webhook-lifecycle-store', () => {
   });
 
   it('marks creating records as pending resolved and resolves after activation', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-webhook-life-'));
+    const dir = '/fixtures/botmux-webhook-life-2';
     const create = await beginWebhookLifecycleFiring('conn_1', 'alert_2', dir);
     expect(create.action).toBe('create');
     const resolved = await resolveWebhookLifecycleGroup('conn_1', 'alert_2', dir);
@@ -37,7 +49,7 @@ describe('webhook-lifecycle-store', () => {
   });
 
   it('removes failed creating records so a later firing can retry', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-webhook-life-'));
+    const dir = '/fixtures/botmux-webhook-life-3';
     const create = await beginWebhookLifecycleFiring('conn_1', 'alert_3', dir);
     expect(create.action).toBe('create');
     await failWebhookLifecycleGroup('conn_1', 'alert_3', create.record.lifecycleId, dir);
@@ -46,7 +58,7 @@ describe('webhook-lifecycle-store', () => {
   });
 
   it('reclaims stale creating records', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-webhook-life-'));
+    const dir = '/fixtures/botmux-webhook-life-4';
     const create = await beginWebhookLifecycleFiring('conn_1', 'alert_4', dir);
     expect(create.action).toBe('create');
     const fp = join(dir, 'webhook-lifecycle.json');

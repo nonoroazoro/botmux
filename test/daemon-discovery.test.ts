@@ -49,7 +49,6 @@ describe('daemon discovery', () => {
       larkAppId: 'cli_agent',
       ipcPort: 7956,
       bootInstanceId,
-      workflowIpcProtocol: 'v1',
       botName: 'codex-loopy',
       cliId: 'codex',
       pid: 123,
@@ -60,7 +59,6 @@ describe('daemon discovery', () => {
       larkAppId: 'cli_agent',
       ipcPort: 7956,
       bootInstanceId,
-      workflowIpcProtocol: 'v1',
       botName: 'codex-loopy',
       cliId: 'codex',
     })]);
@@ -78,7 +76,6 @@ describe('daemon discovery', () => {
       ipcPort: 7957,
     })]);
     expect(listOnlineDaemons()[0]).not.toHaveProperty('bootInstanceId');
-    expect(listOnlineDaemons()[0]).not.toHaveProperty('workflowIpcProtocol');
   });
 
   it('follows the canonical data-dir breadcrumb when SESSION_DATA_DIR is absent', () => {
@@ -92,14 +89,12 @@ describe('daemon discovery', () => {
       larkAppId: 'breadcrumb',
       ipcPort: 7958,
       bootInstanceId: 'B'.repeat(43),
-      workflowIpcProtocol: 'v1',
       lastHeartbeat: Date.now(),
     }));
 
     expect(listOnlineDaemons()).toEqual([expect.objectContaining({
       larkAppId: 'breadcrumb',
       ipcPort: 7958,
-      workflowIpcProtocol: 'v1',
     })]);
   });
 });

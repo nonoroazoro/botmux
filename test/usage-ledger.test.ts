@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Usage ledger tests — per-turn token usage deltas appended to daily JSONL.
  *
@@ -8,8 +9,17 @@
  * Run:  pnpm vitest run test/usage-ledger.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/usage-ledger-1': null,
+  });
+});
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 vi.mock('../src/utils/logger.js', () => ({
@@ -70,7 +80,7 @@ function ledgerLines(dir: string, date = '2026-06-10'): UsageLedgerRecord[] {
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'usage-ledger-'));
+  dir = '/fixtures/usage-ledger-1';
   __resetUsageLedgerMemoryForTest();
 });
 

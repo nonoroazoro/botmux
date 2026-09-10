@@ -10,14 +10,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdirSync,
   existsSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // ─── Shared state ────────────────────────────────────────────────────────────
 
@@ -81,7 +80,7 @@ async function freshImport() {
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'schedule-store-test-'));
+  tempDir = makeTestTempDir('schedule-store-test-');
 });
 
 afterEach(() => {
@@ -279,26 +278,6 @@ describe('schedule-store', () => {
       expect(getTask(task.id)!.deliver).toBe('origin');
     });
 
-    it('migrates a legacy new-topic row to explicit fresh-topic execution', async () => {
-      const fp = storeFp();
-      mkdirSync(dirname(fp), { recursive: true });
-      writeFileSync(fp, JSON.stringify({
-        legacy: {
-          ...TASK_PARAMS,
-          id: 'legacy',
-          enabled: true,
-          createdAt: '2026-01-01T00:00:00.000Z',
-          deliver: 'new-topic',
-        },
-      }), 'utf-8');
-
-      const { getTask } = await freshImport();
-      expect(getTask('legacy')).toMatchObject({
-        executionPosition: 'new-topic',
-        deliver: 'origin',
-      });
-    });
-
     it('should persist updates to disk', async () => {
       const { createTask, updateTask } = await freshImport();
       const task = createTask(TASK_PARAMS);
@@ -381,43 +360,6 @@ describe('schedule-store', () => {
       const store2 = await freshImport();
       expect(store2.getTask(task.id)).toBeUndefined();
       expect(store2.listTasks()).toHaveLength(0);
-    });
-
-    it('preserves modern and legacy scope values across reload/migration', async () => {
-      const store1 = await freshImport();
-      const modern = store1.createTask({ ...TASK_PARAMS, id: 'modern-scope', scope: 'thread' });
-      expect(modern.scope).toBe('thread');
-
-      const fp = storeFp();
-      const onDisk = JSON.parse(readFileSync(fp, 'utf-8'));
-      onDisk['legacy-scope'] = {
-        id: 'legacy-scope',
-        name: 'Legacy chat schedule',
-        type: 'cron',
-        schedule: '0 8 * * *',
-        prompt: 'legacy',
-        workingDir: '/legacy',
-        chatId: 'oc_legacy',
-        scope: 'chat',
-        enabled: true,
-        createdAt: '2026-01-01T00:00:00.000Z',
-      };
-      writeFileSync(fp, JSON.stringify(onDisk, null, 2), 'utf-8');
-
-      const store2 = await freshImport();
-      expect(store2.getTask('modern-scope')?.scope).toBe('thread');
-      expect(store2.getTask('legacy-scope')?.scope).toBe('chat');
-      expect(store2.getTask('legacy-scope')?.parsed).toEqual({
-        kind: 'cron',
-        expr: '0 8 * * *',
-        display: '0 8 * * *',
-      });
-
-      // The normalized legacy shape is also committed durably, including its
-      // scope, so a subsequent process no longer depends on migration state.
-      const normalized = JSON.parse(readFileSync(fp, 'utf-8'));
-      expect(normalized['legacy-scope'].scope).toBe('chat');
-      expect(normalized['legacy-scope'].parsed.kind).toBe('cron');
     });
 
     it('rolls back memory and disk when persistence fails before rename', async () => {

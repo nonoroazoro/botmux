@@ -1,8 +1,17 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-chatbot-discovery-1': null,
+  });
+});
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { globalConfigPath } from '../src/global-config.js';
+import { globalConfigPath, invalidateGlobalConfigCache } from '../src/global-config.js';
 import { resolveChatBotDiscoveryConfig } from '../src/config.js';
 
 /**
@@ -16,8 +25,9 @@ describe('resolveChatBotDiscoveryConfig', () => {
   let home: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-chatbot-discovery-'));
+    home = '/fixtures/botmux-chatbot-discovery-1';
     vi.stubEnv('HOME', home);
+    invalidateGlobalConfigCache();
     mkdirSync(dirname(globalConfigPath()), { recursive: true });
   });
 

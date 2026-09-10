@@ -302,8 +302,8 @@ describe('dashboard bot payload helpers', () => {
       }],
     })).toMatchObject({
       summaryRange: {
-        limit: 0,
-        sinceHours: 0,
+        limit: 50,
+        sinceHours: 24,
       },
     });
   });

@@ -36,7 +36,6 @@ import { createGeniusAdapter } from '../src/adapters/cli/genius.js';
 import { createOpenCodeAdapter } from '../src/adapters/cli/opencode.js';
 import { createAntigravityAdapter } from '../src/adapters/cli/antigravity.js';
 import { createMtrAdapter, mtrSessionIdForBotmuxSession } from '../src/adapters/cli/mtr.js';
-import { GOAL_ENV } from '../src/workflows/v3/contract.js';
 import { createHermesAdapter } from '../src/adapters/cli/hermes.js';
 import { createTraexAdapter } from '../src/adapters/cli/traex.js';
 import { createPiAdapter } from '../src/adapters/cli/pi.js';
@@ -167,20 +166,6 @@ describe('claude-code buildArgs', () => {
     expect(args[idx + 1]).toContain('EnterPlanMode');
     expect(args[idx + 1]).toContain('ExitPlanMode');
     expect(args[idx + 1]).not.toContain('AskUserQuestion');
-  });
-
-  it('disallows native AskUserQuestion in v3 goal-mode', () => {
-    const previous = process.env[GOAL_ENV.V3_MARKER];
-    process.env[GOAL_ENV.V3_MARKER] = '1';
-    try {
-      const args = adapter.buildArgs({ sessionId: 's', resume: false });
-      const idx = args.indexOf('--disallowed-tools');
-      expect(idx).toBeGreaterThanOrEqual(0);
-      expect(args[idx + 1].split(',')).toEqual(['EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion']);
-    } finally {
-      if (previous === undefined) delete process.env[GOAL_ENV.V3_MARKER];
-      else process.env[GOAL_ENV.V3_MARKER] = previous;
-    }
   });
 
   it('passes inline --settings that skips the dangerous-mode prompt', () => {
@@ -398,7 +383,6 @@ describe('codex buildArgs', () => {
     expect(adapter.skillsDir).toBe(join(codexHome(), 'skills'));
     expect(adapter.multiUserBaseline).toEqual({
       skillsDirs: ['~/.codex/skills'],
-      pluginDirs: ['~/.codex/.tmp/plugins/plugins'],
     });
   });
 
@@ -483,6 +467,11 @@ describe('codex buildArgs', () => {
 });
 
 describe('codex-app buildArgs', () => {
+  it('uses a private Codex data home and the same global skill roots as the TUI', () => {
+    const adapter = createCodexAppAdapter('/bin/codex');
+    expect(adapter.supportsReadIsolation).toBe(true);
+    expect(adapter.multiUserBaseline).toEqual(createCodexAdapter('/bin/codex').multiUserBaseline);
+  });
   const adapter = createCodexAppAdapter('/usr/bin/codex');
 
   it('spawns the node runner and passes the Codex binary', () => {
@@ -1383,21 +1372,6 @@ describe('traex automation trust flags', () => {
     });
     expect(args).not.toContain('--dangerously-bypass-approvals-and-sandbox');
     expect(args).not.toContain('--dangerously-bypass-hook-trust');
-  });
-
-  it('forwards only the file-backed goal contract into TRAE shell tools', () => {
-    vi.stubEnv('BOTMUX_GOAL_PATH', '/tmp/goal "quoted".txt');
-    vi.stubEnv('BOTMUX_GOAL_MANIFEST_PATH', '/tmp/manifest.json');
-    vi.stubEnv('BOTMUX_V3_GOAL', '1');
-    try {
-      const args = createTraexAdapter('/bin/traex').buildArgs({ sessionId: 'traex-goal', resume: false });
-      expect(args).toContain('shell_environment_policy.set.BOTMUX_GOAL_PATH="/tmp/goal \\"quoted\\".txt"');
-      expect(args).toContain('shell_environment_policy.set.BOTMUX_GOAL_MANIFEST_PATH="/tmp/manifest.json"');
-      expect(args).toContain('shell_environment_policy.set.BOTMUX_V3_GOAL="1"');
-      expect(args).not.toContain('shell_environment_policy.inherit="all"');
-    } finally {
-      vi.unstubAllEnvs();
-    }
   });
 });
 

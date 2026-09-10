@@ -1,11 +1,21 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Federation hub roster aggregation + hub HTTP endpoints (join/sync/roster).
  * Run: pnpm vitest run test/federation-api.test.ts
  */
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-fedapi-1': null,
+  });
+});
 
 const state = vi.hoisted(() => ({ dataDir: '' }));
 vi.mock('../src/config.js', () => ({
@@ -22,7 +32,7 @@ import { getDeploymentIdentity, setDeploymentOwner } from '../src/services/deplo
 import { setBotOwner } from '../src/services/bot-owner-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-fedapi-')); state.dataDir = dataDir; });
+beforeEach(() => { dataDir = '/fixtures/botmux-fedapi-1'; state.dataDir = dataDir; });
 
 function writeBots(entries: any[]) { writeFileSync(join(dataDir, 'bots-info.json'), JSON.stringify(entries)); }
 function makeReq(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): any {

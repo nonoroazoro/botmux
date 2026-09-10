@@ -1,8 +1,19 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-c3-1': null,
+  });
+});
 
 import {
   createDaemonClientFor,
@@ -13,7 +24,7 @@ const DEFAULT_URL = 'http://127.0.0.1:7891';
 
 /** Build a tmp dir + helper to write `.dashboard-port` contents into it. */
 function setupTmp(): { portPath: string; writePort(raw: string): void; cleanup(): void } {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-c3-'));
+  const dir = '/fixtures/botmux-c3-1';
   const portPath = join(dir, '.dashboard-port');
   return {
     portPath,

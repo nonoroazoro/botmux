@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { resolveBotmuxDataDir } from '../src/core/data-dir.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 function root(): string {
-  const value = mkdtempSync(join(tmpdir(), 'botmux-data-dir-'));
+  const value = makeTestTempDir('botmux-data-dir-');
   roots.push(value);
   return value;
 }

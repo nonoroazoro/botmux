@@ -55,7 +55,6 @@ import {
   backendSandboxCompatibilityError,
   isStrongManagedHerdrAgentName,
   managedHerdrAgentName,
-  retireSupersededRecordedHerdrTarget,
   selectSessionBackend,
 } from '../src/adapters/backend/session-backend-selector.js';
 
@@ -182,131 +181,6 @@ describe('selectSessionBackend', () => {
     expect(selected.createdHerdrSessionName).toBeUndefined();
   });
 
-  it('reattaches a persisted legacy short Herdr target even when current/default changed', () => {
-    vi.mocked(HerdrBackend.probeSession).mockReturnValue('exists');
-    vi.mocked(HerdrBackend.probeAgent).mockReturnValue('exists');
-    // A stray deterministic session must not outrank the durable shared target
-    // selected by the prior worker generation.
-    vi.mocked(HerdrBackend.hasSession).mockReturnValue(true);
-
-    const selected = selectSessionBackend({
-      sessionId: '9cfa0024-197d-4781-845b-c541dceb8980',
-      backendType: 'herdr',
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'original-work',
-        agentName: 'botmux-9cfa0024',
-      },
-    });
-
-    expect((selected.backend as any).sessionName).toBe('original-work');
-    expect((selected.backend as any).opts).toEqual({
-      agentName: 'botmux-9cfa0024',
-      isReattach: true,
-      ownsSession: false,
-      ownsAgent: true,
-    });
-    expect(selected.persistentBackendTarget).toEqual({
-      backendType: 'herdr',
-      sessionName: 'original-work',
-      agentName: 'botmux-9cfa0024',
-    });
-  });
-
-  it('fails closed when the recorded shared Herdr target cannot be probed', () => {
-    vi.mocked(HerdrBackend.probeSession).mockReturnValue('unknown');
-
-    expect(() => selectSessionBackend({
-      sessionId: '9cfa0024-197d-4781-845b-c541dceb8980',
-      backendType: 'herdr',
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'original-work',
-        agentName: 'botmux-9cfa0024',
-      },
-    })).toThrow('recorded herdr session original-work probe inconclusive');
-  });
-
-  it('recreates a missing persisted legacy short agent in its recorded shared Herdr host', () => {
-    vi.mocked(HerdrBackend.probeSession).mockReturnValue('exists');
-    vi.mocked(HerdrBackend.probeAgent).mockReturnValue('missing');
-
-    const selected = selectSessionBackend({
-      sessionId: '9cfa0024-197d-4781-845b-c541dceb8980',
-      backendType: 'herdr',
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'original-work',
-        agentName: 'botmux-9cfa0024',
-      },
-    });
-
-    expect((selected.backend as any).sessionName).toBe('original-work');
-    expect((selected.backend as any).opts).toEqual({
-      agentName: 'botmux-9cfa0024',
-      isReattach: false,
-      ownsSession: false,
-      ownsAgent: true,
-    });
-  });
-
-  it('moves to the scoped shared target when reuse is disabled and the legacy host is absent', () => {
-    vi.mocked(HerdrBackend.probeSession).mockReturnValue('missing');
-    vi.mocked(HerdrBackend.hasSession).mockImplementation(name => name === 'botmux');
-
-    const selected = selectSessionBackend({
-      sessionId: '9cfa0024-197d-4781-845b-c541dceb8980',
-      backendType: 'herdr',
-      herdrOwnershipScope: '/tmp/botmux-root-a',
-      reuseRecordedHerdrTarget: false,
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'original-work',
-        agentName: 'botmux-9cfa0024',
-      },
-    });
-
-    expect((selected.backend as any).sessionName).toBe('botmux');
-    expect((selected.backend as any).opts).toMatchObject({
-      agentName: managedHerdrAgentName(
-        '9cfa0024-197d-4781-845b-c541dceb8980',
-        '/tmp/botmux-root-a',
-      ),
-      ownsSession: false,
-      ownsAgent: true,
-    });
-    expect(HerdrBackend.probeSession).toHaveBeenCalledWith('bmx-9cfa0024');
-    expect(HerdrBackend.probeAgent).not.toHaveBeenCalled();
-  });
-
-  it('refuses isolation/MCP migration while a legacy exclusive Herdr host is live', () => {
-    vi.mocked(HerdrBackend.probeSession).mockReturnValue('exists');
-
-    expect(() => selectSessionBackend({
-      sessionId: '9cfa0024-197d-4781-845b-c541dceb8980',
-      backendType: 'herdr',
-      herdrOwnershipScope: '/tmp/botmux-root-a',
-      reuseRecordedHerdrTarget: false,
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'bmx-9cfa0024',
-      },
-    })).toThrow('legacy herdr session bmx-9cfa0024 is still live');
-    expect(HerdrBackend.hasSession).not.toHaveBeenCalled();
-  });
-
-  it('fails closed when the legacy exclusive Herdr host cannot be probed during migration', () => {
-    vi.mocked(HerdrBackend.probeSession).mockReturnValue('unknown');
-
-    expect(() => selectSessionBackend({
-      sessionId: '9cfa0024-197d-4781-845b-c541dceb8980',
-      backendType: 'herdr',
-      herdrOwnershipScope: '/tmp/botmux-root-a',
-      reuseRecordedHerdrTarget: false,
-    })).toThrow('legacy herdr session bmx-9cfa0024 probe inconclusive');
-    expect(HerdrBackend.hasSession).not.toHaveBeenCalled();
-  });
-
   it('uses zellij backend when backend is zellij', () => {
     vi.mocked(ZellijBackend.hasSession).mockReturnValue(false);
 
@@ -336,155 +210,6 @@ describe('selectSessionBackend', () => {
   });
 });
 
-describe('superseded Herdr target retirement', () => {
-  const sessionId = '9cfa0024-197d-4781-845b-c541dceb8980';
-  const ownershipScope = '/tmp/botmux-root-a';
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(HerdrBackend.probeAgent).mockReset();
-    vi.mocked(HerdrBackend.killAgent).mockReset();
-  });
-
-  it('closes only the exact live strongly-owned agent and verifies it disappeared', () => {
-    const agentName = managedHerdrAgentName(sessionId, ownershipScope);
-    vi.mocked(HerdrBackend.probeAgent)
-      .mockReturnValueOnce('exists')
-      .mockReturnValueOnce('missing');
-
-    expect(() => retireSupersededRecordedHerdrTarget({
-      sessionId,
-      ownershipScope,
-      reuseRecordedHerdrTarget: false,
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'old-shared-host',
-        agentName,
-      },
-    })).not.toThrow();
-
-    expect(HerdrBackend.killAgent).toHaveBeenCalledOnce();
-    expect(HerdrBackend.killAgent).toHaveBeenCalledWith('old-shared-host', agentName);
-    expect(HerdrBackend.probeAgent).toHaveBeenNthCalledWith(
-      1,
-      'old-shared-host',
-      agentName,
-    );
-    expect(HerdrBackend.probeAgent).toHaveBeenNthCalledWith(
-      2,
-      'old-shared-host',
-      agentName,
-    );
-  });
-
-  it('fails closed when exact strong-agent teardown cannot be verified', () => {
-    const agentName = managedHerdrAgentName(sessionId, ownershipScope);
-    vi.mocked(HerdrBackend.probeAgent)
-      .mockReturnValueOnce('exists')
-      .mockReturnValueOnce('unknown');
-
-    expect(() => retireSupersededRecordedHerdrTarget({
-      sessionId,
-      ownershipScope,
-      reuseRecordedHerdrTarget: false,
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'old-shared-host',
-        agentName,
-      },
-    })).toThrow(/could not verify.*old-shared-host/);
-
-    expect(HerdrBackend.killAgent).toHaveBeenCalledWith('old-shared-host', agentName);
-  });
-
-  it('does not infer destructive authority over a live legacy short agent', () => {
-    vi.mocked(HerdrBackend.probeAgent).mockReturnValue('exists');
-
-    expect(() => retireSupersededRecordedHerdrTarget({
-      sessionId,
-      ownershipScope,
-      reuseRecordedHerdrTarget: false,
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'user-workspace',
-        agentName: 'botmux-9cfa0024',
-      },
-    })).toThrow(/legacy Herdr target.*user-workspace\/botmux-9cfa0024/);
-
-    expect(HerdrBackend.killAgent).not.toHaveBeenCalled();
-  });
-
-  it('does not kill a strong agent owned by another Botmux data root', () => {
-    const otherRootAgent = managedHerdrAgentName(sessionId, '/tmp/botmux-root-b');
-    vi.mocked(HerdrBackend.probeAgent).mockReturnValue('exists');
-
-    expect(() => retireSupersededRecordedHerdrTarget({
-      sessionId,
-      ownershipScope,
-      reuseRecordedHerdrTarget: false,
-      persistentBackendTarget: {
-        backendType: 'herdr',
-        sessionName: 'other-botmux-host',
-        agentName: otherRootAgent,
-      },
-    })).toThrow(/does not match this Botmux data root/);
-
-    expect(HerdrBackend.killAgent).not.toHaveBeenCalled();
-  });
-
-  it.each(['missing', 'unknown'] as const)(
-    'handles an untrusted legacy target probe of %s without destructive cleanup',
-    (probe) => {
-      vi.mocked(HerdrBackend.probeAgent).mockReturnValue(probe);
-      const run = () => retireSupersededRecordedHerdrTarget({
-        sessionId,
-        ownershipScope,
-        reuseRecordedHerdrTarget: false,
-        persistentBackendTarget: {
-          backendType: 'herdr' as const,
-          sessionName: 'user-workspace',
-          agentName: 'botmux-9cfa0024',
-        },
-      });
-
-      if (probe === 'missing') {
-        expect(run).not.toThrow();
-      } else {
-        expect(run).toThrow(/probe inconclusive.*user-workspace\/botmux-9cfa0024/);
-      }
-      expect(HerdrBackend.killAgent).not.toHaveBeenCalled();
-    },
-  );
-
-  it('leaves the replacement target and ordinary reuse paths untouched', () => {
-    const agentName = managedHerdrAgentName(sessionId, ownershipScope);
-    const target = {
-      backendType: 'herdr' as const,
-      sessionName: 'botmux',
-      agentName,
-    };
-
-    retireSupersededRecordedHerdrTarget({
-      sessionId,
-      ownershipScope,
-      reuseRecordedHerdrTarget: false,
-      persistentBackendTarget: target,
-    });
-    retireSupersededRecordedHerdrTarget({
-      sessionId,
-      ownershipScope,
-      reuseRecordedHerdrTarget: true,
-      persistentBackendTarget: {
-        ...target,
-        sessionName: 'old-shared-host',
-      },
-    });
-
-    expect(HerdrBackend.probeAgent).not.toHaveBeenCalled();
-    expect(HerdrBackend.killAgent).not.toHaveBeenCalled();
-  });
-});
-
 describe('managed Herdr agent identity', () => {
   it('uses a deterministic strong fallback for imported non-UUID session ids', () => {
     const first = managedHerdrAgentName('imported-session-id');
@@ -505,7 +230,7 @@ describe('managed Herdr agent identity', () => {
     expect(second).not.toBe(first);
   });
 
-  it('distinguishes strong identities from persisted legacy short names', () => {
+  it('rejects truncated and malformed managed identities', () => {
     expect(isStrongManagedHerdrAgentName('botmux-9ak8itbj1fuif1tinpg625vnk')).toBe(true);
     expect(isStrongManagedHerdrAgentName('botmux-9cfa0024')).toBe(false);
     expect(isStrongManagedHerdrAgentName('botmux-9ak8itbj1fuif1tinpg625vn')).toBe(false);
@@ -519,12 +244,6 @@ describe('backendSandboxCompatibilityError', () => {
       expect(backendSandboxCompatibilityError({
         backendType,
         fileSandboxRequested: true,
-        effectiveReadIsolationRequested: false,
-      })).toContain(`backend "${backendType}"`);
-      expect(backendSandboxCompatibilityError({
-        backendType,
-        fileSandboxRequested: false,
-        effectiveReadIsolationRequested: true,
       })).toContain(`backend "${backendType}"`);
     }
   });
@@ -533,17 +252,14 @@ describe('backendSandboxCompatibilityError', () => {
     expect(backendSandboxCompatibilityError({
       backendType: 'zmx',
       fileSandboxRequested: false,
-      effectiveReadIsolationRequested: false,
     })).toBeUndefined();
     expect(backendSandboxCompatibilityError({
       backendType: 'tmux',
       fileSandboxRequested: true,
-      effectiveReadIsolationRequested: true,
     })).toBeUndefined();
     expect(backendSandboxCompatibilityError({
       backendType: 'pty',
       fileSandboxRequested: true,
-      effectiveReadIsolationRequested: true,
     })).toBeUndefined();
   });
 });

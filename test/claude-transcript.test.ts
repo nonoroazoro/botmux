@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Tests for the JSONL transcript reader used by adopt-bridge mode.
  *
@@ -6,9 +7,20 @@
  *   - pickAssistantTextEvents filters out user / sidechain / tool-only events.
  *   - extractAssistantText / joinAssistantText concatenate multi-block text.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, appendFileSync, openSync, writeSync, closeSync, ftruncateSync, utimesSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/bmx-tx-1': null,
+    '/fixtures/bmx-latest-2': null,
+    '/fixtures/bmx-fp-3': null,
+  });
+});
+import { rmSync, writeFileSync, appendFileSync, openSync, writeSync, closeSync, ftruncateSync, utimesSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { shouldSuppressBridgeEmit } from '../src/services/bridge-fallback-gate.js';
 import {
@@ -34,7 +46,7 @@ let dir: string;
 let path: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'bmx-tx-'));
+  dir = '/fixtures/bmx-tx-1';
   path = join(dir, 'session.jsonl');
 });
 
@@ -230,7 +242,7 @@ describe('findLatestJsonl', () => {
   let projectDir: string;
 
   beforeEach(() => {
-    projectDir = mkdtempSync(join(tmpdir(), 'bmx-latest-'));
+    projectDir = '/fixtures/bmx-latest-2';
   });
 
   afterEach(() => {
@@ -300,7 +312,7 @@ describe('findJsonlContainingFingerprint', () => {
   let projectDir: string;
 
   beforeEach(() => {
-    projectDir = mkdtempSync(join(tmpdir(), 'bmx-fp-'));
+    projectDir = '/fixtures/bmx-fp-3';
   });
 
   afterEach(() => {

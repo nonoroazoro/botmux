@@ -5,10 +5,10 @@
  *
  * Run: pnpm vitest run test/grant-prefs-store.test.ts
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient {
@@ -31,7 +31,7 @@ describe('grant-prefs store', () => {
   let configPath: string;
 
   beforeEach(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-grantprefs-'));
+    const dir = makeTestTempDir('botmux-grantprefs-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
   });

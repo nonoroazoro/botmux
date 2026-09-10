@@ -2,16 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir, userInfo } from 'node:os';
+import { userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { startOutboxWatcher } from '../src/adapters/backend/sandbox.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe('sandbox relay watcher host handoff', () => {
   it('materializes prepared card bytes and passes only the private path to the host child', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-relay-watcher-'));
+    const root = makeTestTempDir('botmux-relay-watcher-');
     roots.push(root);
     const outbox = join(root, 'outbox');
     mkdirSync(outbox);
@@ -120,7 +120,7 @@ describe('sandbox relay watcher host handoff', () => {
   });
 
   it('never promotes sandbox-supplied origin fields without host authorization (fail closed)', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-relay-forged-'));
+    const root = makeTestTempDir('botmux-relay-forged-');
     roots.push(root);
     const outbox = join(root, 'outbox');
     mkdirSync(outbox);
@@ -175,7 +175,7 @@ describe('sandbox relay watcher host handoff', () => {
   });
 
   it('rejects a relay whose claimed origin capability fails host authorization', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-relay-reject-'));
+    const root = makeTestTempDir('botmux-relay-reject-');
     roots.push(root);
     const outbox = join(root, 'outbox');
     mkdirSync(outbox);

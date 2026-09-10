@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parsePluginPackageManifest } from '../src/core/plugins/manifest.js';
 import { scanPluginContributions } from '../src/core/plugins/convention-scanner.js';
 import { normalizePluginIdList } from '../src/core/plugins/ids.js';
-import { pluginHome, pluginMaterializedPath, pluginMcpPrivatePath, pluginRegistryPath, resolvePluginPath } from '../src/core/plugins/paths.js';
+import { pluginMaterializedPath, pluginRegistryPath, resolvePluginPath } from '../src/core/plugins/paths.js';
 import { readPluginRegistry, upsertInstalledPlugin } from '../src/services/plugin-registry-store.js';
 import { resolveEffectivePluginIds, updateBotPluginOverride } from '../src/core/plugins/effective.js';
 import { assertPluginBindingTransition, enabledPluginDependents } from '../src/core/plugins/dependencies.js';
@@ -15,13 +14,13 @@ import { collectPluginCliCommands } from '../src/core/plugins/runtime.js';
 import { dematerializePlugin, materializePlugin } from '../src/core/plugins/materializer.js';
 import { resolvePluginSkillPackages } from '../src/core/plugins/skills.js';
 import { readSkillRegistry } from '../src/services/skill-registry-store.js';
-import { readPluginMcpDescriptor } from '../src/core/plugins/mcp/private-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('plugin manifest and registry basics', () => {
   let home: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-plugin-'));
+    home = makeTestTempDir('botmux-plugin-');
     vi.stubEnv('HOME', home);
     vi.stubEnv('CODEX_HOME', join(home, '.codex'));
   });
@@ -124,7 +123,6 @@ describe('plugin manifest and registry basics', () => {
         hooks: ['worker'],
         capabilities: ['network'],
         skills: [{ path: './skills/demo' }],
-        mcp: [{ command: ['node', './mcp/index.js'] }],
         dashboard: [{ entry: './dashboard/index.js' }],
         services: { legacy: { mode: 'manual' } },
         futureCapability: { enabled: true },
@@ -160,16 +158,10 @@ describe('plugin manifest and registry basics', () => {
   it('scans fixed plugin convention directories into contributions', () => {
     const root = join(home, 'plugin-convention-src');
     mkdirSync(join(root, 'skills', 'browser'), { recursive: true });
-    mkdirSync(join(root, 'mcp'), { recursive: true });
     mkdirSync(join(root, 'dashboard'), { recursive: true });
     mkdirSync(join(root, 'cli'), { recursive: true });
     mkdirSync(join(root, 'service'), { recursive: true });
     writeFileSync(join(root, 'skills', 'browser', 'SKILL.md'), '# Browser\n');
-    writeFileSync(join(root, 'mcp', 'server.js'), 'process.stdin.resume();\n');
-    writeFileSync(join(root, 'mcp', 'index.json'), JSON.stringify({
-      command: ['node', './mcp/server.js'],
-      env: { ACS_URL: 'http://127.0.0.1:9300' },
-    }));
     writeFileSync(join(root, 'dashboard', 'index.js'), 'export default function Demo() { return null; }\n');
     writeFileSync(join(root, 'cli', 'index.js'), 'export default {};\n');
     writeFileSync(join(root, 'cli', 'commands.json'), JSON.stringify({
@@ -180,7 +172,6 @@ describe('plugin manifest and registry basics', () => {
 
     expect(scanPluginContributions(root, { schemaVersion: 1, id: 'agent-chrome', service: { mode: 'auto' } })).toEqual({
       skills: [{ name: 'browser', path: 'skills/browser' }],
-      mcp: { name: 'agent-chrome', transport: 'stdio', command: ['node', './mcp/server.js'], env: { ACS_URL: 'http://127.0.0.1:9300' } },
       dashboard: [{ id: 'agent-chrome', route: '#/plugins/agent-chrome', entry: 'dashboard/index.js' }],
       cli: {
         entry: 'cli/index.js',
@@ -188,44 +179,6 @@ describe('plugin manifest and registry basics', () => {
         commands: [{ name: 'chrome', description: 'Open Chrome tooling' }],
       },
       service: { entry: 'service/index.js', mode: 'auto' },
-    });
-  });
-
-  it('rejects unsafe, missing, and runtime-templated static MCP command paths during scanning', () => {
-    const makeSource = (name: string, command: string[], env?: Record<string, string>) => {
-      const root = join(home, name);
-      mkdirSync(join(root, 'mcp'), { recursive: true });
-      writeFileSync(join(root, 'mcp', 'index.json'), JSON.stringify({ command, ...(env ? { env } : {}) }));
-      return root;
-    };
-
-    expect(() => scanPluginContributions(
-      makeSource('missing-mcp', ['node', './mcp/missing.js']),
-      { schemaVersion: 1, id: 'missing-mcp' },
-    )).toThrow(/plugin_mcp_command_path_not_found/);
-    expect(() => scanPluginContributions(
-      makeSource('unsafe-mcp', ['node', '../outside.js']),
-      { schemaVersion: 1, id: 'unsafe-mcp' },
-    )).toThrow(/escapes_root/);
-    expect(() => scanPluginContributions(
-      makeSource('templated-mcp', ['node', './mcp/server.js'], { SESSION_ID: '${sessionId}' }),
-      { schemaVersion: 1, id: 'templated-mcp' },
-    )).toThrow(/unsupported_plugin_mcp_runtime_template/);
-  });
-
-  it('scans Streamable HTTP MCP declarations without a local command', () => {
-    const root = join(home, 'http-mcp');
-    mkdirSync(join(root, 'mcp'), { recursive: true });
-    writeFileSync(join(root, 'mcp', 'index.json'), JSON.stringify({
-      transport: 'streamable-http',
-      url: 'https://mcp.example.test/api',
-      headers: { Authorization: 'Bearer test' },
-    }));
-    expect(scanPluginContributions(root, { schemaVersion: 1, id: 'http-mcp' })?.mcp).toEqual({
-      name: 'http-mcp',
-      transport: 'streamable-http',
-      url: 'https://mcp.example.test/api',
-      headers: { Authorization: 'Bearer test' },
     });
   });
 
@@ -246,153 +199,10 @@ describe('plugin manifest and registry basics', () => {
     expect(JSON.parse(readFileSync(pluginRegistryPath(), 'utf8')).plugins['agent-chrome'].version).toBe('0.1.0');
   });
 
-  it('stores MCP commands and credentials in a protected private descriptor', () => {
-    const source = join(home, 'private-mcp-source');
-    mkdirSync(join(source, 'dist', 'mcp'), { recursive: true });
-    writeFileSync(join(source, 'package.json'), JSON.stringify({
-      name: '@botmux-ai/plugin-private-mcp',
-      version: '0.1.0',
-      keywords: ['botmux-plugin'],
-      botmux: { schemaVersion: 1, id: 'private-mcp' },
-    }));
-    writeFileSync(join(source, 'dist', 'mcp', 'server.mjs'), 'process.stdin.resume();\n');
-    writeFileSync(join(source, 'dist', 'mcp', 'index.json'), JSON.stringify({
-      command: ['node', './mcp/server.mjs'],
-      env: { PRIVATE_MCP_TOKEN: 'secret-value-never-in-registry' },
-    }));
-
-    const installed = installLocalPlugin(source);
-    const persisted = JSON.parse(readFileSync(pluginRegistryPath(), 'utf8'));
-    expect(persisted.plugins['private-mcp'].contributions.mcp).toEqual({
-      name: 'private-mcp',
-      transport: 'stdio',
-      privateRef: 'private/mcp.json',
-    });
-    expect(JSON.stringify(persisted)).not.toContain('secret-value-never-in-registry');
-    expect(JSON.stringify(persisted)).not.toContain('./mcp/server.mjs');
-
-    const privatePath = pluginMcpPrivatePath('private-mcp');
-    expect(lstatSync(privatePath).mode & 0o777).toBe(0o600);
-    expect(readPluginMcpDescriptor('private-mcp', installed.record.contributions!.mcp!)).toMatchObject({
-      name: 'private-mcp',
-      command: ['node', './mcp/server.mjs'],
-      env: { PRIVATE_MCP_TOKEN: 'secret-value-never-in-registry' },
-    });
-  });
-
-  it('atomically migrates legacy registry MCP descriptors and is idempotent', () => {
-    const now = new Date().toISOString();
-    mkdirSync(join(home, '.botmux'), { recursive: true });
-    writeFileSync(pluginRegistryPath(), JSON.stringify({
-      schemaVersion: 1,
-      plugins: {
-        legacy: {
-          id: 'legacy',
-          packageName: '@botmux-ai/plugin-legacy',
-          version: '0.1.0',
-          source: { type: 'npm', spec: '@botmux-ai/plugin-legacy' },
-          manifest: { schemaVersion: 1, id: 'legacy' },
-          contributions: {
-            mcp: {
-              name: 'legacy',
-              transport: 'streamable-http',
-              url: 'https://mcp.example.test/private',
-              headers: { Authorization: 'Bearer legacy-secret' },
-            },
-          },
-          installedAt: now,
-          updatedAt: now,
-        },
-      },
-    }));
-
-    const migrated = readPluginRegistry();
-    expect(migrated.plugins.legacy.contributions?.mcp).toEqual({
-      name: 'legacy',
-      transport: 'streamable-http',
-      privateRef: 'private/mcp.json',
-    });
-    const firstPrivate = readFileSync(pluginMcpPrivatePath('legacy'), 'utf8');
-    expect(firstPrivate).toContain('Bearer legacy-secret');
-    expect(readFileSync(pluginRegistryPath(), 'utf8')).not.toContain('Bearer legacy-secret');
-
-    expect(readPluginRegistry().plugins.legacy.contributions?.mcp).toEqual(
-      migrated.plugins.legacy.contributions?.mcp,
-    );
-    expect(readFileSync(pluginMcpPrivatePath('legacy'), 'utf8')).toBe(firstPrivate);
-  });
-
-  it('fails closed and leaves the legacy registry untouched when private migration cannot commit', () => {
-    const now = new Date().toISOString();
-    const id = 'legacy-broken';
-    const external = join(home, 'external-private');
-    mkdirSync(pluginHome(id), { recursive: true });
-    mkdirSync(external, { recursive: true });
-    symlinkSync(external, join(pluginHome(id), 'private'), 'dir');
-    const legacyRegistry = JSON.stringify({
-      schemaVersion: 1,
-      plugins: {
-        [id]: {
-          id,
-          packageName: `@botmux-ai/plugin-${id}`,
-          version: '0.1.0',
-          source: { type: 'npm', spec: `@botmux-ai/plugin-${id}` },
-          manifest: { schemaVersion: 1, id },
-          contributions: {
-            mcp: { name: id, transport: 'stdio', command: ['node', 'server.js'] },
-          },
-          installedAt: now,
-          updatedAt: now,
-        },
-      },
-    });
-    mkdirSync(dirname(pluginRegistryPath()), { recursive: true });
-    writeFileSync(pluginRegistryPath(), legacyRegistry);
-
-    expect(() => readPluginRegistry()).toThrow(/plugin_mcp_registry_migration_failed:unsafe_plugin_private_dir/);
-    expect(readFileSync(pluginRegistryPath(), 'utf8')).toBe(legacyRegistry);
-    expect(existsSync(join(external, 'mcp.json'))).toBe(false);
-  });
-
-  it('fails closed instead of preserving malformed or leaked MCP registry fields', () => {
-    const now = new Date().toISOString();
-    const id = 'legacy-malformed';
-    const legacyRegistry = JSON.stringify({
-      schemaVersion: 1,
-      plugins: {
-        [id]: {
-          id,
-          packageName: `@botmux-ai/plugin-${id}`,
-          version: '0.1.0',
-          source: { type: 'npm', spec: `@botmux-ai/plugin-${id}` },
-          manifest: { schemaVersion: 1, id },
-          contributions: {
-            mcp: {
-              name: id,
-              transport: 'stdio',
-              privateRef: 'private/mcp.json',
-              env: { TOKEN: 'must-not-remain-public' },
-            },
-          },
-          installedAt: now,
-          updatedAt: now,
-        },
-      },
-    });
-    mkdirSync(dirname(pluginRegistryPath()), { recursive: true });
-    writeFileSync(pluginRegistryPath(), legacyRegistry);
-
-    expect(() => readPluginRegistry()).toThrow(
-      /plugin_mcp_registry_migration_failed:invalid_plugin_mcp_contribution:legacy-malformed/,
-    );
-    expect(readFileSync(pluginRegistryPath(), 'utf8')).toBe(legacyRegistry);
-    expect(existsSync(pluginMcpPrivatePath(id))).toBe(false);
-  });
-
   it('resolves plugin paths only inside the plugin root', () => {
     const root = join(home, '.botmux', 'plugins', 'agent-chrome', 'dist');
     mkdirSync(root, { recursive: true });
-    expect(resolvePluginPath(root, './mcp/plugin.js')).toBe(join(root, 'mcp/plugin.js'));
+    expect(resolvePluginPath(root, './cli/plugin.js')).toBe(join(root, 'cli/plugin.js'));
     expect(() => resolvePluginPath(root, '../other')).toThrow(/escapes_root/);
   });
 
@@ -525,11 +335,10 @@ describe('plugin manifest and registry basics', () => {
     })).toBe('hello botmux');
   });
 
-  it('keeps plugin skills isolated while materializing MCP and contribution state markers', () => {
+  it('keeps plugin skills isolated while materializing contribution state markers', () => {
     const source = join(home, 'plugin-full-src');
     const runtime = join(source, 'dist');
     mkdirSync(join(runtime, 'skills', 'browser'), { recursive: true });
-    mkdirSync(join(runtime, 'mcp'), { recursive: true });
     mkdirSync(join(runtime, 'cli'), { recursive: true });
     mkdirSync(join(runtime, 'dashboard'), { recursive: true });
     mkdirSync(join(runtime, 'service'), { recursive: true });
@@ -546,11 +355,6 @@ describe('plugin manifest and registry basics', () => {
     }));
     writeFileSync(join(runtime, 'package.json'), JSON.stringify({ type: 'module' }));
     writeFileSync(join(runtime, 'skills', 'browser', 'SKILL.md'), '# Browser\n');
-    writeFileSync(join(runtime, 'mcp', 'server.js'), 'process.stdin.resume();\n');
-    writeFileSync(join(runtime, 'mcp', 'index.json'), JSON.stringify({
-      command: ['node', './mcp/server.js'],
-      env: { ACS_URL: 'http://127.0.0.1:9300' },
-    }));
     writeFileSync(join(runtime, 'cli', 'commands.json'), JSON.stringify({
       schemaVersion: 1,
       commands: [{ name: 'browser:ping' }],
@@ -579,7 +383,6 @@ describe('plugin manifest and registry basics', () => {
     const materialized = materializePlugin('full-demo');
 
     expect(materialized.skills?.map(skill => skill.name)).toEqual(['browser']);
-    expect(materialized.mcp?.map(server => `${server.cliId}:${server.name}`)).toEqual(['botmux-gateway:full-demo']);
     expect(materialized.cli?.map(command => command.name)).toEqual(['browser:ping']);
     expect(materialized.dashboard).toEqual([{ id: 'full-demo', entry: 'dashboard/index.js' }]);
     expect(materialized.service).toEqual([{ name: 'full-demo' }]);

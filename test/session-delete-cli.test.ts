@@ -11,15 +11,14 @@ import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RELAY_ORIGIN_CAPABILITY_BASENAME } from '../src/core/managed-origin-capability.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CLI_PATH = join(__dirname, '..', 'src', 'cli.ts');
 const APP_ID = 'cli_delete_test';
@@ -133,8 +132,8 @@ function readRequestBody(req: IncomingMessage): Promise<Record<string, unknown>>
 
 describe('botmux delete — daemon-first close', () => {
   it('delegates a current-session close to the daemon with its rotating capability', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-delete-data-'));
-    const relayDir = mkdtempSync(join(tmpdir(), 'botmux-delete-relay-'));
+    const dataDir = makeTestTempDir('botmux-delete-data-');
+    const relayDir = makeTestTempDir('botmux-delete-relay-');
     tempDirs.push(dataDir, relayDir);
     const session = makeSession('sess-delete-current');
     const sessionsPath = writeSessions(dataDir, [session]);
@@ -176,8 +175,8 @@ describe('botmux delete — daemon-first close', () => {
   });
 
   it('fails closed when a discovered daemon rejects the close', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-delete-data-'));
-    const relayDir = mkdtempSync(join(tmpdir(), 'botmux-delete-relay-'));
+    const dataDir = makeTestTempDir('botmux-delete-data-');
+    const relayDir = makeTestTempDir('botmux-delete-relay-');
     tempDirs.push(dataDir, relayDir);
     const session = makeSession('sess-delete-rejected');
     const sessionsPath = writeSessions(dataDir, [session]);
@@ -213,7 +212,7 @@ describe('botmux delete — daemon-first close', () => {
   });
 
   it('uses the legacy local close only when no daemon is online', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-delete-data-'));
+    const dataDir = makeTestTempDir('botmux-delete-data-');
     tempDirs.push(dataDir);
     const session = makeSession('sess-delete-offline', {
       adoptedFrom: { source: 'tmux', tmuxTarget: 'user:1.0', cwd: '/repo' },
@@ -235,8 +234,8 @@ describe('botmux delete — daemon-first close', () => {
   });
 
   it('orders the current session last for delete all', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-delete-data-'));
-    const fakeHome = mkdtempSync(join(tmpdir(), 'botmux-delete-home-'));
+    const dataDir = makeTestTempDir('botmux-delete-data-');
+    const fakeHome = makeTestTempDir('botmux-delete-home-');
     tempDirs.push(dataDir, fakeHome);
     const self = makeSession('sess-delete-self');
     const other = makeSession('sess-delete-other');
@@ -269,92 +268,6 @@ describe('botmux delete — daemon-first close', () => {
         `/api/sessions/${other.sessionId}/close`,
         `/api/sessions/${self.sessionId}/close`,
       ]);
-    } finally {
-      await new Promise<void>((resolve, reject) => {
-        server.close(err => err ? reject(err) : resolve());
-      });
-    }
-  });
-
-  it('closes a legacy session (no larkAppId) locally even when a daemon is online', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-delete-legacy-data-'));
-    tempDirs.push(dataDir);
-    // Legacy session has no larkAppId and lives in sessions.json, not the
-    // per-bot file. A per-bot daemon cannot persist its close.
-    const session = makeSession('sess-delete-legacy', { larkAppId: undefined });
-    const sessionsPath = writeLegacySessions(dataDir, [session]);
-
-    const seen: string[] = [];
-    const server = createServer(async (req, res) => {
-      seen.push(req.url ?? '');
-      await readRequestBody(req);
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end('{"ok":true,"alreadyClosed":false}');
-    });
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-
-    try {
-      const port = (server.address() as AddressInfo).port;
-      writeDaemonDescriptor(dataDir, port);
-      const result = await runDelete(dataDir, [session.sessionId], {
-        BOTMUX_SESSION_ID: undefined,
-        BOTMUX_LARK_APP_ID: undefined,
-        BOTMUX_SEND_RELAY: undefined,
-        BOTMUX_DAEMON_IPC_PORT: undefined,
-      });
-
-      // CLI must not route the legacy session to the daemon: the daemon writes
-      // only its own sessions-<appId>.json and would return "200 OK" without
-      // actually closing the legacy row.
-      expect(seen).toEqual([]);
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain('daemon 离线，本地收口');
-      const stored = JSON.parse(readFileSync(sessionsPath, 'utf8'));
-      expect(stored[session.sessionId].status).toBe('closed');
-      expect(stored[session.sessionId].closedAt).toBeTruthy();
-    } finally {
-      await new Promise<void>((resolve, reject) => {
-        server.close(err => err ? reject(err) : resolve());
-      });
-    }
-  });
-
-  it('closes a legacy current session locally even with an injected daemon port', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-delete-legacy-cur-data-'));
-    tempDirs.push(dataDir);
-    // A larkAppId-less session that is ALSO the current session: the injected
-    // BOTMUX_DAEMON_IPC_PORT reaches a daemon even with no online descriptor.
-    // The daemon still writes only its own sessions-<appId>.json and would
-    // no-op the legacy close, so the larkAppId guard must divert this to the
-    // offline path too — the injected port is not a second door around it.
-    const session = makeSession('sess-delete-legacy-cur', { larkAppId: undefined });
-    const sessionsPath = writeLegacySessions(dataDir, [session]);
-
-    const seen: string[] = [];
-    const server = createServer(async (req, res) => {
-      seen.push(req.url ?? '');
-      await readRequestBody(req);
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end('{"ok":true,"alreadyClosed":false}');
-    });
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-
-    try {
-      const port = (server.address() as AddressInfo).port;
-      const result = await runDelete(dataDir, [session.sessionId], {
-        BOTMUX_SESSION_ID: session.sessionId,
-        BOTMUX_LARK_APP_ID: undefined,
-        BOTMUX_SEND_RELAY: undefined,
-        BOTMUX_DAEMON_IPC_PORT: String(port),
-      });
-
-      // Injected port must not route a legacy session to the daemon.
-      expect(seen).toEqual([]);
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain('daemon 离线，本地收口');
-      const stored = JSON.parse(readFileSync(sessionsPath, 'utf8'));
-      expect(stored[session.sessionId].status).toBe('closed');
-      expect(stored[session.sessionId].closedAt).toBeTruthy();
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close(err => err ? reject(err) : resolve());

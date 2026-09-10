@@ -8,9 +8,9 @@
  * dirs, mocked config/logger).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let tempDir: string;
 
@@ -52,7 +52,7 @@ async function freshImport() {
 }
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'schedule-store-idem-'));
+  tempDir = makeTestTempDir('schedule-store-idem-');
 });
 afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });

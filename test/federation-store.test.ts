@@ -1,11 +1,21 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Federation stores: deployment identity, hub-side federation, spoke-side membership.
  * Run: pnpm vitest run test/federation-store.test.ts
  */
-import { mkdtempSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-fed-1': null,
+  });
+});
 import { getDeploymentIdentity, setDeploymentName } from '../src/services/deployment-identity.js';
 import {
   registerDeployment, syncDeployment, getDeploymentByToken, removeDeploymentByToken,
@@ -14,7 +24,7 @@ import {
 import { addMembership, listMemberships, removeMembership, findMembershipByDelegationToken } from '../src/services/federation-membership-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-fed-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-fed-1'; });
 
 const bot = (app: string, name = app) => ({ larkAppId: app, botName: name, cliId: 'codex' });
 

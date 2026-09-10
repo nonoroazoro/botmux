@@ -217,8 +217,6 @@ describe('forkSession — frozen launch posture inheritance', () => {
     const src = makeSourceDs({
       sandbox: true,
       sandboxPaths: { readWrite: ['/tmp/project'], readOnly: ['/etc'], deny: ['/secret'] },
-      sandboxHidePaths: ['/hide/me'],
-      sandboxReadonlyPaths: ['/ro/here'],
       sandboxNetwork: false,
     });
     registry.set(sessionKey('om_source_root', 'cli_app_test'), src);
@@ -229,8 +227,6 @@ describe('forkSession — frozen launch posture inheritance', () => {
     const child = vi.mocked(sessionStore.createSession).mock.results[0].value as Session;
     expect(child.sandbox).toBe(true);
     expect(child.sandboxPaths).toEqual({ readWrite: ['/tmp/project'], readOnly: ['/etc'], deny: ['/secret'] });
-    expect(child.sandboxHidePaths).toEqual(['/hide/me']);
-    expect(child.sandboxReadonlyPaths).toEqual(['/ro/here']);
     expect(child.sandboxNetwork).toBe(false);
   });
 

@@ -1,10 +1,8 @@
 import {
   mkdirSync,
-  mkdtempSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -14,10 +12,11 @@ import {
   fsyncRegularFileSync,
   isUnsupportedDirectoryFsyncError,
 } from '../src/utils/fs-durability.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('filesystem durability helpers', () => {
   it('strictly syncs regular files followed by their containing directory', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-durable-'));
+    const root = makeTestTempDir('botmux-durable-');
     try {
       const a = join(root, 'a.json');
       const b = join(root, 'b.json');

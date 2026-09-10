@@ -3,9 +3,6 @@
  * foreign-bot gate predicate that lets teammates collaborate without /grant).
  * Run: pnpm vitest run test/team-peer-trust.test.ts
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
@@ -16,9 +13,10 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
 import { recordTeamGroup, isTeamGroupChat } from '../src/services/team-groups-store.js';
 import { recordTeamBot } from '../src/services/team-bots-store.js';
 import { isTrustedTeamBotSender } from '../src/im/lark/event-dispatcher.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-teampeer-')); });
+beforeEach(() => { dataDir = makeTestTempDir('botmux-teampeer-'); });
 
 describe('isTeamGroupChat', () => {
   it('recognises a recorded 拉群 group of any team', () => {

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import {
   listSkillResources,
@@ -9,6 +8,7 @@ import {
   readSkillResource,
 } from '../src/core/skills/resource-reader.js';
 import type { SessionSkillManifest } from '../src/core/skills/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function write(file: string, content: string): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -20,7 +20,7 @@ describe('skill resource reader', () => {
   let manifest: SessionSkillManifest;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'botmux-skill-resource-'));
+    root = makeTestTempDir('botmux-skill-resource-');
     write(join(root, 'deploy', 'SKILL.md'), '# Deploy');
     write(join(root, 'deploy', 'references', 'release.md'), '# Release');
     manifest = {
@@ -68,7 +68,7 @@ describe('skill resource reader', () => {
   });
 
   it('does not enumerate resources through symlinks outside the skill root', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'botmux-skill-outside-'));
+    const outside = makeTestTempDir('botmux-skill-outside-');
     try {
       write(join(outside, 'secret.md'), '# Secret');
       symlinkSync(outside, join(root, 'deploy', 'references', 'outside'));

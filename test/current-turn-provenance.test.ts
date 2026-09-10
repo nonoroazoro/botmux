@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -8,12 +7,13 @@ import {
   resolveCurrentTurnProvenance,
 } from '../src/core/current-turn-provenance.js';
 import { readProcessStartIdentity } from '../src/core/session-marker.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('resolveCurrentTurnProvenance', () => {
   let dataDir: string;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-turn-provenance-'));
+    dataDir = makeTestTempDir('botmux-turn-provenance-');
     mkdirSync(join(dataDir, '.botmux-cli-pids'), { recursive: true });
   });
 

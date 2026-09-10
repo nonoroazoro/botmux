@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   generateCodexAppThreadTitle,
   setCodexAppThreadName,
 } from '../src/services/codex-app-threads.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const FAKE_CODEX = resolve('test/fixtures/fake-codex-app-server.mjs');
 const tempDirs: string[] = [];
@@ -31,7 +31,7 @@ function fakeCodexEnv(
 
 describe('generateCodexAppThreadTitle', () => {
   it('generates a structured semantic title in an isolated ephemeral thread', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-title-generate-'));
+    const dir = makeTestTempDir('botmux-codex-title-generate-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
     const envLogPath = join(dir, 'env.json');
@@ -131,7 +131,7 @@ describe('generateCodexAppThreadTitle', () => {
   });
 
   it('returns undefined for invalid structured output', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-title-invalid-'));
+    const dir = makeTestTempDir('botmux-codex-title-invalid-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
 
@@ -154,7 +154,7 @@ describe('generateCodexAppThreadTitle', () => {
   });
 
   it('times out, interrupts the temporary turn, and reaps the app-server', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-title-timeout-'));
+    const dir = makeTestTempDir('botmux-codex-title-timeout-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
     const pidPath = join(dir, 'pid');
@@ -198,7 +198,7 @@ describe('generateCodexAppThreadTitle', () => {
 
 describe('setCodexAppThreadName', () => {
   it('sets a persisted thread name through the Codex app-server API', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-thread-name-'));
+    const dir = makeTestTempDir('botmux-codex-thread-name-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
 
@@ -225,7 +225,7 @@ describe('setCodexAppThreadName', () => {
   });
 
   it('waits until the first-message preview is readable before setting the final title', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-thread-title-barrier-'));
+    const dir = makeTestTempDir('botmux-codex-thread-title-barrier-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
 
@@ -253,7 +253,7 @@ describe('setCodexAppThreadName', () => {
   });
 
   it('retries while a fresh thread is not loaded before setting the final title', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-thread-load-race-'));
+    const dir = makeTestTempDir('botmux-codex-thread-load-race-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
 
@@ -289,7 +289,7 @@ describe('setCodexAppThreadName', () => {
   });
 
   it('does not retry a non-transient thread read failure', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-thread-read-error-'));
+    const dir = makeTestTempDir('botmux-codex-thread-read-error-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
 
@@ -316,7 +316,7 @@ describe('setCodexAppThreadName', () => {
   });
 
   it('sets the final title when the first-message preview remains unavailable', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-thread-title-fallback-'));
+    const dir = makeTestTempDir('botmux-codex-thread-title-fallback-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
 
@@ -352,7 +352,7 @@ describe('setCodexAppThreadName', () => {
   });
 
   it('waits for the first resume append metadata update before restoring the managed title', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-thread-resume-barrier-'));
+    const dir = makeTestTempDir('botmux-codex-thread-resume-barrier-');
     tempDirs.push(dir);
     const logPath = join(dir, 'requests.jsonl');
 
@@ -382,7 +382,7 @@ describe('setCodexAppThreadName', () => {
   });
 
   it('aborts a stuck app-server request and reaps its process', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-thread-abort-'));
+    const dir = makeTestTempDir('botmux-codex-thread-abort-');
     tempDirs.push(dir);
     const pidPath = join(dir, 'pid');
     const controller = new AbortController();
@@ -422,7 +422,7 @@ describe('setCodexAppThreadName', () => {
   });
 
   it('supports synchronous force-close for worker exit cleanup', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-codex-thread-force-close-'));
+    const dir = makeTestTempDir('botmux-codex-thread-force-close-');
     tempDirs.push(dir);
     const pidPath = join(dir, 'pid');
     let forceClose: (() => void) | undefined;

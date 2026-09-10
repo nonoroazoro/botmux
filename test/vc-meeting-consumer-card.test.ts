@@ -296,7 +296,7 @@ describe('VC meeting consumer card builder', () => {
       .filter((element: any) => element.tag === 'markdown')
       .map((element: any) => element.content)
       .join('\n');
-    expect(panelMarkdown).toContain('agent：meeting-notes-bot · 角色：`minutes` · 回复：静默 · 群内形式：自动兼容 · 受管输出：无');
+    expect(panelMarkdown).toContain('agent：meeting-notes-bot · 角色：`minutes` · 回复：静默 · 群内形式：自动兼容 · 会中输出：无');
     expect(panelMarkdown).toContain('会中文字、会议语音');
     expect(panelMarkdown).toContain('状态：启用中');
     expect(panelMarkdown).toContain('状态：已启用');

@@ -10,14 +10,13 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { rmSync, realpathSync } from 'node:fs';
 import {
   __testOnly_readComm,
   __testOnly_readCwd,
   __testOnly_getChildPids,
 } from '../src/core/session-discovery.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let child: ChildProcessWithoutNullStreams;
 let childCwd: string;
@@ -25,7 +24,7 @@ let childCwd: string;
 beforeAll(async () => {
   // macOS 的 tmpdir 通常是 /var/folders/.. 的软链，真实路径在 /private/var/...
   // lsof 返回 resolve 后的路径，提前 realpath 一下让断言里两边形态一致。
-  childCwd = realpathSync(mkdtempSync(join(tmpdir(), 'bmx-sd-')));
+  childCwd = realpathSync(makeTestTempDir('bmx-sd-'));
   // 用一个会保持运行 60s 的 Node 子进程当 target。stdout 输出 "ready" 后
   // 才认为 cwd / pid 都已稳定。
   child = spawn(

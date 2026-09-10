@@ -7,10 +7,8 @@
  *
  * Run:  pnpm vitest run test/chat-first-seen-store.test.ts
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -29,7 +27,7 @@ describe('chat-first-seen-store.markSeenBulkDetailed', () => {
   let prevDataDir: string | undefined;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-fs-store-'));
+    dataDir = makeTestTempDir('botmux-fs-store-');
     prevDataDir = process.env.SESSION_DATA_DIR;
     process.env.SESSION_DATA_DIR = dataDir;
   });

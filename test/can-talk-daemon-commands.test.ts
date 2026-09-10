@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * canTalkDaemonCommands：把选定的 daemon 命令的权限闸从 canOperate 降到 canTalk。
  * - 解析：parseBotConfigsFromText 归一化（小写/补斜杠/仅认 DAEMON_COMMANDS/去重）
@@ -5,8 +6,17 @@
  * Run: pnpm vitest run test/can-talk-daemon-commands.test.ts
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/repo-peer-gate-1': null,
+  });
+});
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
@@ -133,7 +143,7 @@ describe('canRunDaemonCommand /repo trusted same-deployment peer exception', () 
     __testOnly_resetBotRegistry();
     prevDataDir = config.session.dataDir;
     prevBotsConfig = process.env.BOTS_CONFIG;
-    tmp = mkdtempSync(join(tmpdir(), 'repo-peer-gate-'));
+    tmp = '/fixtures/repo-peer-gate-1';
     botsConfigPath = join(tmp, 'bots.json');
     config.session.dataDir = tmp;
 

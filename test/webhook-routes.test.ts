@@ -1,11 +1,9 @@
 import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectorTriggerPresentation, verifyWebhookSignature, verifyWebhookToken } from '../src/dashboard/webhook-routes.js';
 import type { ConnectorDefinition } from '../src/services/connector-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let server: Server | null = null;
 let baseUrl = '';
@@ -170,7 +168,7 @@ async function seedTokenConnector(): Promise<ConnectorDefinition> {
 }
 
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-webhook-route-'));
+  dataDir = makeTestTempDir('botmux-webhook-route-');
   prevDataDir = process.env.SESSION_DATA_DIR;
   process.env.SESSION_DATA_DIR = dataDir;
 });
@@ -514,7 +512,7 @@ describe('webhook new-group lifecycle', () => {
     expect(proxyToDaemon).not.toHaveBeenCalled();
   });
 
-  it('retires a workflow connector before lifecycle reservation or daemon dispatch', async () => {
+  it('rejects invalid stored target kinds before lifecycle reservation or daemon dispatch', async () => {
     const createLifecycleGroup = vi.fn(async () => ({ chatId: 'oc_should_not_exist', creatorLarkAppId: 'app1' }));
     const captured: any[] = [];
     const proxyToDaemon = vi.fn(async (_appId: string, path: string, init: RequestInit) => {
@@ -528,78 +526,12 @@ describe('webhook new-group lifecycle', () => {
       alert: { id: 'cpu-high' },
     });
 
-    expect(result.status).toBe(410);
-    expect(result.body).toMatchObject({ ok: false, errorCode: 'legacy_workflow_retired' });
+    expect(result.status).toBe(400);
+    expect(result.body).toMatchObject({ ok: false, errorCode: 'target_required' });
     expect(captured).toHaveLength(0);
     expect(createLifecycleGroup).not.toHaveBeenCalled();
     const { listWebhookLifecycleRecords } = await import('../src/services/webhook-lifecycle-store.js');
     expect(listWebhookLifecycleRecords({ connectorId: connector.id }, dataDir)).toEqual([]);
-  });
-
-  it('never creates a workflow lifecycle group after retirement', async () => {
-    const createLifecycleGroup = vi.fn(async () => ({ chatId: 'oc_new_workflow', creatorLarkAppId: 'app1' }));
-    const captured: any[] = [];
-    const proxyToDaemon = vi.fn(async (_appId: string, _path: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body));
-      captured.push(body);
-      if (body.options?.dryRun) {
-        return {
-          status: 200,
-          text: async () => JSON.stringify({ ok: true, triggerId: 'trg_preflight', action: 'dry_run' }),
-        };
-      }
-      return {
-        status: 200,
-        text: async () => JSON.stringify({
-          ok: true,
-          triggerId: 'trg_actual',
-          action: 'delivered',
-          target: { kind: 'workflow', chatId: body.target.chatId, workflowRunId: 'run_1' },
-        }),
-      };
-    }) as any;
-    await startWebhookServer({ createLifecycleGroup, proxyToDaemon });
-    const connector = await seedWorkflowConnector({ mode: 'new-group', dedup: true });
-
-    const result = await postWebhook(connector.id, 'nonce_wf_ok', {
-      alert: { id: 'disk-high' },
-    });
-
-    expect(result.status).toBe(410);
-    expect(result.body).toMatchObject({ ok: false, errorCode: 'legacy_workflow_retired' });
-    expect(captured).toHaveLength(0);
-    expect(createLifecycleGroup).not.toHaveBeenCalled();
-  });
-
-  it('returns retirement for an externally-requested workflow dry run without creating a group', async () => {
-    const createLifecycleGroup = vi.fn(async () => ({ chatId: 'oc_should_not_exist', creatorLarkAppId: 'app1' }));
-    const captured: any[] = [];
-    const proxyToDaemon = vi.fn(async (_appId: string, _path: string, init: RequestInit) => {
-      captured.push(JSON.parse(String(init.body)));
-      return {
-        status: 200,
-        text: async () => JSON.stringify({
-          ok: true,
-          triggerId: 'trg_external_dry',
-          action: 'dry_run',
-          message: 'validated legacy workflow',
-        }),
-      };
-    }) as any;
-    await startWebhookServer({ createLifecycleGroup, proxyToDaemon });
-    const connector = await seedWorkflowConnector({ mode: 'new-group' });
-
-    const result = await postWebhook(
-      connector.id,
-      'nonce_wf_external_dry',
-      { hello: 'world' },
-      '?dryRun=true',
-    );
-
-    expect(result.status).toBe(410);
-    expect(result.body).toMatchObject({ ok: false, errorCode: 'legacy_workflow_retired' });
-    expect(captured).toHaveLength(0);
-    expect(createLifecycleGroup).not.toHaveBeenCalled();
   });
 
   it('creates one lifecycle group and reuses it for duplicate firing events', async () => {
@@ -731,36 +663,5 @@ describe('webhook suppressFinalOutput passthrough', () => {
     expect(captured).toHaveLength(1);
     expect(captured[0].options.suppressFinalOutput).toBeUndefined();
     expect(captured[0].options).toEqual({ waitForFinalOutput: true });
-  });
-});
-
-describe('legacy workflow connector tombstone', () => {
-  it('retires fixed workflow connectors before daemon dispatch', async () => {
-    const captured: any[] = [];
-    const proxyToDaemon = vi.fn(async (_appId: string, path: string, init: RequestInit) => {
-      captured.push({ path, body: JSON.parse(String(init.body)) });
-      return {
-        status: 409,
-        text: async () => JSON.stringify({
-          ok: false,
-          triggerId: 'trg_fixed_retired',
-          errorCode: 'legacy_workflow_retired',
-          error: 'legacy definition is pending migration',
-          reason: 'pending',
-          targetWorkflowId: 'wf_target',
-        }),
-      };
-    }) as any;
-    await startWebhookServer({ proxyToDaemon });
-    const connector = await seedWorkflowConnector({ mode: 'fixed' });
-
-    const result = await postWebhook(connector.id, 'nonce_fixed_retired', { hello: 'world' });
-
-    expect(result.status).toBe(410);
-    expect(result.body).toMatchObject({
-      ok: false,
-      errorCode: 'legacy_workflow_retired',
-    });
-    expect(captured).toHaveLength(0);
   });
 });

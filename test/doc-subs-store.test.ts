@@ -1,7 +1,17 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-doc-subs-1': null,
+  });
+});
 
 import {
   putDocSubscription,
@@ -30,7 +40,7 @@ function sub(over: Partial<DocSubscription> = {}): DocSubscription {
   };
 }
 
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-doc-subs-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-doc-subs-1'; });
 afterEach(() => { if (dataDir) { rmSync(dataDir, { recursive: true, force: true }); dataDir = ''; } });
 
 describe('doc-subs-store', () => {

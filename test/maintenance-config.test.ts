@@ -1,10 +1,21 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-maint-config-1': null,
+  });
+});
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   globalConfigPath,
   readGlobalConfig,
+  invalidateGlobalConfigCache,
   mergeMaintenanceConfig,
   isValidHhMm,
   parseMaintenancePatch,
@@ -31,8 +42,9 @@ describe('maintenance global config', () => {
   let home: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-maint-config-'));
+    home = '/fixtures/botmux-maint-config-1';
     vi.stubEnv('HOME', home);
+    invalidateGlobalConfigCache();
     mkdirSync(dirname(globalConfigPath()), { recursive: true });
   });
 

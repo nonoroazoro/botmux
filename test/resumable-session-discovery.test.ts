@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
 import {
   discoverClaudeFamilySessions,
   discoverRolloutSessions,
@@ -15,15 +17,13 @@ import {
  * ~/.gemini data during development) so a format regression fails loudly.
  */
 
-function tmp(prefix: string): string {
-  return mkdtempSync(join(tmpdir(), prefix));
-}
+beforeEach(() => resetMemoryFs({ '/fixtures': null }));
 
 const jsonl = (...lines: unknown[]): string => lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
 
 describe('discoverClaudeFamilySessions', () => {
   let dataDir: string;
-  beforeEach(() => { dataDir = tmp('bmx-claude-'); });
+  beforeEach(() => { dataDir = '/fixtures/claude'; });
 
   function writeSession(projectHash: string, sessionId: string, lines: unknown[]): void {
     const dir = join(dataDir, 'projects', projectHash);
@@ -181,7 +181,7 @@ describe('discoverClaudeFamilySessions', () => {
 
 describe('discoverRolloutSessions (codex / traex)', () => {
   let sessionsRoot: string;
-  beforeEach(() => { sessionsRoot = tmp('bmx-rollout-'); });
+  beforeEach(() => { sessionsRoot = '/fixtures/rollouts'; });
 
   function writeRollout(relDir: string, name: string, lines: unknown[]): void {
     const dir = join(sessionsRoot, relDir);
@@ -338,7 +338,7 @@ describe('discoverRolloutSessions (codex / traex)', () => {
 describe('discoverAntigravitySessions', () => {
   let dir: string;
   let historyPath: string;
-  beforeEach(() => { dir = tmp('bmx-agy-'); historyPath = join(dir, 'history.jsonl'); });
+  beforeEach(() => { dir = '/fixtures/antigravity'; mkdirSync(dir, { recursive: true }); historyPath = join(dir, 'history.jsonl'); });
 
   it('dedups by conversationId, keeps the latest timestamp, first display as title', async () => {
     writeFileSync(historyPath, jsonl(

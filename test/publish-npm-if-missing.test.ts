@@ -2,15 +2,14 @@ import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const script = join(repoRoot, 'scripts', 'publish-npm-if-missing.mjs');
@@ -23,7 +22,7 @@ afterEach(() => {
 });
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'publish-if-missing-test-'));
+  const root = makeTestTempDir('publish-if-missing-test-');
   scratchDirectories.push(root);
   const packageDir = join(root, 'package');
   const binDir = join(root, 'bin');

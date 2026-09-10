@@ -3,13 +3,10 @@ import { buildBotmuxShellHints, buildBotmuxSystemPromptText } from '../src/adapt
 import { buildDocCommentApplicationContext, buildDocCommentPrompt, buildDocWatchWarmupPrompt, buildDocWatchWarmupVisibleText } from '../src/core/doc-comment-prompt.js';
 import { renderPollPromptHint } from '../src/features/poll/prompt.js';
 import { buildKickoffPrompt } from '../src/im/lark/issue-command-deps.js';
-import { buildWorkflowGrillPrompt } from '../src/im/lark/workflow-slash-command.js';
 import { INTERNAL_INSTRUCTIONS } from '../src/prompts.js';
 import { DEFAULT_SUMMARY_PROMPT } from '../src/services/summary-range-store.js';
 import { VC_MEETING_CONSUMER_PROFILE_TEMPLATE_CATALOG } from '../src/services/vc-meeting-consumer-profile-templates.js';
 import { BUILTIN_SKILLS, ON_DEMAND_BUILTIN_SKILLS } from '../src/skills/definitions.js';
-import { buildArchitectGoal } from '../src/workflows/v3/architect.js';
-import { buildV3DistillationModelPrompt, buildV3DistillationSystemPrompt } from '../src/workflows/v3/distillation-runner.js';
 
 const HAN = /\p{Script=Han}/u;
 
@@ -30,7 +27,7 @@ describe('model-facing instruction language', () => {
     expectInternalEnglish('shell hints zh locale', buildBotmuxShellHints('zh').join('\n'));
     expectInternalEnglish('system prompt zh locale', buildBotmuxSystemPromptText({
       locale: 'zh',
-      botName: 'Finder Master',
+      botName: 'Project Guide',
       botOpenId: 'ou_bot',
     }));
   });
@@ -53,10 +50,6 @@ describe('model-facing instruction language', () => {
       documentWarmup: buildDocWatchWarmupPrompt({ fileToken: 'doc_token', fileType: 'docx', locale: 'zh' }),
       poll: renderPollPromptHint('创建一个投票', 'zh'),
       issueKickoff: buildKickoffPrompt({ title: 'Fix timeout', workingDir: '/work/repo', issueId: 'issue-1' }),
-      workflowGrill: buildWorkflowGrillPrompt('Investigate the failure'),
-      workflowArchitect: buildArchitectGoal('/run/spec.md', '/run/spec.json'),
-      distillationSystem: buildV3DistillationSystemPrompt(),
-      distillationModel: buildV3DistillationModelPrompt({ schemaVersion: 1, fields: [] }),
     };
 
     for (const [name, value] of Object.entries(prompts)) {

@@ -1,6 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-ask-resume-1': null,
+  });
+});
+import { rmSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -71,7 +81,7 @@ function bindStore() {
 
 beforeEach(() => {
   prevDataDir = process.env.SESSION_DATA_DIR;
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-ask-resume-'));
+  dataDir = '/fixtures/botmux-ask-resume-1';
   _resetForTest();          // detaches store (never deletes)
   bindStore();
   setCanTalkChecker((_a, _c, openId) => openId === 'ou_owner');

@@ -1,10 +1,10 @@
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { resolveIsolatedAttachmentDir } from '../../src/core/resolve-isolated-attachment-dir.js';
+import { makeTestTempDir } from '../helpers/test-temp-dir.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -16,7 +16,7 @@ afterEach(() => {
 
 describe('resolveIsolatedAttachmentDir', () => {
   it('returns a physical path when the configured home uses a symlink', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-attachment-path-'));
+    const root = makeTestTempDir('botmux-attachment-path-');
     temporaryDirectories.push(root);
     const physicalHome = join(root, 'physical-home');
     const logicalHome = join(root, 'logical-home');

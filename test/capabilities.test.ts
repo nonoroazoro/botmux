@@ -1,8 +1,18 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-capabilities-1': null,
+  });
+});
 import {
   BOTMUX_CAPABILITIES_SCHEMA_VERSION,
   botmuxCapabilities,
@@ -41,7 +51,7 @@ describe('botmux capabilities contract', () => {
   });
 
   it('prints only the fixed JSON document and creates no runtime state', () => {
-    const home = mkdtempSync(join(tmpdir(), 'botmux-capabilities-'));
+    const home = '/fixtures/botmux-capabilities-1';
     homes.push(home);
     const result = spawnSync(
       process.execPath,

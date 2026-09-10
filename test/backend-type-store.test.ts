@@ -5,10 +5,10 @@
  *
  * Run: pnpm vitest run test/backend-type-store.test.ts
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 async function freshModules() {
   vi.resetModules();
@@ -21,7 +21,7 @@ describe('backend-type store', () => {
   let configPath: string;
 
   beforeEach(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-backendtype-'));
+    const dir = makeTestTempDir('botmux-backendtype-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
   });

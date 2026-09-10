@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { runSkillSessionCommand } from '../src/core/skills/cli-session-command.js';
 import { writeSessionSkillManifest } from '../src/core/skills/manifest-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CLI_PATH = join(__dirname, '..', 'dist', 'cli.js');
 
@@ -19,8 +19,8 @@ describe('botmux skill session command', () => {
   let skillDir: string;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-skill-data-'));
-    skillDir = mkdtempSync(join(tmpdir(), 'botmux-skill-dir-'));
+    dataDir = makeTestTempDir('botmux-skill-data-');
+    skillDir = makeTestTempDir('botmux-skill-dir-');
     vi.stubEnv('SESSION_DATA_DIR', dataDir);
     write(join(skillDir, 'SKILL.md'), '# Deploy');
     write(join(skillDir, 'references', 'release.md'), '# Release');

@@ -5,10 +5,10 @@
  *
  * Run: pnpm vitest run test/card-prefs-auto-start.test.ts
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient {
@@ -31,7 +31,7 @@ describe('card-prefs store — 主动开工 fields', () => {
   let configPath: string;
 
   beforeEach(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-cardprefs-autostart-'));
+    const dir = makeTestTempDir('botmux-cardprefs-autostart-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
   });

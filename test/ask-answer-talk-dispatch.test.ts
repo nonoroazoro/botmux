@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * evaluateAskAnswerTalk 的分派回归 —— `botmux ask` 文字作答鉴权的生产分派谓词。
  *
@@ -18,9 +19,17 @@
  * Run: pnpm vitest run test/ask-answer-talk-dispatch.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-ask-dispatch-1': null,
+  });
+});
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 let tempDir: string;
 
@@ -69,7 +78,7 @@ function recordPlatformTeamMember(chatId: string, memberUnionId: string): void {
 
 describe('evaluateAskAnswerTalk — ask 文字作答鉴权的真实生产分派', () => {
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'botmux-ask-dispatch-'));
+    tempDir = '/fixtures/botmux-ask-dispatch-1';
     const bot = registerBot({ larkAppId: APP, larkAppSecret: 's', cliId: 'claude-code', allowedUsers: [] });
     bot.resolvedAllowedUsers = [];
     bot.config.allowedUsers = [];

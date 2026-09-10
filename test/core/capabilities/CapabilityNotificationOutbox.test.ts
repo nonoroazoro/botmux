@@ -1,7 +1,17 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from '../../helpers/memory-fs/index.js';
+import { readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('../../helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('../../helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-capability-notification-1': null,
+  });
+});
 
 import { CapabilityNotificationOutbox } from '../../../src/core/capabilities/index.js';
 
@@ -9,7 +19,7 @@ describe('CapabilityNotificationOutbox', () => {
   let dataDir: string;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-capability-notification-'));
+    dataDir = '/fixtures/botmux-capability-notification-1';
   });
 
   afterEach(() => {

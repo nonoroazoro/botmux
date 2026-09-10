@@ -10,7 +10,6 @@ import {
   ancestorsNeedingTraverse,
   compileToSeatbelt,
   compileToBwrap,
-  migrateLegacySandboxFields,
   computeNoTransportAuthorityRoots,
   FsPolicyConfigError,
   type FsPolicyContext,
@@ -758,31 +757,6 @@ describe('compileToBwrap', () => {
     // semantic cross-check: accessForPath agrees the secret is denied
     expect(accessForPath(p.rules, '/home/u/proj/outer/self/secret/key').access).toBe('deny');
     expect(accessForPath(p.rules, '/home/u/proj/outer/self/ok').access).toBe('readWrite');
-  });
-});
-
-describe('migrateLegacySandboxFields', () => {
-  it('maps old fields losslessly and keeps sandbox truthiness', () => {
-    const m = migrateLegacySandboxFields({
-      sandbox: true,
-      sandboxReadonlyPaths: ['~/ref'],
-      sandboxHidePaths: ['~/.ssh'],
-      readDenyExtraPaths: ['~/.aws', '~/.ssh'],
-    });
-    expect(m).toEqual({
-      sandbox: true,
-      sandboxPaths: { readOnly: ['~/ref'], deny: ['~/.ssh', '~/.aws'] },
-    });
-  });
-
-  it('readIsolation:true alone → sandbox:true (absorbed)', () => {
-    expect(migrateLegacySandboxFields({ readIsolation: true })).toEqual({ sandbox: true });
-  });
-
-  it('no-ops when already migrated or nothing legacy present', () => {
-    expect(migrateLegacySandboxFields({ sandbox: true, sandboxPaths: {} })).toBeNull();
-    expect(migrateLegacySandboxFields({ sandbox: true })).toBeNull();
-    expect(migrateLegacySandboxFields({})).toBeNull();
   });
 });
 

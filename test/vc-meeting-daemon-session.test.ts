@@ -1,6 +1,18 @@
+import * as sessionStore from '../src/services/session-store.js';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-vc-daemon-session-1': null,
+    '/fixtures/botmux-vc-managed-daemon-2': null,
+    '/fixtures/botmux-vc-managed-retry-3': null,
+  });
+});
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -799,8 +811,9 @@ describe('VC meeting daemon session lifecycle', () => {
   beforeEach(() => {
     __vcMeetingAgentTest.reset();
     dataDirBeforeTest = config.session.dataDir;
-    testDataDir = mkdtempSync(join(tmpdir(), 'botmux-vc-daemon-session-'));
+    testDataDir = '/fixtures/botmux-vc-daemon-session-1';
     config.session.dataDir = testDataDir;
+    sessionStore.init(APP_ID);
     __testOnly_activeSessions.clear();
     __vcMeetingAgentTest.setGlobalVcMeetingAgentEnabledForTest(true);
     __vcMeetingAgentTest.setGlobalVcMeetingListenerBotAppIdForTest(null);
@@ -8908,7 +8921,7 @@ describe('VC meeting daemon session lifecycle', () => {
   });
 
   it('durably approves a managed text action once and restores a presented card after runtime loss', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-vc-managed-daemon-'));
+    const dir = '/fixtures/botmux-vc-managed-daemon-2';
     const previousDataDir = config.session.dataDir;
     config.session.dataDir = dir;
     try {
@@ -9134,7 +9147,7 @@ describe('VC meeting daemon session lifecycle', () => {
   });
 
   it('retries a transient managed text provider failure online with one stable provider key', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-vc-managed-retry-'));
+    const dir = '/fixtures/botmux-vc-managed-retry-3';
     const previousDataDir = config.session.dataDir;
     config.session.dataDir = dir;
     try {

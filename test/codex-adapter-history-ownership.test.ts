@@ -16,11 +16,11 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCodexAdapter } from '../src/adapters/cli/codex.js';
 import type { PtyHandle } from '../src/adapters/cli/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const SID_A = '019dd80d-d922-7a11-8339-0208d8c5b4ec'; // foreign sibling pane
 const SID_B = '019dd80d-d922-7a11-8339-0208d8c5b4ee'; // this pane (owned)
@@ -65,7 +65,7 @@ beforeEach(async () => {
   prevScale = process.env.BOTMUX_TIME_SCALE;
   process.env.BOTMUX_TIME_SCALE = '0.01'; // collapse the ~0.5–3s submit waits
   prevCodexHome = process.env.CODEX_HOME;
-  home = mkdtempSync(join(tmpdir(), 'bmx-codex-hist-'));
+  home = makeTestTempDir('bmx-codex-hist-');
   process.env.CODEX_HOME = home;
 
   // B's rollout exists and is held open by a live process → ownership probe of

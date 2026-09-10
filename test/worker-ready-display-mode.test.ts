@@ -36,10 +36,10 @@ vi.mock('../src/im/lark/card-builder.js', () => ({
   buildStreamingCard: vi.fn((...args: any[]) => JSON.stringify({
     type: 'streaming',
     readUrl: args[2],
-    localCliReady: args[15] === true,
-    // Signature tail after the master merge: 15 localCliReady, 16 usage,
-    // 17 runtimeDisplayName, 18 serviceTierBadge.
-    serviceTierBadge: args[18],
+    localCliReady: args[14] === true,
+    // Signature tail: 14 localCliReady, 15 usage, 16 runtimeDisplayName,
+    // 17 serviceTierBadge.
+    serviceTierBadge: args[17],
   })),
   buildSessionCard: vi.fn(() => '{"type":"session"}'),
   buildTuiPromptCard: vi.fn(() => '{}'),

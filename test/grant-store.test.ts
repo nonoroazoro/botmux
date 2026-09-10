@@ -2,10 +2,10 @@
  * grant-store 持久化语义单测。
  * Run: pnpm vitest run test/grant-store.test.ts
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -28,7 +28,7 @@ function writeConfig(entry: Record<string, unknown>) {
 function readConfig(): any { return JSON.parse(readFileSync(configPath, 'utf-8'))[0]; }
 
 beforeEach(() => {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-grant-store-'));
+  const dir = makeTestTempDir('botmux-grant-store-');
   configPath = join(dir, 'bots.json');
   process.env.BOTS_CONFIG = configPath;
   process.env.SESSION_DATA_DIR = dir; // isolate allowedUsers sidecar (revokeGrant writes it)

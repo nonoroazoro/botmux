@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from 'node:fs';
+import { mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { getClaudeSessionJsonlPath } from '../src/services/transcript-resolver.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // Regression: a symlinked cwd (the real-world case: /home/<user> → /data00/home/<user>)
 // must resolve to the SAME project key Claude Code writes under. Claude keys
@@ -14,7 +14,7 @@ describe('getClaudeSessionJsonlPath — symlinked cwd', () => {
   afterEach(() => { for (const d of trash.splice(0)) rmSync(d, { recursive: true, force: true }); });
 
   it('keys the project by the realpath of a symlinked cwd, not the lexical path', () => {
-    const base = mkdtempSync(join(tmpdir(), 'botmux-symlink-'));
+    const base = makeTestTempDir('botmux-symlink-');
     trash.push(base);
 
     // Real working dir + a symlink pointing at it (mimics /home → /data00).
@@ -37,7 +37,7 @@ describe('getClaudeSessionJsonlPath — symlinked cwd', () => {
   });
 
   it('still resolves a plain (non-symlinked) cwd', () => {
-    const base = mkdtempSync(join(tmpdir(), 'botmux-symlink-'));
+    const base = makeTestTempDir('botmux-symlink-');
     trash.push(base);
     const cwd = join(base, 'work');
     mkdirSync(cwd, { recursive: true });
@@ -52,7 +52,7 @@ describe('getClaudeSessionJsonlPath — symlinked cwd', () => {
   });
 
   it('returns null when no transcript exists at the resolved key', () => {
-    const base = mkdtempSync(join(tmpdir(), 'botmux-symlink-'));
+    const base = makeTestTempDir('botmux-symlink-');
     trash.push(base);
     const cwd = join(base, 'work');
     mkdirSync(cwd, { recursive: true });
@@ -60,7 +60,7 @@ describe('getClaudeSessionJsonlPath — symlinked cwd', () => {
   });
 
   it('falls back to a lexical resolve when cwd is not on disk (realpath throws)', () => {
-    const base = mkdtempSync(join(tmpdir(), 'botmux-symlink-'));
+    const base = makeTestTempDir('botmux-symlink-');
     trash.push(base);
     // cwd does not exist → realpathSync throws → lexical fallback keeps old behavior.
     const ghost = join(base, 'gone', 'work');

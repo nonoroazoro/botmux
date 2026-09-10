@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for the repo-select card dropdowns in card-handler:
  *
@@ -10,6 +11,16 @@
  * Run:  pnpm vitest run test/card-handler-repo-select.test.ts
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-manual-repo-1': null,
+  });
+});
 
 // ─── Mocks (before importing the module under test) ───────────────────────
 
@@ -146,8 +157,8 @@ import { publishClosedSessionPatch } from '../src/core/session-activity.js';
 import { sessionKey } from '../src/core/types.js';
 import type { DaemonSession } from '../src/core/types.js';
 import type { ProjectInfo } from '../src/services/project-scanner.js';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1464,7 +1475,7 @@ describe('repo select card — worktree open', () => {
 
 describe('repo select card — manual directory entry', () => {
   let tmpDir: string;
-  beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), 'botmux-manual-repo-')); });
+  beforeEach(() => { tmpDir = '/fixtures/botmux-manual-repo-1'; });
   afterEach(() => { rmSync(tmpDir, { recursive: true, force: true }); });
 
   it('pendingRepo manual submit forks the CLI in the typed directory', async () => {

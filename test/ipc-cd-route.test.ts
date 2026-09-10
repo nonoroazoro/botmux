@@ -12,13 +12,13 @@
 // 目录并在其中建 botmux-roles/role-a，即可用真实校验逻辑（realpath 归一 +
 // dev/ino 包含判断）覆盖 403/400 分支，而不 mock role-library 本身。
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { setIpcAuthSecret, startIpcServer, type IpcServerHandle } from '../src/core/dashboard-ipc-server.js';
 import { daemonIpcAuthHeaders } from '../src/core/daemon-ipc-auth.js';
 import * as workerPool from '../src/core/worker-pool.js';
 import * as sessionCwd from '../src/core/session-cwd.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 /** 会话当前轮换 capability（daemon 侧 ds.managedTurnOrigin 与请求 body 双方持有）。 */
 const CAP = 'deadbeef'.repeat(8);
@@ -31,7 +31,7 @@ let roleDir: string;      // <fakeHome>/botmux-roles/role-a（角色库内合法
 let roleDirReal: string;  // 其 realpath —— validateRoleLibraryPath 的归一化产物
 
 beforeAll(() => {
-  fakeHome = mkdtempSync(join(tmpdir(), 'ipc-cd-home-'));
+  fakeHome = makeTestTempDir('ipc-cd-home-');
   roleDir = join(fakeHome, 'botmux-roles', 'role-a');
   mkdirSync(roleDir, { recursive: true });
   roleDirReal = realpathSync(roleDir);

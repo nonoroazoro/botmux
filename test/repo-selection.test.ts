@@ -5,11 +5,11 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
+import { mkdirSync, rmSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { resolveRepoSelection } from '../src/core/command-handler.js';
 import { logger } from '../src/utils/logger.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function gitInit(dir: string, branch = 'main'): void {
   execSync(`git init -q -b ${branch} "${dir}"`, { stdio: 'pipe' });
@@ -25,7 +25,7 @@ describe('resolveRepoSelection', () => {
 
   beforeEach(() => {
     // realpathSync so macOS /var → /private/var symlink doesn't break equality.
-    scanDir = realpathSync(mkdtempSync(join(tmpdir(), 'bmx-repo-scan-')));
+    scanDir = realpathSync(makeTestTempDir('bmx-repo-scan-'));
     prevCwd = process.cwd();
   });
 
@@ -75,7 +75,7 @@ describe('resolveRepoSelection', () => {
     mkdirSync(repo);
     gitInit(repo, 'main');
 
-    const worktreeRoot = realpathSync(mkdtempSync(join(tmpdir(), 'bmx-repo-worktree-')));
+    const worktreeRoot = realpathSync(makeTestTempDir('bmx-repo-worktree-'));
     const worktree = join(worktreeRoot, 'proj-feature');
     execSync(`git worktree add -q -b feature/test "${worktree}"`, {
       cwd: repo,
@@ -135,7 +135,7 @@ describe('resolveRepoSelection', () => {
     mkdirSync(inScan);
     gitInit(inScan, 'main');
 
-    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'bmx-repo-other-')));
+    const elsewhere = realpathSync(makeTestTempDir('bmx-repo-other-'));
     const abs = join(elsewhere, 'dup');
     mkdirSync(abs);
     gitInit(abs, 'feature');

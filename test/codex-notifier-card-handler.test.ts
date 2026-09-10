@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -27,7 +27,7 @@ function action(actionName = 'codex_notifier_continue', operator?: string) {
 }
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'botmux-codex-notifier-card-'));
+  tempDir = makeTestTempDir('botmux-codex-notifier-card-');
   const configPath = join(tempDir, 'bots.json');
   writeFileSync(configPath, JSON.stringify([{
     larkAppId: 'h1',

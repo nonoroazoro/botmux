@@ -1,12 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, statSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/cfgstore-1': null,
+  });
+});
+import { writeFileSync, statSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { readRawConfig, writeRawConfigAtomic, findEntryIndex } from '../src/services/config-store.js';
 
 let dir: string; let cfg: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'cfgstore-'));
+  dir = '/fixtures/cfgstore-1';
   cfg = join(dir, 'bots.json');
   writeFileSync(cfg, JSON.stringify([{ larkAppId: 'a1', allowedUsers: ['ou_x'] }], null, 2), { mode: 0o600 });
 });

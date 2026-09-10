@@ -1,6 +1,17 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-sess-1': null,
+    '/fixtures/botmux-report-2': null,
+  });
+});
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { countActiveSessionsOnDisk } from '../src/services/session-store.js';
 import { buildRestartReportText, sendRestartReportIfPending, fetchChangelog } from '../src/core/restart-report.js';
@@ -12,13 +23,13 @@ function writeSessions(dir: string, name: string, sessions: Record<string, { sta
 
 describe('countActiveSessionsOnDisk', () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'botmux-sess-')); });
+  beforeEach(() => { dir = '/fixtures/botmux-sess-1'; });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
   it('counts active sessions across all bots’ session files', () => {
     writeSessions(dir, 'sessions-cli_a.json', { s1: { status: 'active' }, s2: { status: 'closed' }, s3: { status: 'active' } });
     writeSessions(dir, 'sessions-cli_b.json', { s4: { status: 'active' } });
-    writeSessions(dir, 'sessions.json', { s5: { status: 'active' }, s6: { status: 'closed' } });
+    writeSessions(dir, 'sessions-cli_c.json', { s5: { status: 'active' }, s6: { status: 'closed' } });
     expect(countActiveSessionsOnDisk(dir)).toBe(4);
   });
 
@@ -120,7 +131,7 @@ describe('sendRestartReportIfPending', () => {
   const T0 = Date.parse('2026-06-07T04:00:00.000Z');
   let dir: string;
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'botmux-report-'));
+    dir = '/fixtures/botmux-report-2';
     vi.stubEnv('SESSION_DATA_DIR', dir);
   });
   afterEach(() => {
@@ -131,6 +142,7 @@ describe('sendRestartReportIfPending', () => {
   function fakeWiring(over: Partial<Parameters<typeof sendRestartReportIfPending>[0]> = {}) {
     const sent: Array<{ openId: string; card: string }> = [];
     const w = {
+      botName: 'Project Guide',
       primaryLarkAppId: 'cli_primary',
       ownerOpenId: 'ou_owner' as string | undefined,
       dashboardUrl: 'http://10.0.0.1:7891/?t=tok',
@@ -153,6 +165,8 @@ describe('sendRestartReportIfPending', () => {
     expect(sent[0].openId).toBe('ou_owner');
     expect(sent[0].card).toContain('http://10.0.0.1:7891/?t=tok');
     expect(sent[0].card).toContain('2'); // two active sessions
+    expect(JSON.parse(sent[0].card).header.title.content).toBe('Project Guide · 维护通知');
+    expect(sent[0].card).not.toMatch(/botmux/i);
     expect(existsSync(restartIntentPathIn(dir))).toBe(false); // consumed
   });
 

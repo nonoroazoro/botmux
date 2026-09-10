@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CLI_PATH = join(__dirname, '..', 'src', 'cli.ts');
 const PROJECT_ROOT = join(__dirname, '..');
@@ -10,7 +10,7 @@ const PROJECT_ROOT = join(__dirname, '..');
 let home: string;
 
 beforeAll(() => {
-  home = mkdtempSync(join(tmpdir(), 'botmux-update-alias-'));
+  home = makeTestTempDir('botmux-update-alias-');
 });
 
 afterAll(() => {

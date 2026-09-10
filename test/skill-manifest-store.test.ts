@@ -1,7 +1,17 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-skill-data-1': null,
+  });
+});
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { readSessionSkillManifest, writeSessionSkillManifest } from '../src/core/skills/manifest-store.js';
 import type { SessionSkillManifest } from '../src/core/skills/types.js';
@@ -10,7 +20,7 @@ describe('session skill manifest store', () => {
   let dataDir: string;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-skill-data-'));
+    dataDir = '/fixtures/botmux-skill-data-1';
     vi.stubEnv('SESSION_DATA_DIR', dataDir);
   });
 

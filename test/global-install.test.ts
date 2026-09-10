@@ -1,6 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import {
   detectGlobalInstallManager,
@@ -10,6 +9,7 @@ import {
   UnsupportedGlobalInstallError,
   withGlobalInstallRegistry,
 } from '../src/utils/global-install.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('resolveGlobalInstallPlan', () => {
   it('targets the exact POSIX npm prefix', () => {
@@ -70,7 +70,7 @@ describe('resolveGlobalInstallPlan', () => {
   });
 
   it('uses the stable pnpm 11 symlink for post-update operations', () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), 'botmux-pnpm11-'));
+    const tempRoot = makeTestTempDir('botmux-pnpm11-');
     try {
       const globalDir = join(tempRoot, 'pnpm', 'global');
       const layoutDir = join(globalDir, 'v11');

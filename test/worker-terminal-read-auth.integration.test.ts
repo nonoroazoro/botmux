@@ -1,12 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { DaemonToWorker, WorkerToDaemon } from '../src/types.js';
 import { deriveTerminalViewToken, deriveTerminalWriteToken } from '../src/core/terminal-write-auth.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const children = new Set<ChildProcess>();
 const tempDirs = new Set<string>();
@@ -75,7 +75,7 @@ async function waitForFileText(path: string, predicate: (text: string) => boolea
 
 describe('worker terminal read authorization', () => {
   it('blocks localhost scanners while preserving view, write, HTTP, and WS links', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-terminal-auth-'));
+    const root = makeTestTempDir('botmux-terminal-auth-');
     tempDirs.add(root);
     const dataDir = join(root, 'session');
     mkdirSync(dataDir, { recursive: true });

@@ -6,10 +6,10 @@
  * buildNewTopicPrompt injects a <role> block when given { larkAppId, chatId }.
  * Run: pnpm vitest run test/role-resolver.test.ts
  */
-import { mkdtempSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let dataDir: string;
 
@@ -20,7 +20,7 @@ async function fresh() {
 }
 
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-'));
+  dataDir = makeTestTempDir('botmux-role-');
   process.env.SESSION_DATA_DIR = dataDir;
 });
 afterEach(() => { delete process.env.SESSION_DATA_DIR; vi.restoreAllMocks(); });

@@ -1,7 +1,7 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient {
@@ -24,7 +24,7 @@ describe('substitute-mode store', () => {
   let configPath: string;
 
   beforeEach(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-substitute-mode-'));
+    const dir = makeTestTempDir('botmux-substitute-mode-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
   });

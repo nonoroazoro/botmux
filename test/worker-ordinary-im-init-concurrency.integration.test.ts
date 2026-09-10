@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { DaemonToWorker, WorkerToDaemon } from '../src/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const children = new Set<ChildProcess>();
 const tempDirs = new Set<string>();
@@ -21,9 +21,21 @@ async function waitFor(
   throw new Error(`worker condition timed out\n${logs.join('')}`);
 }
 
-afterEach(() => {
+async function terminateProcessGroup(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
+  const exited = new Promise<void>(resolvePromise => child.once('exit', () => resolvePromise()));
+  try {
+    if (process.platform === 'win32') child.kill('SIGKILL');
+    else process.kill(-child.pid, 'SIGKILL');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
+  await exited;
+}
+
+afterEach(async () => {
   for (const child of children) {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await terminateProcessGroup(child);
   }
   children.clear();
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
@@ -32,7 +44,7 @@ afterEach(() => {
 
 describe('ordinary IM during real worker init', () => {
   it('publishes progress while a Codex turn waits for a restarted CLI', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-worker-startup-progress-'));
+    const root = makeTestTempDir('botmux-worker-startup-progress-');
     tempDirs.add(root);
     const dataDir = join(root, 'session');
     mkdirSync(dataDir, { recursive: true });
@@ -68,6 +80,7 @@ if (process.argv.includes('app-server')) {
     const messages: WorkerToDaemon[] = [];
     const logs: string[] = [];
     const child = spawn(process.execPath, ['--import', 'tsx', resolve('src/worker.ts')], {
+      detached: true,
       cwd: resolve('.'),
       env: {
         ...process.env,
@@ -127,7 +140,7 @@ if (process.argv.includes('app-server')) {
   }, 15_000);
 
   it('queues a concurrent follow-up instead of rejecting it before cliAdapter is ready', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-worker-init-concurrency-'));
+    const root = makeTestTempDir('botmux-worker-init-concurrency-');
     tempDirs.add(root);
     const dataDir = join(root, 'session');
     mkdirSync(dataDir, { recursive: true });
@@ -141,6 +154,7 @@ setInterval(() => {}, 1_000);
     const messages: WorkerToDaemon[] = [];
     const logs: string[] = [];
     const child = spawn(process.execPath, ['--import', 'tsx', resolve('src/worker.ts')], {
+      detached: true,
       cwd: resolve('.'),
       env: {
         ...process.env,
@@ -222,7 +236,7 @@ setInterval(() => {}, 1_000);
   }, 15_000);
 
   it('holds a non-argv follow-up until the initial prompt owns the queue head', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-worker-init-order-'));
+    const root = makeTestTempDir('botmux-worker-init-order-');
     tempDirs.add(root);
     const dataDir = join(root, 'session');
     mkdirSync(dataDir, { recursive: true });
@@ -270,6 +284,7 @@ if (process.argv.includes('app-server')) {
     const messages: WorkerToDaemon[] = [];
     const logs: string[] = [];
     const child = spawn(process.execPath, ['--import', 'tsx', resolve('src/worker.ts')], {
+      detached: true,
       cwd: resolve('.'),
       env: {
         ...process.env,

@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Unit tests for frozen-card-store: loadFrozenCards, saveFrozenCards, deleteFrozenCards.
  *
@@ -6,9 +7,18 @@
  * Run:  pnpm vitest run test/frozen-card-store.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/frozen-card-store-test-1': null,
+  });
+});
+import { rmSync, existsSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 // ─── Mock config to use a temp directory ─────────────────────────────────────
 
@@ -51,7 +61,7 @@ function makeFrozenCard(overrides: Partial<FrozenCard> = {}): FrozenCard {
 // ─── Setup / Teardown ───────────────────────────────────────────────────────
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'frozen-card-store-test-'));
+  tempDir = '/fixtures/frozen-card-store-test-1';
 });
 
 afterEach(() => {

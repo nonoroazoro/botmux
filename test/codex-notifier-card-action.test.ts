@@ -139,7 +139,7 @@ describe('Codex notifier card action', () => {
     });
 
     await expect(handler(action('codex_notifier_open_app'), APP_ID)).resolves.toEqual({
-      toast: { type: 'error', content: '此任务不是可信的 Codex App 会话' },
+      toast: { type: 'error', content: '此任务不是可信的 Codex Desktop 会话' },
     });
     expect(openAppThread).not.toHaveBeenCalled();
   });
@@ -150,7 +150,7 @@ describe('Codex notifier card action', () => {
     await expect(handler(action('codex_notifier_open_app'), APP_ID)).resolves.toEqual({
       toast: {
         type: 'success',
-        content: '已请求运行 BotMux 的电脑打开原 Codex App 会话',
+        content: '已请求宿主电脑打开原 Codex Desktop 会话',
       },
     });
     expect(openAppThread).toHaveBeenCalledWith(record.event.threadId);

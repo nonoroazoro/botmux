@@ -2,10 +2,10 @@
  * card-handler 群内授权动作：owner 强闸门 + nonce + 撤回卡/通知/兜底 patch。
  * Run: pnpm vitest run test/card-handler-grant.test.ts
  */
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -66,7 +66,7 @@ beforeEach(() => {
   getMessageDetailMock.mockClear(); getMessageDetailMock.mockImplementation(async () => ({ items: [{ thread_id: 'omt_thread' }] }));
   recordObservedMock.mockClear();
   isHumanMock.mockClear(); isHumanMock.mockImplementation(async () => false);
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-cardgrant-'));
+  const dir = makeTestTempDir('botmux-cardgrant-');
   configPath = join(dir, 'bots.json');
   writeFileSync(configPath, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code', allowedUsers: ['ou_owner'] }], null, 2));
   process.env.BOTS_CONFIG = configPath;

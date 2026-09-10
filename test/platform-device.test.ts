@@ -2,12 +2,10 @@ import {
   chmodSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -19,11 +17,12 @@ import {
   readDevicePublicStatus,
   writeDeviceCredentials,
 } from '../src/platform/device.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
 function tempHome(): string {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-device-'));
+  const root = makeTestTempDir('botmux-device-');
   roots.push(root);
   return root;
 }

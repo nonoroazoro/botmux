@@ -129,19 +129,6 @@ describe('dispatch: read endpoints', () => {
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ schedules: [{ id: 'sched-1' }] });
   });
-
-  it('returns a zero-I/O retirement tombstone for legacy workflow reads', async () => {
-    const api = createDaemonInternalApi(makeDeps());
-    const r = await api.dispatchForTest('GET', url('/__daemon/workflows-runs-snapshot'));
-    expect(r).toEqual({
-      status: 410,
-      body: {
-        ok: false,
-        error: 'legacy_workflow_retired',
-        message: 'v2 workflow run APIs are retired; migrate definitions with botmux template migrate-v3 and inspect v3 runs via /api/v3/runs',
-      },
-    });
-  });
 });
 
 /** ─── Per-bot read scoping (codex 2026-06-09 blocker) ─────────────────

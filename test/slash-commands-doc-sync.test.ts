@@ -47,13 +47,12 @@ function adapterDefaultPassthrough(): Set<string> {
 /**
  * A 类 pre-routing / daemon-拦截 自有命令:不进 DAEMON_COMMANDS switch、也不透传,而是
  * 在会话分配前(event-dispatcher 的 tryHandle*、路由改写)或 daemon 路由入口
- * (isLegacyTemplateCommand 等)被拦截。代码里没有统一集合,故手工登记已知这批,
+ * (Workflow routing 等)被拦截。代码里没有统一集合,故手工登记已知这批,
  * 让 guard 也守住它们的文档。新增此类命令时要补进来。
- * /template 是退役 tombstone——两条 daemon 路由都会拦截并回退役提示,故仍是用户可见命令。
  */
 const PREROUTING_COMMANDS = new Set([
   '/reply-mode', '/substitute', '/grant', '/revoke', '/introduce',
-  '/summary', '/t', '/topic', '/workflow', '/template',
+  '/summary', '/t', '/topic',
 ]);
 
 /** 命令在 markdown 里是否作为一个 token 出现(命令语法允许尾随 : _ - ,须全部排除以免 /mcp 误配 /mcp:server)。 */

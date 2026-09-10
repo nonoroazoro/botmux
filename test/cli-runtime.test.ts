@@ -175,14 +175,14 @@ describe('resolveCliRuntime', () => {
       .toMatchObject({ id: 'claude-w', source: 'legacy-path' });
   });
 
-  it('rejects structured runtimes for non-Codex adapters and unequal legacy shadows', () => {
+  it('uses the structured runtime as the authoritative executable', () => {
     const cliRuntime = { id: 'vendor', executable: 'vendorCodex' };
     expect(() => resolveCliRuntime({ cliId: 'claude-code', cliRuntime }))
       .toThrow(/only for cliId "codex"/);
     expect(resolveCliRuntime({ cliId: 'codex', cliRuntime, cliPathOverride: 'vendorCodex' }))
       .toMatchObject({ id: 'vendor', executable: 'vendorCodex', source: 'configured' });
-    expect(() => resolveCliRuntime({ cliId: 'codex', cliRuntime, cliPathOverride: 'otherCodex' }))
-      .toThrow(/must exactly match/);
+    expect(resolveCliRuntime({ cliId: 'codex', cliRuntime, cliPathOverride: 'otherCodex' }))
+      .toMatchObject({ executable: 'vendorCodex' });
   });
 });
 

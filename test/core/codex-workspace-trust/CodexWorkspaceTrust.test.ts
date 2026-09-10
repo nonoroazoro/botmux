@@ -1,14 +1,25 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from '../../helpers/memory-fs/index.js';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('../../helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('../../helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-codex-trust-1': null,
+    '/fixtures/botmux-codex-trust-empty-home-2': null,
+  });
+});
 
 import { ensureCodexWorkspaceTrusted } from '../../../src/core/codex-workspace-trust/index.js';
 
 const roots: string[] = [];
 
 function fixture(): { root: string; configPath: string } {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-codex-trust-'));
+  const root = '/fixtures/botmux-codex-trust-1';
   roots.push(root);
   const configPath = join(root, '.codex', 'config.toml');
   mkdirSync(join(root, '.codex'), { recursive: true });
@@ -21,7 +32,7 @@ afterEach(() => {
 
 describe('ensureCodexWorkspaceTrusted', () => {
   it('creates the config directory for a fresh identity home', () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-codex-trust-empty-home-'));
+    const root = '/fixtures/botmux-codex-trust-empty-home-2';
     roots.push(root);
     const configPath = join(root, '.codex', 'config.toml');
     const workspace = join(root, 'workspace');

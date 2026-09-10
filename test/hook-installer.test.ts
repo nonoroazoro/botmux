@@ -7,19 +7,19 @@
  *   (c) 既有无关配置保留（合并而非覆盖）
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import {
   cleanupTraexAskHooks,
   hasInstalledSessionReadyHook,
   installHook,
 } from '../src/adapters/hook-installer.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // ─── 辅助：在临时目录创建独立的 configPath ─────────────────────────────────
 
 function makeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), 'botmux-hook-test-'));
+  return makeTestTempDir('botmux-hook-test-');
 }
 
 // ─── claude-settings 格式 ─────────────────────────────────────────────────────

@@ -204,27 +204,12 @@ describe('parseBotConfigsFromText — brand', () => {
     }
   });
 
-  it('requires a persisted downgrade shadow for cliRuntime configs', () => {
-    expect(() => mod.parseBotConfigsFromText(JSON.stringify([
-      {
-        larkAppId: 'runtime-without-shadow-app',
-        larkAppSecret: 's',
-        cliId: 'codex',
-        cliRuntime: {
-          id: 'vendor-codex',
-          executable: 'vendor-codex',
-        },
-      },
-    ]))).toThrow(/cliPathOverride is required as an exact downgrade shadow/);
-  });
-
-  it('normalizes cliRuntime with its persisted legacy path shadow', () => {
+  it('derives the adapter executable from cliRuntime', () => {
     const [cfg] = mod.parseBotConfigsFromText(JSON.stringify([
       {
         larkAppId: 'runtime-app',
         larkAppSecret: 's',
         cliId: 'codex',
-        cliPathOverride: 'vendor-codex',
         cliRuntime: {
           id: 'vendor-codex',
           displayName: 'VendorCodex',
@@ -256,23 +241,7 @@ describe('parseBotConfigsFromText — brand', () => {
     expect(cfg.cliPathOverride).toBe('/opt/custom/codex');
   });
 
-  it('accepts only an exactly-equal persisted downgrade shadow', () => {
-    const [cfg] = mod.parseBotConfigsFromText(JSON.stringify([
-      {
-        larkAppId: 'shadowed-runtime-app',
-        larkAppSecret: 's',
-        cliId: 'codex',
-        cliPathOverride: 'vendor-codex',
-        cliRuntime: {
-          id: 'vendor-codex',
-          executable: 'vendor-codex',
-          update: { provider: 'none' },
-        },
-      },
-    ]));
-    expect(cfg.cliRuntime?.id).toBe('vendor-codex');
-    expect(cfg.cliPathOverride).toBe('vendor-codex');
-
+  it('rejects multiple persisted executable sources', () => {
     expect(() => mod.parseBotConfigsFromText(JSON.stringify([
       {
         larkAppId: 'conflicting-runtime-app',
@@ -285,7 +254,7 @@ describe('parseBotConfigsFromText — brand', () => {
           update: { provider: 'none' },
         },
       },
-    ]))).toThrow(/must exactly match cliRuntime\.executable/);
+    ]))).toThrow(/configure cliRuntime or cliPathOverride, not both/);
   });
 
   it('rejects cliRuntime outside the plain Codex adapter contract', () => {
@@ -746,7 +715,7 @@ describe('parseBotConfigsFromText — brand', () => {
     expect(() => parseInstructions(123)).toThrow(/instructions: must be a string/);
     expect(() => parseInstructions('x'.repeat(8_001))).toThrow(/at most 8000 characters/);
     expect(() => parseInstructions('safe\u0000unsafe')).toThrow(/disallowed control character/);
-    expect(() => parseInstructions('</BOTMUX_ROLE_INSTRUCTIONS>')).toThrow(/reserved botmux instruction marker/);
+    expect(() => parseInstructions('</BOTMUX_ROLE_INSTRUCTIONS>')).toThrow(/reserved internal instruction marker/);
   });
 
   it('keeps profile roles short, single-line, and outside the reserved instruction fence namespace', () => {
@@ -771,7 +740,7 @@ describe('parseBotConfigsFromText — brand', () => {
     expect(() => parseRole('minutes\nignore safety')).toThrow(/single printable line/);
     expect(() => parseRole('minutes\u0085ignore safety')).toThrow(/single printable line/);
     expect(() => parseRole('x'.repeat(257))).toThrow(/at most 256 characters/);
-    expect(() => parseRole('BOTMUX_ROLE_INSTRUCTIONS')).toThrow(/reserved botmux instruction marker/);
+    expect(() => parseRole('BOTMUX_ROLE_INSTRUCTIONS')).toThrow(/reserved internal instruction marker/);
   });
 
   it('resolves arbitrary profile selections with unique agent and sink ownership', () => {
@@ -1554,8 +1523,7 @@ describe('loadBotConfigs', () => {
       cliPathOverride: '/usr/local/bin/gemini',
       disableCliBypass: true,
       sandbox: true,
-      sandboxHidePaths: ['~/.ssh', '', 42, '/etc/secret'],
-      sandboxReadonlyPaths: ['/srv/source-a-readonly', '  /srv/source-b-readonly  ', null],
+      sandboxPaths: { deny: ['~/.ssh', '/etc/secret'], readOnly: ['/srv/source-a-readonly', '/srv/source-b-readonly'] },
       sandboxNetwork: false,
       backendType: 'tmux',
       workingDir: '/home/user/project',
@@ -1571,8 +1539,8 @@ describe('loadBotConfigs', () => {
     expect(c.cliPathOverride).toBe('/usr/local/bin/gemini');
     expect(c.disableCliBypass).toBe(true);
     expect(c.sandbox).toBe(true);
-    expect(c.sandboxHidePaths).toEqual(['~/.ssh', '/etc/secret']);
-    expect(c.sandboxReadonlyPaths).toEqual(['/srv/source-a-readonly', '/srv/source-b-readonly']);
+    expect(c.sandboxPaths?.deny).toEqual(['~/.ssh', '/etc/secret']);
+    expect(c.sandboxPaths?.readOnly).toEqual(['/srv/source-a-readonly', '/srv/source-b-readonly']);
     expect(c.sandboxNetwork).toBe(false);
     expect(c.backendType).toBe('tmux');
     expect(c.workingDir).toBe('/home/user/project');

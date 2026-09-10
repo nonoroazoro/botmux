@@ -84,12 +84,12 @@ describe('命令入口权限', () => {
 
   it('未绑定平台时给出可读原因', async () => {
     const r = await handleIssueCommand(APP, ME, deps({ fetchTeams: async () => ({ ok: false, reason: 'unbound' }) }).d);
-    expect(r).toMatchObject({ toast: { content: '本机还没有绑定 botmux 平台' } });
+    expect(r).toMatchObject({ toast: { content: '本机还没有完成平台绑定' } });
   });
 
   it('不在任何团队时说清楚，而不是渲染一张空卡', async () => {
     const r = await handleIssueCommand(APP, ME, deps({ fetchTeams: async () => ({ ok: true, value: [] }) }).d);
-    expect(r).toMatchObject({ toast: { content: '你不在任何 botmux 平台团队里' } });
+    expect(r).toMatchObject({ toast: { content: '还没有找到你加入的团队' } });
   });
 });
 

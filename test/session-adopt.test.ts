@@ -1,12 +1,10 @@
 /**
- * Tests for adopt-related card actions: disconnect, takeover, and adopt_select dropdown.
+ * Tests for adopt-related card actions: disconnect and adopt_select dropdown.
  *
  * Covers:
  *   1. disconnect should kill worker and remove session
- *   2. takeover should kill adopt worker, clear adoptedFrom, forkWorker with resume
- *   3. takeover without sessionId should show error
- *   4. adopt_select dropdown should call startAdoptSession
- *   5. adopt_select with expired target should show error
+ *   2. adopt_select dropdown should call startAdoptSession
+ *   3. adopt_select with expired target should show error
  *
  * Run:  pnpm vitest run test/session-adopt.test.ts
  */
@@ -177,13 +175,6 @@ function makeDisconnectEvent(rootId: string, operatorOpenId = 'ou_user') {
   };
 }
 
-function makeTakeoverEvent(rootId: string, operatorOpenId = 'ou_user') {
-  return {
-    action: { value: { action: 'takeover', root_id: rootId } },
-    operator: { open_id: operatorOpenId },
-  };
-}
-
 function makeAdoptSelectEvent(rootId: string, entryKey: string, operatorOpenId = 'ou_user') {
   // V2 picker: confirm carries the synthetic entry_key (live:<adoptTargetKey>
   // or resume:<cliSessionId>) rather than a JSON-encoded option string.
@@ -261,86 +252,6 @@ describe('Adopt card actions', () => {
 
       expect(killWorker).not.toHaveBeenCalled();
       expect(sessionStore.closeSession).not.toHaveBeenCalled();
-    });
-  });
-
-  // ── Takeover ────────────────────────────────────────────────────────────
-
-  describe('takeover action (legacy button — disabled in v3 bridge)', () => {
-    // The v3 adopt-bridge refactor retired the legacy "接管" button:
-    // bridge mode forwards Claude's final answers via the transcript
-    // watcher without killing or replacing the user's CLI. New cards no
-    // longer render the button (showTakeover=false in worker-pool), but
-    // historical PATCHed cards may still expose it — the handler must
-    // refuse the action so a stray click can't kill the user's CLI.
-
-    it('legacy takeover with sessionId is now a no-op (no kill / no fork)', async () => {
-      const ds = makeDaemonSession({
-        adoptedFrom: {
-          tmuxTarget: '0:1.0',
-          originalCliPid: 12345,
-          sessionId: 'claude-session-xyz',
-          cliId: 'claude-code',
-          cwd: '/home/user/project',
-          paneCols: 200,
-          paneRows: 50,
-        },
-      });
-      const sessions = new Map<string, DaemonSession>();
-      const sKey = sessionKey(ROOT_ID, APP_ID);
-      sessions.set(sKey, ds);
-      const deps = makeDeps(sessions);
-
-      await handleCardAction(makeTakeoverEvent(ROOT_ID), deps, APP_ID);
-
-      // Critically: must NOT kill worker, must NOT fork a new one,
-      // must NOT touch adoptedFrom or session id.
-      expect(killWorker).not.toHaveBeenCalled();
-      expect(forkWorker).not.toHaveBeenCalled();
-      expect(ds.adoptedFrom).toBeDefined();
-      expect(ds.session.sessionId).toBe('uuid-adopt-test');
-      expect(sessionStore.closeSession).not.toHaveBeenCalled();
-
-      // Should reply with the deprecation notice
-      expect(deps.sessionReply).toHaveBeenCalledWith(
-        ROOT_ID,
-        expect.stringContaining('停用'),
-        undefined,
-        APP_ID,
-      );
-    });
-
-    it('legacy takeover without sessionId is also a no-op', async () => {
-      const ds = makeDaemonSession({
-        adoptedFrom: {
-          tmuxTarget: '0:1.0',
-          originalCliPid: 12345,
-          cwd: '/home/user/project',
-        },
-      });
-      const sessions = new Map<string, DaemonSession>();
-      const sKey = sessionKey(ROOT_ID, APP_ID);
-      sessions.set(sKey, ds);
-      const deps = makeDeps(sessions);
-
-      await handleCardAction(makeTakeoverEvent(ROOT_ID), deps, APP_ID);
-
-      expect(killWorker).not.toHaveBeenCalled();
-      expect(forkWorker).not.toHaveBeenCalled();
-    });
-
-    it('should be a no-op when session has no adoptedFrom', async () => {
-      const ds = makeDaemonSession(); // No adoptedFrom
-      const sessions = new Map<string, DaemonSession>();
-      const sKey = sessionKey(ROOT_ID, APP_ID);
-      sessions.set(sKey, ds);
-      const deps = makeDeps(sessions);
-
-      await handleCardAction(makeTakeoverEvent(ROOT_ID), deps, APP_ID);
-
-      // takeover guard: ds.adoptedFrom is falsy, so handler is skipped
-      expect(killWorker).not.toHaveBeenCalled();
-      expect(forkWorker).not.toHaveBeenCalled();
     });
   });
 
@@ -511,9 +422,8 @@ describe('Adopt card actions', () => {
       expect(replies).not.toContain('已接入'); // never the success message
     });
 
-    it('readIsolation / global BOTMUX_SANDBOX / session frozen decision all block via the shared predicate (union)', async () => {
+    it('bot sandbox / global BOTMUX_SANDBOX / session frozen decision all block via the shared predicate (union)', async () => {
       const { adoptSandboxBlocked } = await import('../src/core/worker-pool.js');
-      expect(adoptSandboxBlocked({ readIsolation: true })).toBe(true);
       expect(adoptSandboxBlocked({ sandbox: true })).toBe(true);
       expect(adoptSandboxBlocked({})).toBe(false);
       // session's FROZEN decision blocks even when the live bot flag is OFF

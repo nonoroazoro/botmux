@@ -8,12 +8,12 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { createRepoWorktree, removeRepoWorktree, slugFromWorktreeText } from '../src/services/git-worktree.js';
 import { localWorktreeSlugFromContext } from '../src/services/worktree-slug-ai.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let tempRoot: string;
 
@@ -46,7 +46,7 @@ function makeClone(upstream: string, name: string): string {
 
 beforeEach(() => {
   // git worktree canonicalizes macOS /var temp paths to /private/var.
-  tempRoot = realpathSync(mkdtempSync(join(tmpdir(), 'git-worktree-test-')));
+  tempRoot = realpathSync(makeTestTempDir('git-worktree-test-'));
 });
 
 afterEach(() => {

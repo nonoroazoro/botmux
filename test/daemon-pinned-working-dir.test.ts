@@ -3,10 +3,10 @@
  *
  * Run: pnpm vitest run test/daemon-pinned-working-dir.test.ts test/inherit-peer.test.ts
  */
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -34,7 +34,7 @@ async function loadFreshModules() {
   const botRegistry = await import('../src/bot-registry.js');
   const sessionStore = await import('../src/services/session-store.js');
   const daemon = await import('../src/daemon.js');
-  sessionStore.init();
+  sessionStore.init('test-bot');
   return { botRegistry, sessionStore, daemon };
 }
 
@@ -48,7 +48,7 @@ async function seedPeerSession(sessionStore: typeof import('../src/services/sess
 }
 
 beforeEach(() => {
-  tmpRoot = mkdtempSync(join(tmpdir(), 'botmux-daemon-pinned-dir-'));
+  tmpRoot = makeTestTempDir('botmux-daemon-pinned-dir-');
 });
 
 afterEach(() => {

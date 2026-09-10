@@ -2,10 +2,10 @@
  * card-handler 🔊 语音总结 动作：空闲时注入会话精简指令；执行中只提示，不打断当前回合。
  * Run: pnpm vitest run test/card-handler-voice.test.ts
  */
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient { constructor(public opts: Record<string, unknown>) {} }
@@ -48,12 +48,14 @@ async function fresh() {
   const types = await import('../src/core/types.js');
   const registry = await import('../src/bot-registry.js');
   const handler = await import('../src/im/lark/card-handler.js');
+  const sessionStore = await import('../src/services/session-store.js');
+  sessionStore.init('h1');
   registry.loadBotConfigs().forEach((c) => registry.registerBot(c));
   return { types, handler };
 }
 
 beforeEach(() => {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-cardvoice-'));
+  const dir = makeTestTempDir('botmux-cardvoice-');
   const cfg = join(dir, 'bots.json');
   writeFileSync(cfg, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code' }], null, 2));
   process.env.BOTS_CONFIG = cfg;
@@ -136,7 +138,7 @@ describe('card-handler voice_summary', () => {
 
   it('unauthorized user (not canTalk/canOperate) → needs-auth toast, no injection', async () => {
     // Bot WITH an allowlist; clicker (ou_clicker) is NOT on it → blocked.
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-cardvoice-auth-'));
+    const dir = makeTestTempDir('botmux-cardvoice-auth-');
     const cfg = join(dir, 'bots.json');
     writeFileSync(cfg, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code', allowedUsers: ['ou_owner'] }], null, 2));
     process.env.BOTS_CONFIG = cfg;
@@ -150,7 +152,7 @@ describe('card-handler voice_summary', () => {
   });
 
   it('keeps the voice button action clean in Codex App while hiding its instruction', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-cardvoice-clean-'));
+    const dir = makeTestTempDir('botmux-cardvoice-clean-');
     const cfg = join(dir, 'bots.json');
     writeFileSync(cfg, JSON.stringify([{
       larkAppId: 'h1',
@@ -177,7 +179,7 @@ describe('card-handler voice_summary', () => {
 
 describe('card-handler retry_last_task', () => {
   it('preserves the clean Codex App sidecar when retrying a completed turn', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-cardretry-clean-'));
+    const dir = makeTestTempDir('botmux-cardretry-clean-');
     const cfg = join(dir, 'bots.json');
     writeFileSync(cfg, JSON.stringify([{
       larkAppId: 'h1',

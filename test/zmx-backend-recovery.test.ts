@@ -2,14 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
   writeSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const childMocks = vi.hoisted(() => {
@@ -120,6 +118,7 @@ vi.mock('../src/utils/fs-durability.js', async (importOriginal) => {
 });
 
 import { ZmxBackend } from '../src/adapters/backend/zmx-backend.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const SESSION = 'bmx-test0001';
 const SESSION_ID = 'test0001-1111-2222-3333-444444444444';
@@ -179,7 +178,7 @@ function makeBackend(opts: { reattach?: boolean; recoveryStateDir?: string } = {
 }
 
 function makeRecoveryStateDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-zmx-recovery-'));
+  const dir = makeTestTempDir('botmux-zmx-recovery-');
   recoveryStateDirs.push(dir);
   return dir;
 }

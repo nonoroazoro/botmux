@@ -5,10 +5,10 @@
  *
  * Run: pnpm vitest run test/bot-config-store.test.ts
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient {
@@ -49,7 +49,7 @@ describe('bot-config store', () => {
   let configPath: string;
 
   beforeEach(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-cfgstore-'));
+    const dir = makeTestTempDir('botmux-cfgstore-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
     // Isolate the allowedUsers sidecar (setBotAllowedUsers writes it) into the

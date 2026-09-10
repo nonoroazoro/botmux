@@ -1,17 +1,17 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   clearSessionRowEnrichmentCaches,
   getGitRepoInfo,
 } from '../src/core/session-row-enrichment.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let dirs: string[] = [];
 
 function tempDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTestTempDir(prefix);
   dirs.push(d);
   return d;
 }

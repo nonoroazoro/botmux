@@ -1,11 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { roleLibrarySubtree, validateRoleLibraryPath } from '../src/core/role-library.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function setup() {
-  const base = mkdtempSync(join(tmpdir(), 'rolelib-'));
+  const base = makeTestTempDir('rolelib-');
   const root = join(base, 'botmux-roles');
   mkdirSync(join(root, 'users', 'ou_x', '产品经理'), { recursive: true });
   return { base, root };
@@ -49,7 +50,7 @@ describe('validateRoleLibraryPath', () => {
     // 在真实 $HOME 下建临时角色库（mkdtemp 随机后缀避免撞名），以 root 为
     // rootOverride，用 ~/<相对路径> 调用——只有 expandHome 生效才能命中。
     const home = realpathSync(homedir());
-    const base = mkdtempSync(join(home, '.rolelib-tilde-'));
+    const base = makeTestTempDir('.rolelib-tilde-', home);
     try {
       const root = join(base, 'botmux-roles');
       const role = join(root, 'pm');
@@ -153,7 +154,7 @@ describe('roleLibrarySubtree（沙盒白名单用）', () => {
     // 也不能被误拒。这里用一个指向 base 的链接充当「符号链接的 $HOME」。
     const { base, root } = setup();
     mkdirSync(join(root, 'cli_x'));
-    const homeLink = join(mkdtempSync(join(tmpdir(), 'homelink-')), 'home');
+    const homeLink = join(makeTestTempDir('homelink-'), 'home');
     symlinkSync(base, homeLink);
     expect(roleLibrarySubtree('cli_x', join(homeLink, 'botmux-roles')))
       .toBe(join(realpathSync(root), 'cli_x'));

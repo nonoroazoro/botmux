@@ -12,12 +12,12 @@
  * Run:  pnpm vitest run test/gemini-input.e2e.ts
  */
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import * as pty from 'node-pty';
 import { IdleDetector } from '../src/utils/idle-detector.js';
 import { createGeminiAdapter } from '../src/adapters/cli/gemini.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // ─── Constants (match production worker.ts) ─────────────────────────────────
 
@@ -56,7 +56,7 @@ describe('Gemini first input submission', () => {
   let tmpDir: string | null = null;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'gemini-e2e-'));
+    tmpDir = makeTestTempDir('gemini-e2e-');
   });
 
   afterEach(() => {

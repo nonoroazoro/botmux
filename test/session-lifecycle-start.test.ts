@@ -112,7 +112,6 @@ vi.mock('../src/skills/installer.js', () => ({
   ensureSkills: vi.fn(),
   ensureAskSkill: vi.fn(),
   ensureWhiteboardSkill: vi.fn(),
-  removeGlobalBotmuxSkills: vi.fn(),
 }));
 
 vi.mock('../src/adapters/cli/claude-code.js', () => ({
@@ -151,9 +150,10 @@ import {
 import type { DaemonSession } from '../src/core/types.js';
 import * as sessionStore from '../src/services/session-store.js';
 import { getBot } from '../src/bot-registry.js';
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { rmSync, symlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function makeFakeWorker() {
   const worker = new EventEmitter() as any;
@@ -276,7 +276,7 @@ describe('ordinary IM worker receipt acknowledgement', () => {
     await Promise.resolve();
     expect(sessionReply).toHaveBeenCalledWith(
       'om_root',
-      expect.stringContaining('Worker 未能接收'),
+      expect.stringContaining('请重发这条消息'),
       'text',
       'app_test',
       'om_business',
@@ -312,7 +312,7 @@ describe('ordinary IM worker receipt acknowledgement', () => {
     expect(businessSends).toHaveLength(2);
     expect(sessionReply).toHaveBeenCalledWith(
       'om_root',
-      expect.stringContaining('Worker 未能接收'),
+      expect.stringContaining('请重发这条消息'),
       'text',
       'app_test',
       'om_business',
@@ -354,7 +354,7 @@ describe('ordinary IM worker receipt acknowledgement', () => {
 
     expect(sessionReply).toHaveBeenCalledWith(
       'om_root',
-      expect.stringContaining('Worker 未能接收'),
+      expect.stringContaining('请重发这条消息'),
       'text',
       'app_test',
       'om_business',
@@ -386,7 +386,7 @@ describe('ordinary IM worker receipt acknowledgement', () => {
 
     expect(sessionReply).toHaveBeenCalledWith(
       'om_root',
-      expect.stringContaining('Worker 未能接收'),
+      expect.stringContaining('请重发这条消息'),
       'text',
       'app_test',
       'om_business',
@@ -415,7 +415,7 @@ describe('ordinary IM worker receipt acknowledgement', () => {
     expect(initSends).toHaveLength(2);
     expect(sessionReply).toHaveBeenCalledWith(
       'om_root',
-      expect.stringContaining('Worker 未能接收'),
+      expect.stringContaining('请重发这条消息'),
       'text',
       'app_test',
       'om_kickoff',
@@ -988,8 +988,6 @@ describe('session.start lifecycle integration', () => {
     ds.session.cliId = 'codex';
     ds.session.backendType = 'tmux';
     ds.session.sandbox = false;
-    ds.session.sandboxHidePaths = [];
-    ds.session.sandboxReadonlyPaths = [];
     ds.session.sandboxNetwork = true;
     vi.mocked(sessionStore.updateSession).mockImplementationOnce(() => {
       throw new Error('generation persistence failed');
@@ -1127,7 +1125,7 @@ describe('session.start lifecycle integration', () => {
       session: {
         ...makeDs().session,
         title: '@TestBot 排查这个 TTP logid',
-        nativeSessionTitle: '[BotMux·Lark] 排查这个 TTP logid',
+        nativeSessionTitle: '排查这个 TTP logid',
       },
     });
     forkWorker(ds, `
@@ -1141,7 +1139,7 @@ describe('session.start lifecycle integration', () => {
 
     expect(init).toEqual(expect.objectContaining({
       type: 'init',
-      nativeSessionTitle: '[BotMux·Lark] 排查这个 TTP logid',
+      nativeSessionTitle: '排查这个 TTP logid',
       nativeSessionTitlePrompt: '排查这个 TTP logid 的失败原因',
     }));
   });
@@ -1151,7 +1149,7 @@ describe('session.start lifecycle integration', () => {
       session: {
         ...makeDs().session,
         title: '@@TestBot',
-        nativeSessionTitle: '[BotMux·Lark] @@TestBot',
+        nativeSessionTitle: '@@TestBot',
         chatDisplayName: 'BotMux 标题优化群',
       },
     });
@@ -1164,7 +1162,7 @@ describe('session.start lifecycle integration', () => {
     const init = vi.mocked(worker.send).mock.calls[0][0];
 
     expect(init).toEqual(expect.objectContaining({
-      nativeSessionTitle: '[BotMux·Lark] BotMux 标题优化群',
+      nativeSessionTitle: 'BotMux 标题优化群',
     }));
     expect(init).not.toHaveProperty('nativeSessionTitlePrompt');
     expect(ds.session.nativeSessionTitleAwaitingContent).toBe(true);
@@ -1174,7 +1172,7 @@ describe('session.start lifecycle integration', () => {
     const ds = makeDs({
       session: {
         ...makeDs().session,
-        nativeSessionTitle: '[BotMux·Lark] BotMux 标题优化群',
+        nativeSessionTitle: 'BotMux 标题优化群',
         nativeSessionTitleAwaitingContent: true,
         chatDisplayName: 'BotMux 标题优化群',
       },
@@ -1185,7 +1183,7 @@ describe('session.start lifecycle integration', () => {
 
     expect(init).toEqual(expect.objectContaining({
       resume: true,
-      nativeSessionTitle: '[BotMux·Lark] BotMux 标题优化群',
+      nativeSessionTitle: 'BotMux 标题优化群',
     }));
     expect(init).not.toHaveProperty('nativeSessionTitlePrompt');
     expect(ds.session.nativeSessionTitleAwaitingContent).toBe(true);
@@ -1198,7 +1196,7 @@ describe('session.start lifecycle integration', () => {
       session: {
         ...makeDs().session,
         cliId: 'codex',
-        nativeSessionTitle: '[BotMux·Lark] 新话题',
+        nativeSessionTitle: '新话题',
         nativeSessionTitleAwaitingContent: true,
       },
     });
@@ -1212,12 +1210,12 @@ describe('session.start lifecycle integration', () => {
     });
 
     expect(sendWorkerInput(ds, '<user_message>@TestBot 帮我查下当前会话标题</user_message>', 'om_topic')).toBe(true);
-    expect(ds.session.nativeSessionTitle).toBe('[BotMux·Lark] 帮我查下当前会话标题');
+    expect(ds.session.nativeSessionTitle).toBe('帮我查下当前会话标题');
     expect(ds.session.nativeSessionTitleAwaitingContent).toBeUndefined();
     expect(worker.send).toHaveBeenLastCalledWith({
       type: 'message',
       content: '<user_message>@TestBot 帮我查下当前会话标题</user_message>',
-      nativeSessionTitle: '[BotMux·Lark] 帮我查下当前会话标题',
+      nativeSessionTitle: '帮我查下当前会话标题',
       nativeSessionTitlePrompt: '帮我查下当前会话标题',
       turnId: 'om_topic',
     });
@@ -1235,7 +1233,7 @@ describe('session.start lifecycle integration', () => {
       session: {
         ...makeDs().session,
         cliSessionId: 'codex-native-pending',
-        nativeSessionTitle: '[BotMux·Lark] 新话题',
+        nativeSessionTitle: '新话题',
         nativeSessionTitleAwaitingContent: true,
       },
     });
@@ -1245,7 +1243,7 @@ describe('session.start lifecycle integration', () => {
 
     expect(init).toEqual(expect.objectContaining({
       resume: true,
-      nativeSessionTitle: '[BotMux·Lark] 分析图片安全拦截',
+      nativeSessionTitle: '分析图片安全拦截',
       nativeSessionTitlePrompt: '分析图片安全拦截',
     }));
     expect(ds.session.nativeSessionTitleAwaitingContent).toBeUndefined();
@@ -1255,7 +1253,7 @@ describe('session.start lifecycle integration', () => {
     const ds = makeDs({
       session: {
         ...makeDs().session,
-        nativeSessionTitle: '[BotMux·Lark] 新话题',
+        nativeSessionTitle: '新话题',
         nativeSessionTitleAwaitingContent: true,
       },
     });
@@ -1265,7 +1263,7 @@ describe('session.start lifecycle integration', () => {
 
     expect(init).toEqual(expect.objectContaining({
       resume: true,
-      nativeSessionTitle: '[BotMux·Lark] 分析 worker 启动失败',
+      nativeSessionTitle: '分析 worker 启动失败',
       nativeSessionTitlePrompt: '分析 worker 启动失败',
     }));
     expect(ds.session.nativeSessionTitleAwaitingContent).toBeUndefined();
@@ -1310,7 +1308,7 @@ describe('session.start lifecycle integration', () => {
       session: {
         ...makeDs().session,
         cliSessionId: 'codex-native-manual',
-        nativeSessionTitle: '[BotMux·Lark] 我的持久化标题',
+        nativeSessionTitle: '我的持久化标题',
       },
     });
     forkWorker(ds, '继续处理', true);
@@ -1320,7 +1318,7 @@ describe('session.start lifecycle integration', () => {
     expect(init).toEqual(expect.objectContaining({
       resume: true,
       cliSessionId: 'codex-native-manual',
-      nativeSessionTitle: '[BotMux·Lark] 我的持久化标题',
+      nativeSessionTitle: '我的持久化标题',
     }));
     expect(init).not.toHaveProperty('nativeSessionTitlePrompt');
   });
@@ -1329,7 +1327,7 @@ describe('session.start lifecycle integration', () => {
     const ds = makeDs({
       session: {
         ...makeDs().session,
-        nativeSessionTitle: '[BotMux·Lark] 原始内容',
+        nativeSessionTitle: '原始内容',
       },
     });
     forkWorker(ds, '<user_message>原始内容</user_message>', false);
@@ -1338,12 +1336,12 @@ describe('session.start lifecycle integration', () => {
 
     worker.emit('message', {
       type: 'native_session_title_generated',
-      title: '[BotMux·Lark] 排查图片安全拦截',
+      title: '排查图片安全拦截',
     });
 
-    expect(ds.session.nativeSessionTitle).toBe('[BotMux·Lark] 排查图片安全拦截');
+    expect(ds.session.nativeSessionTitle).toBe('排查图片安全拦截');
     expect(ds.session.nativeSessionTitleAwaitingContent).toBeUndefined();
-    expect(ds.initConfig?.nativeSessionTitle).toBe('[BotMux·Lark] 排查图片安全拦截');
+    expect(ds.initConfig?.nativeSessionTitle).toBe('排查图片安全拦截');
     expect(ds.initConfig?.nativeSessionTitlePrompt).toBeUndefined();
     expect(sessionStore.updateSession).toHaveBeenCalledWith(ds.session);
   });
@@ -1362,7 +1360,7 @@ describe('session.start lifecycle integration', () => {
 
     worker.emit('message', {
       type: 'native_session_title_generated',
-      title: '[BotMux·Lark] 迟到的模型标题',
+      title: '迟到的模型标题',
     });
 
     expect(ds.session.nativeSessionTitle).toBe('用户标题');
@@ -1379,18 +1377,6 @@ describe('blocker #3: forkAdoptWorker refuses sandbox-enabled bots', () => {
       cliId: 'codex',
       cwd: '/repo',
     },
-  });
-
-  it('legacy readIsolation:true → refuses to adopt + clears stale adopt metadata (no fork/session.start)', () => {
-    vi.mocked(getBot).mockImplementation(() => defaultBot({ readIsolation: true }));
-    const ds = adopt();
-    ds.session.adoptedFrom = { ...ds.adoptedFrom } as any;
-    forkAdoptWorker(ds);
-    expect(forkMock).not.toHaveBeenCalled();
-    expect(emitHookEventMock).not.toHaveBeenCalledWith('session.start', expect.anything());
-    // fail-closed: no worker=null pseudo-adopt lingers; next msg cold-starts sandboxed
-    expect(ds.adoptedFrom).toBeUndefined();
-    expect(ds.session.adoptedFrom).toBeUndefined();
   });
 
   it('new sandbox:true → refuses to adopt (would run unsandboxed) + clears metadata', () => {
@@ -1843,7 +1829,7 @@ describe('worker startup failure delivery', () => {
     await Promise.resolve();
 
     expect(sessionReply).toHaveBeenCalledTimes(1);
-    expect(sessionReply.mock.calls[0]?.[1]).toContain('exit code: 9');
+    expect(sessionReply.mock.calls[0]?.[1]).toContain('退出码：9');
   });
 
   it('keeps a fatal CLI relaunch error user-visible after the worker was ready', async () => {
@@ -1914,8 +1900,7 @@ describe('forkWorker session agent config freeze', () => {
         wrapperCli: 'custom-wrapper codex',
         model: 'glm-5.1',
         sandbox: true,
-        sandboxHidePaths: ['~/.ssh'],
-        sandboxReadonlyPaths: ['/srv/source-a-readonly', '/srv/source-b-readonly'],
+        sandboxPaths: { deny: ['~/.ssh'], readOnly: ['/srv/source-a-readonly', '/srv/source-b-readonly'] },
         sandboxNetwork: false,
       },
       resolvedAllowedUsers: [],
@@ -1927,15 +1912,13 @@ describe('forkWorker session agent config freeze', () => {
     forkWorker(ds, 'hello', false);
 
     expect(ds.session.sandbox).toBe(true);
-    expect(ds.session.sandboxHidePaths).toEqual(['~/.ssh']);
-    expect((ds.session as any).sandboxReadonlyPaths).toEqual(['/srv/source-a-readonly', '/srv/source-b-readonly']);
+    expect(ds.session.sandboxPaths).toEqual({ deny: ['~/.ssh'], readOnly: ['/srv/source-a-readonly', '/srv/source-b-readonly'] });
     expect((ds.session as any).sandboxNetwork).toBe(false);
     const worker = forkMock.mock.results.at(-1)!.value;
     expect(worker.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'init',
       sandbox: true,
-      sandboxHidePaths: ['~/.ssh'],
-      sandboxReadonlyPaths: ['/srv/source-a-readonly', '/srv/source-b-readonly'],
+      sandboxPaths: { deny: ['~/.ssh'], readOnly: ['/srv/source-a-readonly', '/srv/source-b-readonly'] },
       sandboxNetwork: false,
     }));
   });
@@ -2025,7 +2008,7 @@ describe('forkWorker session agent config freeze', () => {
 // are the correctness boundary — keep them covered.
 describe('forkWorker session.workingDir back-fill (cross-bot inherit enabler)', () => {
   let tmp = '';
-  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'botmux-backfill-')); });
+  beforeEach(() => { tmp = makeTestTempDir('botmux-backfill-'); });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
 
   function initPool(getSessionWorkingDir: () => string) {

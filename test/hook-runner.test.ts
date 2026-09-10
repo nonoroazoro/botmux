@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -13,11 +12,12 @@ import {
   runHookCommandForTest,
   type HookConfig,
 } from '../src/services/hook-runner.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let tmpDir = '';
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'botmux-hooks-'));
+  tmpDir = makeTestTempDir('botmux-hooks-');
 });
 
 afterEach(() => {

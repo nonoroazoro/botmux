@@ -1,7 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-vc-im-routing-1': null,
+  });
+});
 import {
   listDurableVcMeetingImRoutingCandidates,
   listSealedVcMeetingImRoutingCandidates,
@@ -177,7 +186,7 @@ describe('vc meeting IM routing', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'botmux-vc-im-routing-'));
+    dir = '/fixtures/botmux-vc-im-routing-1';
   });
 
   afterEach(() => {

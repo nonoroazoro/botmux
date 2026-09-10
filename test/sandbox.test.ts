@@ -8,13 +8,13 @@
  * covered by fs-policy.test.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, symlinkSync, realpathSync } from 'node:fs';
+import { mkdirSync, existsSync, writeFileSync, readFileSync, symlinkSync, realpathSync } from 'node:fs';
 import { buildRelayHostEnv, validateRelayRequest, materializeOutboxFile, prepareDirectSandbox, canonicalSandboxPath, coreOnlyPidNamespaceDegrade, bwrapCanUnsharePid, pidNsDualProbeCanUnshare, __testOnly_resetPidNamespaceProbe } from '../src/adapters/backend/sandbox.js';
 import { createCodexAppAdapter } from '../src/adapters/cli/codex-app.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'sbx-'));
+const tmp = () => makeTestTempDir('sbx-');
 
 describe('codex-app sandboxExtraExecPaths', () => {
   it('returns exactly the resolved codex bin and never the working dir', () => {
@@ -130,7 +130,7 @@ describe('coreOnlyPidNamespaceDegrade gate (credential-safety)', () => {
 describe('prepareDirectSandbox canonicalizes the exec bin (symlinked-$HOME)', () => {
   it('replaces a symlinked cli bin path with its realpath in the bwrap argv', () => {
     if (process.platform !== 'linux') return; // bwrap path only built on linux
-    const dir = mkdtempSync(join(tmpdir(), 'sbx-binlink-'));
+    const dir = makeTestTempDir('sbx-binlink-');
     // Real target + a symlink pointing at it (models ~/.local/bin/claude → …/claude.exe).
     const realBin = join(dir, 'real-cli');
     writeFileSync(realBin, '#!/bin/sh\ntrue\n', { mode: 0o755 });

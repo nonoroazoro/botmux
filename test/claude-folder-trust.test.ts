@@ -4,10 +4,10 @@
  * untrusted workingDir don't block on the interactive confirmation screen.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
+import { rmSync, existsSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { ensureClaudeFolderTrust } from '../src/core/worker-pool.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('ensureClaudeFolderTrust', () => {
   let home: string;
@@ -15,8 +15,8 @@ describe('ensureClaudeFolderTrust', () => {
   let prevHome: string | undefined;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'bmx-trust-home-'));
-    workDir = mkdtempSync(join(tmpdir(), 'bmx-trust-work-'));
+    home = makeTestTempDir('bmx-trust-home-');
+    workDir = makeTestTempDir('bmx-trust-work-');
     prevHome = process.env.HOME;
     process.env.HOME = home;
   });

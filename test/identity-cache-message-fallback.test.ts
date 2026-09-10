@@ -1,3 +1,4 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * resolveSender's message.get fallback (B 方案).
  *
@@ -19,10 +20,19 @@
  * can't leak an `identities-*.json` file into the next run and silently short-
  * circuit the "fallback actually fires" / "cache hit skips fetch" assertions.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-identity-test-1': null,
+  });
+});
 
 const getMessageDetail = vi.fn();
 const larkGet = vi.fn();
@@ -50,7 +60,7 @@ describe('resolveSender message.get fallback', () => {
   let dataDir: string;
 
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'botmux-identity-test-'));
+    dataDir = '/fixtures/botmux-identity-test-1';
     mockConfig.session.dataDir = dataDir;
     getMessageDetail.mockReset();
     larkGet.mockReset();

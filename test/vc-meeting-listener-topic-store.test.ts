@@ -1,7 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-vc-listener-topic-1': null,
+  });
+});
 import {
   ensureVcMeetingListenerTopicRoot,
   getVcMeetingListenerTopicRoot,
@@ -11,7 +20,7 @@ import {
 const dirs: string[] = [];
 
 function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-vc-listener-topic-'));
+  const dir = '/fixtures/botmux-vc-listener-topic-1';
   dirs.push(dir);
   return dir;
 }

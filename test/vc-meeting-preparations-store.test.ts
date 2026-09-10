@@ -1,7 +1,16 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-vc-prep-1': null,
+  });
+});
 import {
   findVcMeetingPreparationByChat,
   getVcMeetingPreparation,
@@ -13,7 +22,7 @@ import {
 const dirs: string[] = [];
 
 function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'botmux-vc-prep-'));
+  const dir = '/fixtures/botmux-vc-prep-1';
   dirs.push(dir);
   return dir;
 }

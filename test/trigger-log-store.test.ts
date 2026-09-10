@@ -1,7 +1,14 @@
-import { mkdtempSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+
+// Store and rendering behavior uses a fresh in-memory filesystem.
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+beforeEach(() => {
+  resetMemoryFs({ '/fixtures': null });
+});
 import {
   appendTriggerLog,
   listTriggerLogs,
@@ -14,7 +21,7 @@ import {
 
 describe('trigger-log-store', () => {
   it('appends newest-first trigger log entries', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-trigger-log-'));
+    const dir = '/fixtures';
     appendTriggerLog({ triggerId: 'trg_1', connectorId: 'conn_a', action: 'queued', status: 'ok', createdAt: '2026-05-24T00:00:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'trg_2', connectorId: 'conn_b', action: 'failed', status: 'error', errorCode: 'rate_limited', createdAt: '2026-05-24T00:01:00.000Z' }, dir);
     expect(statSync(join(dir, 'trigger-logs.jsonl')).mode & 0o777).toBe(0o600);
@@ -23,7 +30,7 @@ describe('trigger-log-store', () => {
   });
 
   it('filters by status, error code, and since timestamp', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-trigger-log-'));
+    const dir = '/fixtures';
     appendTriggerLog({ triggerId: 'trg_1', connectorId: 'conn_a', action: 'queued', status: 'ok', createdAt: '2026-05-24T00:00:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'trg_2', connectorId: 'conn_a', action: 'failed', status: 'error', errorCode: 'rate_limited', createdAt: '2026-05-24T00:01:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'trg_3', connectorId: 'conn_a', action: 'failed', status: 'error', errorCode: 'invalid_signature', createdAt: '2026-05-24T00:02:00.000Z' }, dir);
@@ -34,7 +41,7 @@ describe('trigger-log-store', () => {
   });
 
   it('summarizes logs by connector', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-trigger-log-'));
+    const dir = '/fixtures';
     appendTriggerLog({ triggerId: 'trg_1', connectorId: 'conn_a', action: 'queued', status: 'ok', createdAt: '2026-05-24T00:00:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'trg_2', connectorId: 'conn_a', action: 'failed', status: 'error', errorCode: 'rate_limited', error: 'slow down', createdAt: '2026-05-24T00:01:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'trg_3', connectorId: 'conn_b', action: 'delivered', status: 'ok', createdAt: '2026-05-24T00:02:00.000Z' }, dir);
@@ -52,7 +59,7 @@ describe('trigger-log-store', () => {
   });
 
   it('prunes by retention window and max entries', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-trigger-log-'));
+    const dir = '/fixtures';
     appendTriggerLog({ triggerId: 'old', connectorId: 'conn_a', action: 'queued', status: 'ok', createdAt: '2026-05-20T00:00:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'middle', connectorId: 'conn_a', action: 'queued', status: 'ok', createdAt: '2026-05-23T00:00:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'new', connectorId: 'conn_a', action: 'queued', status: 'ok', createdAt: '2026-05-24T00:00:00.000Z' }, dir);
@@ -66,7 +73,7 @@ describe('trigger-log-store', () => {
   });
 
   it('pages and searches detailed invocation records with an aggregate latency summary', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-trigger-log-'));
+    const dir = '/fixtures';
     appendTriggerLog({
       triggerId: 'trg_1', connectorId: 'conn_a', action: 'delivered', status: 'ok', createdAt: '2026-05-24T00:00:00.000Z',
       request: { method: 'POST', path: '/webhook/conn_a/[REDACTED]', query: { chatId: 'oc_alpha' } },
@@ -94,7 +101,7 @@ describe('trigger-log-store', () => {
   });
 
   it('applies per-connector retention without deleting newer records', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-trigger-log-'));
+    const dir = '/fixtures';
     appendTriggerLog({ triggerId: 'a-old', connectorId: 'conn_a', action: 'queued', status: 'ok', createdAt: '2026-05-01T00:00:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'b-kept', connectorId: 'conn_b', action: 'queued', status: 'ok', createdAt: '2026-05-01T00:00:00.000Z' }, dir);
     appendTriggerLog({ triggerId: 'a-new', connectorId: 'conn_a', action: 'queued', status: 'ok', createdAt: '2026-05-29T00:00:00.000Z' }, dir);

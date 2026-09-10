@@ -10,11 +10,11 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { findCodexRolloutByPid, findCodexRolloutSetByPid } from '../src/services/codex-transcript.js';
 import { findCocoSessionByPid } from '../src/services/coco-transcript.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CODEX_SID = '019dd80d-d922-7a11-8339-0208d8c5b4ec';
 const CODEX_SIBLING_SID = '019dd80d-d922-7a11-8339-0208d8c5b4ee';
@@ -31,7 +31,7 @@ let customHomeRollout: string;
 const CUSTOM_HOME_SID = '019dd80d-d922-7a11-8339-0208d8c5b4ea';
 
 beforeAll(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'bmx-pid-disc-'));
+  dir = makeTestTempDir('bmx-pid-disc-');
   // 伪 Codex rollout：路径里必须含 `.codex/sessions/`，文件名要满足
   // codexSessionIdFromRolloutPath 的 `rollout-<ts>-<uuid>.jsonl` 正则。
   const codexDir = join(dir, '.codex', 'sessions', '2026', '05', '15');

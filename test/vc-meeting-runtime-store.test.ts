@@ -1,5 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -18,6 +17,7 @@ import {
   type VcMeetingRuntimeSelectedAgent,
 } from '../src/services/vc-meeting-runtime-store.js';
 import { logger } from '../src/utils/logger.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const STORE_FILE = 'vc-meeting-runtime-sessions.json';
 const TOMBSTONE_FILE = 'vc-meeting-ended-tombstones.json';
@@ -46,7 +46,7 @@ describe('vc meeting runtime store', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'botmux-vc-runtime-'));
+    dir = makeTestTempDir('botmux-vc-runtime-');
   });
 
   afterEach(() => {
@@ -644,7 +644,7 @@ describe('vc meeting runtime store', () => {
     expect(evidence['cli_a:m1']).not.toHaveProperty('selectedAgents');
     expect(evidence).not.toHaveProperty('cli_b:m2');
 
-    const v2Dir = mkdtempSync(join(dir, 'v2-selection-'));
+    const v2Dir = makeTestTempDir('v2-selection-', dir);
     const v2Fp = join(v2Dir, STORE_FILE);
     writeFileSync(v2Fp, JSON.stringify({
       'cli_v2:m2': {
@@ -677,7 +677,7 @@ describe('vc meeting runtime store', () => {
     ];
 
     for (const [name, corrupt] of corruptions) {
-      const caseDir = mkdtempSync(join(dir, `${name}-`));
+      const caseDir = makeTestTempDir(`${name}-`, dir);
       recordVcMeetingRuntimeSession(caseDir, {
         larkAppId: 'cli_a', meeting: { id: 'm1' }, listenerChatId: 'oc_a',
       }, 1_000);
@@ -713,7 +713,7 @@ describe('vc meeting runtime store', () => {
     ];
 
     for (const [name, corrupt] of corruptions) {
-      const caseDir = mkdtempSync(join(dir, `control-${name}-`));
+      const caseDir = makeTestTempDir(`control-${name}-`, dir);
       recordVcMeetingRuntimeSession(caseDir, {
         larkAppId: 'cli_a', meeting: { id: 'm1' }, listenerChatId: 'oc_a',
       }, 1_000);
@@ -783,7 +783,7 @@ describe('vc meeting runtime store', () => {
     ];
 
     for (const [name, corrupt] of corruptions) {
-      const caseDir = mkdtempSync(join(dir, `tombstone-${name}-`));
+      const caseDir = makeTestTempDir(`tombstone-${name}-`, dir);
       recordVcMeetingEndedTombstone(caseDir, { larkAppId: 'cli_a', meetingId: 'm1' }, 1_000);
       const fp = join(caseDir, TOMBSTONE_FILE);
       const malformed = JSON.parse(readFileSync(fp, 'utf8')) as Record<string, any>;

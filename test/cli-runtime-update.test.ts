@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   CLI_RUNTIME_UPDATE_CHECK_INTERVAL_MS,
@@ -17,6 +16,7 @@ import {
   type CliRuntimeUpdateStore,
   type CliRuntimeUpdateTarget,
 } from '../src/core/cli-runtime-update.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 function runtimeTarget(
   overrides: Partial<CliRuntimeUpdateTarget> = {},
@@ -215,7 +215,7 @@ describe('selectCodexRuntimeUpdateTargets', () => {
 
 describe('resolveNpmPackageForExecutable', () => {
   it('returns the single package whose bin mapping owns the exact executable', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-npm-owner-'));
+    const dir = makeTestTempDir('botmux-npm-owner-');
     try {
       const packageDir = join(dir, 'node_modules', '@vendor', 'codex');
       mkdirSync(join(packageDir, 'bin'), { recursive: true });
@@ -236,7 +236,7 @@ describe('resolveNpmPackageForExecutable', () => {
   });
 
   it('returns unmanaged when multiple manifests claim the same executable', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-npm-owner-ambiguous-'));
+    const dir = makeTestTempDir('botmux-npm-owner-ambiguous-');
     try {
       const innerDir = join(dir, 'packages', 'inner');
       mkdirSync(innerDir, { recursive: true });
@@ -796,7 +796,7 @@ describe('runCliRuntimeUpdateAudit', () => {
   });
 
   it('carries a real reader migration through audit and rewrites the old store', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-cli-runtime-auto-migration-'));
+    const dir = makeTestTempDir('botmux-cli-runtime-auto-migration-');
     const now = 1_500_000;
     const key = 'vendor-codex:/opt/vendor-codex';
     try {
@@ -1172,7 +1172,7 @@ describe('runCliRuntimeUpdateAudit', () => {
 
 describe('CLI runtime update store and card', () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'botmux-cli-update-')); });
+  beforeEach(() => { dir = makeTestTempDir('botmux-cli-update-'); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
   it('persists runtime identity and derives updateAvailable on read', () => {
@@ -1292,13 +1292,16 @@ describe('CLI runtime update store and card', () => {
       current: '1.0.0',
       latest: '1.1.0',
       updateCommand: 'npm install -g @acme/codex@latest',
-    }), { dashboardUrl: 'http://dashboard', locale: 'zh' });
+    }), { dashboardUrl: 'http://dashboard', locale: 'zh', botName: 'Project Guide' });
 
     expect(card).toContain('Acme Codex');
     expect(card).toContain('1.0.0');
     expect(card).toContain('1.1.0');
     expect(card).toContain('npm install -g @acme/codex@latest');
-    expect(card).toContain('不会自动安装');
+    expect(card).toContain('不会自动升级');
+    expect(JSON.parse(card).header.title.content).toBe('Project Guide · Acme Codex 有新版本');
+    expect(card).toContain('我发现 Acme Codex 有新版本了');
+    expect(card).not.toMatch(/botmux/i);
     expect(card).not.toContain('button');
   });
 

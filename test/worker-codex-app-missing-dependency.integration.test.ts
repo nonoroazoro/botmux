@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { DaemonToWorker, WorkerToDaemon } from '../src/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const children = new Set<ChildProcess>();
 
@@ -29,7 +29,7 @@ afterEach(async () => {
 
 describe('Codex App worker dependency failure', () => {
   it('flushes one turn-scoped error and never emits ready when nested codex is missing', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-worker-missing-codex-'));
+    const dataDir = makeTestTempDir('botmux-worker-missing-codex-');
     const messages: WorkerToDaemon[] = [];
     const child = spawn(process.execPath, ['--import', 'tsx', resolve('src/worker.ts')], {
       cwd: resolve('.'),

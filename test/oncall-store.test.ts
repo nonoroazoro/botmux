@@ -3,10 +3,10 @@
  *
  * Run: pnpm vitest run test/oncall-store.test.ts
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class FakeClient {
@@ -30,7 +30,7 @@ describe('default-oncall store persistence', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-oncall-store-'));
+    const dir = makeTestTempDir('botmux-oncall-store-');
     configPath = join(dir, 'bots.json');
     process.env.BOTS_CONFIG = configPath;
   });

@@ -1,10 +1,7 @@
 import {
   lstatSync,
-  mkdtempSync,
   rmSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   completeDeviceCredentialIsolationMarker,
@@ -12,10 +9,11 @@ import {
   ensureDeviceCredentialIsolationMarker,
   readDeviceCredentialIsolationMarker,
 } from '../src/platform/device-isolation.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 function tempHome(): string {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-device-isolation-'));
+  const root = makeTestTempDir('botmux-device-isolation-');
   roots.push(root);
   return root;
 }

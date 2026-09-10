@@ -22,7 +22,7 @@
  * Run:  pnpm vitest run test/daemon-rename-route.test.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const mocks = vi.hoisted(() => {
@@ -112,6 +112,7 @@ import {
   __testOnly_handleThreadReply as handleThreadReply,
 } from '../src/daemon.js';
 import type { DaemonSession } from '../src/core/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const APP = 'rename_route_app';
 const CHAT = 'oc_rename_route_chat';
@@ -124,7 +125,7 @@ const repoFixtureDirs: string[] = [];
 function makeRepoFixtureDir(): string {
   const root = join(mocks.dataDir, 'repo-fixtures');
   mkdirSync(root, { recursive: true });
-  const dir = mkdtempSync(join(root, 'repo-'));
+  const dir = makeTestTempDir('repo-', root);
   repoFixtureDirs.push(dir);
   return dir;
 }
@@ -193,7 +194,7 @@ function makePeerRepoEventDataWithSplitFooter(
           { tag: 'text', text: `/repo ${repoPath}\n` },
           { tag: 'a', text: 'botmux', href: 'https://github.com/deepcoldy/botmux' },
           { tag: 'text', text: "<font color='grey'> </font>" },
-          { tag: 'a', text: '·', href: 'https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1' },
+          { tag: 'a', text: '·', href: 'https://www.feishu.cn/#agent-reply-card-footer-v1' },
           { tag: 'text', text: "<font color='grey'> 发送给：</font>" },
           { tag: 'at', user_name: 'Bob Example' },
         ]],
@@ -222,11 +223,11 @@ function makePeerRepoEventDataWithV2FooterElement(
             { tag: 'markdown', content: `/repo ${repoPath}` },
             { tag: 'hr' },
             {
-              element_id: 'botmux_reply_footer',
+              element_id: 'agent_reply_footer',
               tag: 'markdown',
               content: '[botmux](https://github.com/deepcoldy/botmux)'
                 + "<font color='grey'> </font>"
-                + '[·](https://github.com/deepcoldy/bot%6Dux#reply-card-footer-v1)'
+                + '[·](https://www.feishu.cn/#agent-reply-card-footer-v1)'
                 + "<font color='grey'> 发送给：</font><at id=ou_owner></at>",
             },
           ],
@@ -480,7 +481,7 @@ describe('/rename production routing — must not pre-create a session (review P
     expect(mocks.forkWorker).toHaveBeenCalledTimes(1);
     expect(mocks.forkWorker.mock.calls[0]?.[2]).toEqual({ turnId: 'om_workflow_new' });
     const ds = activeSessions.get(sessionKey('om_workflow_new', APP));
-    expect(ds?.session.nativeSessionTitle).toBe('[BotMux·Lark] /workflow new 修复首轮授权');
+    expect(ds?.session.nativeSessionTitle).toBe('/workflow new 修复首轮授权');
   });
 
   it('uses the group name for mention-only sessions on both creation paths', async () => {
@@ -503,7 +504,7 @@ describe('/rename production routing — must not pre-create a session (review P
     );
     const newTopic = activeSessions.get(sessionKey('om_group_title_new', APP));
     expect(newTopic?.session.chatDisplayName).toBe('BotMux 标题优化群');
-    expect(newTopic?.session.nativeSessionTitle).toBe('[BotMux·Lark] BotMux 标题优化群');
+    expect(newTopic?.session.nativeSessionTitle).toBe('BotMux 标题优化群');
 
     activeSessions.clear();
     await handleThreadReply(
@@ -512,7 +513,7 @@ describe('/rename production routing — must not pre-create a session (review P
     );
     const safetyNet = activeSessions.get(sessionKey('om_group_title_root', APP));
     expect(safetyNet?.session.chatDisplayName).toBe('BotMux 标题优化群');
-    expect(safetyNet?.session.nativeSessionTitle).toBe('[BotMux·Lark] BotMux 标题优化群');
+    expect(safetyNet?.session.nativeSessionTitle).toBe('BotMux 标题优化群');
     expect(mocks.getChatNameAndMode).toHaveBeenCalledTimes(2);
   });
 

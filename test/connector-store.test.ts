@@ -1,7 +1,18 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-connectors-1': null,
+    '/fixtures/botmux-connectors-2': null,
+  });
+});
 import {
   deleteConnector,
   getConnector,
@@ -42,7 +53,7 @@ function sample(id = 'conn_test'): ConnectorDefinition {
 
 describe('connector-store', () => {
   it('upserts, reads, and deletes connector definitions', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-connectors-'));
+    const dir = '/fixtures/botmux-connectors-1';
     const first = upsertConnector(sample(), dir);
     expect(first.createdAt).toBe('2026-05-24T00:00:00.000Z');
     expect(getConnector('conn_test', dir)?.name).toBe('Generic alerts');
@@ -59,7 +70,7 @@ describe('connector-store', () => {
   });
 
   it('persists the public schema without secrets', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-connectors-'));
+    const dir = '/fixtures/botmux-connectors-2';
     upsertConnector(sample('conn_public'), dir);
     const raw = JSON.parse(readFileSync(join(dir, 'connectors.json'), 'utf-8'));
     expect(raw.version).toBe(1);

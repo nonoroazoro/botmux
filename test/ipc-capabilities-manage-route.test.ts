@@ -1,7 +1,18 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import * as sessionStore from '../src/services/session-store.js';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-capability-ipc-1': null,
+  });
+});
 
 import { config } from '../src/config.js';
 import { __testOnly_resetBotRegistry, registerBot } from '../src/bot-registry.js';
@@ -35,9 +46,10 @@ let dataDir: string;
 let previousDataDir: string;
 
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-capability-ipc-'));
+  dataDir = '/fixtures/botmux-capability-ipc-1';
   previousDataDir = config.session.dataDir;
   config.session.dataDir = dataDir;
+  sessionStore.init('cli_artifact_bot');
   registerBot({
     larkAppId: 'cli_artifact_bot',
     larkAppSecret: '',

@@ -749,7 +749,7 @@ describe('message listener evaluation', () => {
           'Service: api.example.com.order_processor',
           'Cluster: region-1: order_processor',
           'WriteRUUsage: 88.677',
-          '<font color="grey">[·](https://github.com/deepcoldy/botmux#reply-card-footer-v1)</font>',
+          '<font color="grey">[·](https://www.feishu.cn/#agent-reply-card-footer-v1)</font>',
           '</card>',
         ].join('\n'),
       }),

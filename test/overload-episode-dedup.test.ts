@@ -1,6 +1,16 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/overload-dedup-1': null,
+  });
+});
+import { rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { withFileLockSync } from '../src/utils/file-lock.js';
 
@@ -47,7 +57,7 @@ describe('overload episode dedup — concurrency', () => {
   let dir: string;
   let marker: string;
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'overload-dedup-'));
+    dir = '/fixtures/overload-dedup-1';
     marker = join(dir, '.overload-episode.json');
   });
   afterEach(() => {

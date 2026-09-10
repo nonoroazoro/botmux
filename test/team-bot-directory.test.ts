@@ -1,10 +1,21 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * team-bot-directory：平台团队名册 + 联邦（本地托管 + spoke→hub HTTP）三源合并目录。
  * Run: pnpm vitest run test/team-bot-directory.test.ts
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/team-bot-dir-1': null,
+    '/fixtures/hub-side-2': null,
+  });
+});
+import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   readLocalTeamBotDirectory, fetchRemoteHubBotDirectory, fetchTeamBotDirectory,
@@ -13,7 +24,7 @@ import {
 import { buildFederatedRoster } from '../src/services/federation-roster.js';
 
 let dir: string;
-beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'team-bot-dir-')); });
+beforeEach(() => { dir = '/fixtures/team-bot-dir-1'; });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 function writePlatformSync(teams: any[]) {
@@ -136,7 +147,7 @@ describe('fetchRemoteHubBotDirectory（spoke→hub HTTP）', () => {
     // wire the REAL producer (buildFederatedRoster, hub side) into the REAL
     // consumer (fetchRemoteHubBotDirectory, spoke side). Catches the producer
     // omitting larkTransportEnabled on hub-LOCAL bots.
-    const hubDir = mkdtempSync(join(tmpdir(), 'hub-side-'));
+    const hubDir = '/fixtures/hub-side-2';
     try {
       // Hub's live registry: one normal + one core-only (apiOnly) LOCAL bot.
       const hubRoster = buildFederatedRoster(hubDir, 'default', undefined, undefined, [

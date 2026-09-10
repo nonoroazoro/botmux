@@ -1,17 +1,27 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Team-level bot capability label store.
  * Run: pnpm vitest run test/bot-profile-store.test.ts
  */
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-profile-1': null,
+  });
+});
 import {
   getBotProfile, getBotCapability, setBotCapability, clearBotCapability, listBotProfiles,
 } from '../src/services/bot-profile-store.js';
 
 let dataDir: string;
-beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'botmux-profile-')); });
+beforeEach(() => { dataDir = '/fixtures/botmux-profile-1'; });
 
 describe('bot-profile-store', () => {
   it('returns null when nothing recorded', () => {

@@ -107,8 +107,8 @@ import { MessageWithdrawnError } from '../src/im/lark/client.js';
 import type { DaemonSession } from '../src/core/types.js';
 import type { WorkerToDaemon } from '../src/types.js';
 import { EventEmitter } from 'node:events';
-import { homedir, tmpdir } from 'node:os';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   acceptVcMeetingDelivery,
@@ -128,6 +128,7 @@ import {
   getMessageListenerRunPreview,
   markMessageListenerRunPreviewTriggered,
 } from '../src/services/message-listener-run-preview-store.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // Build a fake worker child process whose IPC `message` event we can fire
 // manually, then wire it through setupWorkerHandlers via forkAdoptWorker.
@@ -702,7 +703,7 @@ describe('Bridge final_output delivery (P2 retry)', () => {
       closeSession: vi.fn(),
     });
 
-    const cwd = mkdtempSync(join(tmpdir(), 'botmux-bridge-relative-'));
+    const cwd = makeTestTempDir('botmux-bridge-relative-');
     const relativeHome = homedir().replace(/^\/+|\/+$/g, '');
     const relativeFile = `${relativeHome}/project/a.md`;
     mkdirSync(join(cwd, relativeHome, 'project'), { recursive: true });
@@ -736,7 +737,7 @@ describe('Bridge final_output delivery (P2 retry)', () => {
     });
 
     const ds = makeDs();
-    ds.initConfig = { readIsolation: true } as any;
+    ds.initConfig = { sandbox: true } as any;
     const home = homedir().replace(/\/+$/, '');
     const relativeHome = home.replace(/^\/+/, '');
     const missing = `${relativeHome}/botmux-definitely-missing-read-iso-${Date.now()}.md`;
@@ -1378,7 +1379,7 @@ describe('Bridge final_output delivery (P2 retry)', () => {
     vi.mocked(getSessionUsageSnapshot)
       .mockImplementationOnce(actualCostCalculator.getSessionUsageSnapshot);
 
-    const sandboxRoot = mkdtempSync(join(tmpdir(), 'botmux-card-usage-sandbox-'));
+    const sandboxRoot = makeTestTempDir('botmux-card-usage-sandbox-');
     const previousSessionDataDir = process.env.SESSION_DATA_DIR;
     try {
       process.env.SESSION_DATA_DIR = join(sandboxRoot, 'data');
@@ -1426,7 +1427,7 @@ describe('Bridge final_output delivery (P2 retry)', () => {
     vi.mocked(getSessionUsageSnapshot)
       .mockImplementationOnce(actualCostCalculator.getSessionUsageSnapshot);
 
-    const sandboxRoot = mkdtempSync(join(tmpdir(), 'botmux-card-usage-codex-'));
+    const sandboxRoot = makeTestTempDir('botmux-card-usage-codex-');
     const previousSessionDataDir = process.env.SESSION_DATA_DIR;
     const codexSid = '019dd80d-d922-7a11-8339-0208d8c5b4ef';
     try {

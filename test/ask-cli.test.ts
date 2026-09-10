@@ -8,10 +8,10 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CLI_PATH = join(__dirname, '..', 'src', 'cli.ts');
 const tempDirs: string[] = [];
@@ -53,7 +53,7 @@ function runAsk(dataDir: string): Promise<{ status: number | null; stdout: strin
 
 describe('botmux ask — CLI boundary', () => {
   it('文字作答保持空 stdout / exit 0，并在 stderr 指明用 --json 读取 comment', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-ask-cli-'));
+    const dataDir = makeTestTempDir('botmux-ask-cli-');
     tempDirs.push(dataDir);
 
     const server = createServer((req, res) => {

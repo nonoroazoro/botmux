@@ -1,13 +1,23 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * Tests for `findInheritablePeer` — the helper that decides whether a newly
  * created session can reuse a sibling's workingDir (and skip the repo card).
  *
  * Run:  pnpm vitest run test/inherit-peer.test.ts
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-inherit-peer-1': null,
+  });
+});
 
 const mockFindByRoot = vi.fn();
 const mockFindByChat = vi.fn();
@@ -48,7 +58,7 @@ function tempDir(name: string): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  tmpRoot = mkdtempSync(join(tmpdir(), 'botmux-inherit-peer-'));
+  tmpRoot = '/fixtures/botmux-inherit-peer-1';
   mockFindByRoot.mockReturnValue([]);
   mockFindByChat.mockReturnValue([]);
 });

@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import {
   evaluateVcMeetingManagedOriginClaim,
   evaluateVcMeetingManagedSend,
@@ -19,6 +17,7 @@ import {
   markVcMeetingDeliveryAmbiguous,
 } from '../src/services/vc-meeting-delivery-store.js';
 import type { VcMeetingImTurnOrigin } from '../src/types.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let dir: string;
 const memberKey = { listenerAppId: 'listener', meetingId: 'meeting', memberId: 'member', memberEpoch: 1 };
@@ -76,7 +75,7 @@ function seed(
   });
 }
 
-beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'vc-send-policy-')); });
+beforeEach(() => { dir = makeTestTempDir('vc-send-policy-'); });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 describe('evaluateVcMeetingManagedSend', () => {
@@ -159,7 +158,7 @@ describe('evaluateVcMeetingManagedSend', () => {
     ] as const;
 
     for (const transition of transitions) {
-      const caseDir = mkdtempSync(join(tmpdir(), `vc-send-policy-${transition.status}-`));
+      const caseDir = makeTestTempDir(`vc-send-policy-${transition.status}-`);
       const previousDir = dir;
       dir = caseDir;
       try {

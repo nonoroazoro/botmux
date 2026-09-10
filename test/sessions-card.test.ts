@@ -1,10 +1,20 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 /**
  * PR3 `/dashboard sessions` slice 1 — card builder + callback handler tests.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-sessions-card-1': null,
+  });
+});
+import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { SessionRow } from '../src/core/dashboard-rows.js';
@@ -36,7 +46,7 @@ const LARK_APP_ID = 'cli_test';
 // resolved config path, so stubbing HOME forces a fresh read of the empty dir.
 let sessionsCardTestHome: string;
 beforeEach(() => {
-  sessionsCardTestHome = mkdtempSync(join(tmpdir(), 'botmux-sessions-card-'));
+  sessionsCardTestHome = '/fixtures/botmux-sessions-card-1';
   vi.stubEnv('HOME', sessionsCardTestHome);
   mkdirSync(dirname(globalConfigPath()), { recursive: true });
 });

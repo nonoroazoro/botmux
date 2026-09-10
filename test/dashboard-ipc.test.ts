@@ -1,8 +1,7 @@
 // test/dashboard-ipc.test.ts
-import { describe, it, expect, afterAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, beforeEach, vi } from 'vitest';
 import { createHmac, randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ipcRoute, startIpcServer, setLarkAppId, setIpcAuthSecret, setBotRenamer, setBotAvatarChanger, setExactChatGrantHandler, armCoreOnlyReadinessGate, setCoreOnlyReady, __testOnly_resetCoreOnlyReadiness, type IpcServerHandle } from '../src/core/dashboard-ipc-server.js';
 import { cliAuthBind, signCliAuth } from '../src/dashboard/auth.js';
@@ -25,14 +24,16 @@ import {
   registerAsk,
   setCardDispatcher,
 } from '../src/core/ask-broker.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
-const testStateRoot = mkdtempSync(join(tmpdir(), 'botmux-dashboard-ipc-'));
+const testStateRoot = makeTestTempDir('botmux-dashboard-ipc-');
 const previousDataDir = config.session.dataDir;
 config.session.dataDir = join(testStateRoot, 'data');
 
 // Per-bot schedule stores: the daemon binds the store to its own bot before
 // serving IPC; the schedule endpoints under test assume that binding exists.
 setScheduleScope('cli_ipc_test_bot001');
+beforeEach(() => sessionStore.init('cli_ipc_test_bot001'));
 
 // Loopback-HMAC the write-link routes require. Inject a known secret per test
 // (setIpcAuthSecret) and sign with it, so the suite doesn't depend on a real
@@ -164,7 +165,7 @@ describe('dashboard IPC server', () => {
     const trustedRead = await fetch(`${base}/api/sessions`, {
       headers: trustedHostHeaders('GET', '/api/sessions', handle.port),
     });
-    expect(trustedRead.status).toBe(200);
+    expect(trustedRead.status, await trustedRead.clone().text()).toBe(200);
 
     const trustedMutation = await fetch(`${base}${mutationPath}`, {
       method: 'POST',
@@ -332,7 +333,7 @@ describe('Desktop ask IPC', () => {
 
 describe('PUT /api/bot-card-prefs — Codex App clean history', () => {
   it('is default-off and persists explicit on/off changes immediately', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-codex-clean-'));
+    const dir = makeTestTempDir('dashboard-ipc-codex-clean-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-codex-clean-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -380,7 +381,7 @@ describe('PUT /api/bot-card-prefs — Codex App clean history', () => {
 
 describe('PUT/GET /api/message-listeners/:chatId — disabled draft persistence (Bug2: 二刷消失)', () => {
   it('persists a disabled listener that still has a prompt, and GET returns it after reload', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-listener-draft-'));
+    const dir = makeTestTempDir('dashboard-ipc-listener-draft-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-listener-draft-app';
     const chatId = 'oc_draft_chat';
@@ -428,7 +429,7 @@ describe('PUT/GET /api/message-listeners/:chatId — disabled draft persistence 
   });
 
   it('clears the entry when a disabled update carries a blank prompt', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-listener-clear-'));
+    const dir = makeTestTempDir('dashboard-ipc-listener-clear-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-listener-clear-app';
     const chatId = 'oc_clear_chat';
@@ -471,7 +472,7 @@ describe('PUT/GET /api/message-listeners/:chatId — disabled draft persistence 
 
 describe('PUT /api/bot-card-prefs — reply-card usage display mode', () => {
   it('defaults to streaming and persists explicit footer/off changes immediately', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-usage-display-'));
+    const dir = makeTestTempDir('dashboard-ipc-usage-display-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-usage-display-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -826,13 +827,13 @@ describe('GET /api/sessions', () => {
   it('returns array shape (sessions: Row[])', async () => {
     handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
     const res = await fetch(`http://127.0.0.1:${handle.port}/api/sessions`);
-    expect(res.status).toBe(200);
+    expect(res.status, await res.clone().text()).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body.sessions)).toBe(true);
   });
 
   it('shows an unregistered quarantined active row as dormant in list and detail', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-quarantined-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-quarantined-');
     const prevConfigDataDir = config.session.dataDir;
     const registry = new Map<string, any>();
     try {
@@ -871,7 +872,7 @@ describe('GET /api/sessions', () => {
       });
     } finally {
       workerPool.setActiveSessionsRegistry(new Map());
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.session.dataDir = prevConfigDataDir;
       rmSync(dataDir, { recursive: true, force: true });
     }
@@ -956,7 +957,7 @@ describe('GET /api/sessions/:sessionId/usage', () => {
 
 describe('POST /api/sessions/:sessionId/rename', () => {
   it('updates the canonical title and requests native sync from a live Codex worker', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-session-rename-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-session-rename-');
     const prevDataDir = config.session.dataDir;
     const events: any[] = [];
     const off = dashboardEventBus.subscribe(event => events.push(event));
@@ -964,7 +965,7 @@ describe('POST /api/sessions/:sessionId/rename', () => {
     let findSpy: ReturnType<typeof vi.spyOn> | undefined;
     try {
       config.session.dataDir = dataDir;
-      sessionStore.init();
+      sessionStore.init('test-bot');
       const session = sessionStore.createSession('oc_rename', 'om_rename', 'Old title', 'group');
       session.cliId = 'codex';
       session.cliPathOverride = '/bin/codex';
@@ -1030,7 +1031,7 @@ describe('POST /api/sessions/:sessionId/rename', () => {
     } finally {
       findSpy?.mockRestore();
       off();
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.session.dataDir = prevDataDir;
       rmSync(dataDir, { recursive: true, force: true });
     }
@@ -1054,14 +1055,14 @@ describe('POST /api/sessions/:sessionId/close', () => {
 
 describe('POST /api/sessions/:sessionId/lock', () => {
   it('persists the lock flag and publishes a dashboard patch', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-lock-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-lock-');
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
     const seen: any[] = [];
     const off = dashboardEventBus.subscribe(e => seen.push(e));
     try {
       config.session.dataDir = dataDir;
-      sessionStore.init();
+      sessionStore.init('test-bot');
       const session = sessionStore.createSession('oc_lock', 'om_lock', 'lock me', 'group');
 
       handle = await startIpcServer({ port: 0, host: '127.0.0.1' });
@@ -1090,7 +1091,7 @@ describe('POST /api/sessions/:sessionId/lock', () => {
       expect(sessionStore.getSession(session.sessionId)?.locked).toBeUndefined();
     } finally {
       off();
-      sessionStore.init();
+      sessionStore.init('test-bot');
       if (prevDataDir === undefined) delete process.env.SESSION_DATA_DIR;
       else process.env.SESSION_DATA_DIR = prevDataDir;
       config.session.dataDir = prevConfigDataDir;
@@ -1436,7 +1437,7 @@ describe('POST /api/sessions/:sessionId/suspend', () => {
 
 describe('POST /api/sessions/:sessionId/resume', () => {
   it('does not post host-side resume status into the session chat', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-resume-silent-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-resume-silent-');
     const prevConfigDataDir = config.session.dataDir;
     const registry = new Map<string, any>();
     const replySpy = vi.spyOn(larkClient, 'replyMessage').mockResolvedValue('om_notice');
@@ -1445,7 +1446,7 @@ describe('POST /api/sessions/:sessionId/resume', () => {
     const dmSpy = vi.spyOn(larkClient, 'sendUserMessage').mockResolvedValue('om_notice');
     try {
       config.session.dataDir = dataDir;
-      sessionStore.init();
+      sessionStore.init('test-bot');
       workerPool.setActiveSessionsRegistry(registry);
       registerBot({
         larkAppId: 'app_resume',
@@ -1478,20 +1479,20 @@ describe('POST /api/sessions/:sessionId/resume', () => {
       ephemeralSpy.mockRestore();
       dmSpy.mockRestore();
       workerPool.setActiveSessionsRegistry(new Map());
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.session.dataDir = prevConfigDataDir;
       rmSync(dataDir, { recursive: true, force: true });
     }
   });
 
   it('rejects a managed VC receiver without reactivating or waking it', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-resume-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-resume-');
     const prevConfigDataDir = config.session.dataDir;
     const registry = new Map<string, any>();
     const forkSpy = vi.spyOn(workerPool, 'forkWorker').mockImplementation(() => {});
     try {
       config.session.dataDir = dataDir;
-      sessionStore.init();
+      sessionStore.init('test-bot');
       workerPool.setActiveSessionsRegistry(registry);
 
       const session = sessionStore.createSession('oc_listener', 'oc_listener', '[Meeting] meeting-42', 'group');
@@ -1525,21 +1526,21 @@ describe('POST /api/sessions/:sessionId/resume', () => {
     } finally {
       forkSpy.mockRestore();
       workerPool.setActiveSessionsRegistry(new Map());
-      sessionStore.init();
+      sessionStore.init('test-bot');
       config.session.dataDir = prevConfigDataDir;
       rmSync(dataDir, { recursive: true, force: true });
     }
   });
 
   it('wakes a resumed session immediately when wake=1 is set', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-resume-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-resume-');
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
     const registry = new Map<string, any>();
     const forkSpy = vi.spyOn(workerPool, 'forkWorker').mockImplementation(() => {});
     try {
       config.session.dataDir = dataDir;
-      sessionStore.init();
+      sessionStore.init('test-bot');
       workerPool.setActiveSessionsRegistry(registry);
 
       const session = sessionStore.createSession('oc_resume', 'om_resume', 'resume topic', 'group');
@@ -1565,7 +1566,7 @@ describe('POST /api/sessions/:sessionId/resume', () => {
     } finally {
       forkSpy.mockRestore();
       workerPool.setActiveSessionsRegistry(new Map());
-      sessionStore.init();
+      sessionStore.init('test-bot');
       if (prevDataDir === undefined) delete process.env.SESSION_DATA_DIR;
       else process.env.SESSION_DATA_DIR = prevDataDir;
       config.session.dataDir = prevConfigDataDir;
@@ -1574,14 +1575,14 @@ describe('POST /api/sessions/:sessionId/resume', () => {
   });
 
   it('default resume (no wake) reactivates without forking a worker', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-resume-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-resume-');
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
     const registry = new Map<string, any>();
     const forkSpy = vi.spyOn(workerPool, 'forkWorker').mockImplementation(() => {});
     try {
       config.session.dataDir = dataDir;
-      sessionStore.init();
+      sessionStore.init('test-bot');
       workerPool.setActiveSessionsRegistry(registry);
 
       const session = sessionStore.createSession('oc_resume', 'om_resume', 'resume topic', 'group');
@@ -1606,7 +1607,7 @@ describe('POST /api/sessions/:sessionId/resume', () => {
     } finally {
       forkSpy.mockRestore();
       workerPool.setActiveSessionsRegistry(new Map());
-      sessionStore.init();
+      sessionStore.init('test-bot');
       if (prevDataDir === undefined) delete process.env.SESSION_DATA_DIR;
       else process.env.SESSION_DATA_DIR = prevDataDir;
       config.session.dataDir = prevConfigDataDir;
@@ -1654,13 +1655,13 @@ describe('GET /api/events', () => {
     // so the active-only replay can't surface it. The closed-since-process-start
     // replay must still deliver it as a closed row so the dashboard doesn't lose
     // it (or keep a stale active entry).
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-sse-closed-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-sse-closed-');
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
     const registry = new Map<string, any>();
     try {
       config.session.dataDir = dataDir;
-      sessionStore.init();
+      sessionStore.init('test-bot');
       workerPool.setActiveSessionsRegistry(registry); // empty — zombie already evicted
 
       const session = sessionStore.createSession('oc_zombie', 'om_zombie', 'zombie topic', 'group');
@@ -1680,7 +1681,7 @@ describe('GET /api/events', () => {
       expect(typeof ev!.body.session.closedAt).toBe('number');
     } finally {
       workerPool.setActiveSessionsRegistry(new Map());
-      sessionStore.init();
+      sessionStore.init('test-bot');
       if (prevDataDir === undefined) delete process.env.SESSION_DATA_DIR;
       else process.env.SESSION_DATA_DIR = prevDataDir;
       config.session.dataDir = prevConfigDataDir;
@@ -2064,7 +2065,7 @@ describe('PUT /api/bot-skills', () => {
 
 describe('PUT /api/bot-substitute-mode', () => {
   it('preserves quote reply mode in the response and bots.json', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-substitute-ipc-'));
+    const dir = makeTestTempDir('botmux-substitute-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-substitute-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -2110,7 +2111,7 @@ describe('PUT /api/bot-substitute-mode', () => {
 
 describe('PUT /api/bot-agent', () => {
   it('updates cli selection and model through bots.json and live config', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-agent-ipc-'));
+    const dir = makeTestTempDir('botmux-agent-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-agent-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -2153,7 +2154,7 @@ describe('PUT /api/bot-agent', () => {
   });
 
   it('persists a validated Codex-compatible runtime and reports its own version', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-runtime-ipc-'));
+    const dir = makeTestTempDir('botmux-runtime-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-runtime-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -2189,7 +2190,7 @@ describe('PUT /api/bot-agent', () => {
       });
       const stored = JSON.parse(readFileSync(configPath, 'utf-8'))[0];
       expect(stored).toMatchObject({ cliId: 'codex', cliRuntime });
-      expect(stored.cliPathOverride).toBe(cliRuntime.executable);
+      expect(stored.cliPathOverride).toBeUndefined();
       expect(getBot(appId).config).toMatchObject({
         cliRuntime,
         // Parsed/live config keeps the executable shadow for existing adapters.
@@ -2202,8 +2203,8 @@ describe('PUT /api/bot-agent', () => {
     }
   });
 
-  it('preserves a runtime for old same-selection clients and clears it only when explicit', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-runtime-compat-ipc-'));
+  it('preserves a runtime for partial model updates and clears it only when explicit', async () => {
+    const dir = makeTestTempDir('botmux-runtime-compat-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-runtime-compat-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -2220,7 +2221,6 @@ describe('PUT /api/bot-agent', () => {
         larkAppSecret: 'secret',
         cliId: 'codex',
         cliRuntime,
-        cliPathOverride: cliRuntime.executable,
       }], null, 2));
       loadBotConfigs().forEach((c: any) => registerBot(c));
       setLarkAppId(appId);
@@ -2235,7 +2235,6 @@ describe('PUT /api/bot-agent', () => {
       expect(oldClientSave.status).toBe(200);
       expect(JSON.parse(readFileSync(configPath, 'utf-8'))[0]).toMatchObject({
         cliRuntime,
-        cliPathOverride: cliRuntime.executable,
       });
 
       const explicitOfficial = await fetch(url, {
@@ -2256,7 +2255,7 @@ describe('PUT /api/bot-agent', () => {
   });
 
   it('returns and preserves a legacy CLI path when a model-only client omits cliRuntime', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-runtime-legacy-ipc-'));
+    const dir = makeTestTempDir('botmux-runtime-legacy-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-runtime-legacy-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -2304,7 +2303,7 @@ describe('PUT /api/bot-agent', () => {
   });
 
   it('rejects a custom runtime for non-Codex selections', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-runtime-reject-ipc-'));
+    const dir = makeTestTempDir('botmux-runtime-reject-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-runtime-reject-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -2339,7 +2338,7 @@ describe('PUT /api/bot-agent', () => {
 
 describe('PUT /api/bot-agent backend selection', () => {
   it('keeps a manual backend override when switching CLIs', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-agent-tmux-ipc-'));
+    const dir = makeTestTempDir('botmux-agent-tmux-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-agent-tmux-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -2373,7 +2372,7 @@ describe('PUT /api/bot-agent backend selection', () => {
 
 describe('PUT /api/bot-rename', () => {
   async function withRenameServer(fn: (base: string, configPath: string) => Promise<void>): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-rename-ipc-'));
+    const dir = makeTestTempDir('botmux-rename-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-rename-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -2467,7 +2466,7 @@ describe('PUT /api/bot-rename', () => {
 
 describe('PUT /api/bot-avatar', () => {
   async function withAvatarServer(fn: (base: string) => Promise<void>): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-avatar-ipc-'));
+    const dir = makeTestTempDir('botmux-avatar-ipc-');
     const configPath = join(dir, 'bots.json');
     const appId = 'test-avatar-app';
     const prevBotsConfig = process.env.BOTS_CONFIG;
@@ -3180,7 +3179,7 @@ describe('role profile IPC routes', () => {
   });
 
   it('returns multiple role snapshots in one daemon request', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-role-batch-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-role-batch-');
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
     try {
@@ -3231,7 +3230,7 @@ describe('role profile IPC routes', () => {
   });
 
   it('returns effective team role metadata for dashboard save-as-profile flows', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'dashboard-ipc-role-effective-'));
+    const dataDir = makeTestTempDir('dashboard-ipc-role-effective-');
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
     try {
@@ -3263,7 +3262,7 @@ describe('role profile IPC routes', () => {
   it('rejects wrong-daemon role profile mutations', async () => {
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-profile-ipc-'));
+    const dataDir = makeTestTempDir('botmux-role-profile-ipc-');
     config.session.dataDir = dataDir;
     setLarkAppId('cli_profile');
     try {
@@ -3300,7 +3299,7 @@ describe('role profile IPC routes', () => {
   it('rejects invalid chat ids before role/profile writes', async () => {
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-profile-ipc-'));
+    const dataDir = makeTestTempDir('botmux-role-profile-ipc-');
     config.session.dataDir = dataDir;
     setLarkAppId('cli_profile');
     try {
@@ -3333,7 +3332,7 @@ describe('role profile IPC routes', () => {
   it('rejects encoded traversal profile ids before touching storage', async () => {
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-profile-ipc-'));
+    const dataDir = makeTestTempDir('botmux-role-profile-ipc-');
     config.session.dataDir = dataDir;
     setLarkAppId('cli_profile');
     try {
@@ -3356,7 +3355,7 @@ describe('role profile IPC routes', () => {
   it('stores a profile entry and materializes it into a chat role', async () => {
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-profile-ipc-'));
+    const dataDir = makeTestTempDir('botmux-role-profile-ipc-');
     config.session.dataDir = dataDir;
     setLarkAppId('cli_profile');
     try {
@@ -3418,7 +3417,7 @@ describe('role profile IPC routes', () => {
   it('stores explicit empty profile entries and applies them as no chat role', async () => {
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-profile-ipc-'));
+    const dataDir = makeTestTempDir('botmux-role-profile-ipc-');
     config.session.dataDir = dataDir;
     setLarkAppId('cli_profile');
     try {
@@ -3494,7 +3493,7 @@ describe('role profile IPC routes', () => {
     // (changed:true); a delete-not-found does not (changed:false).
     const prevDataDir = process.env.SESSION_DATA_DIR;
     const prevConfigDataDir = config.session.dataDir;
-    const dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-changed-ipc-'));
+    const dataDir = makeTestTempDir('botmux-role-changed-ipc-');
     config.session.dataDir = dataDir;
     setLarkAppId('cli_profile');
     try {

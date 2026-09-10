@@ -11,9 +11,9 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CLI_PATH = join(__dirname, '..', 'dist', 'cli.js');
 
@@ -30,7 +30,7 @@ beforeAll(() => {
     throw new Error('dist/cli.js missing — run `pnpm build` first');
   }
 
-  home = mkdtempSync(join(tmpdir(), 'botmux-preset-cli-'));
+  home = makeTestTempDir('botmux-preset-cli-');
   dataDir = join(home, 'data');
   mkdirSync(join(home, '.botmux'), { recursive: true });
   mkdirSync(join(dataDir, 'team-roles'), { recursive: true });

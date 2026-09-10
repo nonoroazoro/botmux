@@ -1,5 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readDeviceCredentials, writeDeviceCredentials } from '../src/platform/device.js';
@@ -13,11 +12,12 @@ import {
   type DeviceHttpRequest,
   type DeviceHttpResponse,
 } from '../src/platform/device-enroll.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const roots: string[] = [];
 
 function tempHome(): string {
-  const root = mkdtempSync(join(tmpdir(), 'botmux-device-refresh-'));
+  const root = makeTestTempDir('botmux-device-refresh-');
   roots.push(root);
   return root;
 }

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import {
   GROUP_NAME_PREFIX_MAX_LENGTH,
   globalVcMeetingAgentListenerBotAppId,
@@ -15,12 +14,13 @@ import {
   writeHostOverloadAlertConfig,
 } from '../src/global-config.js';
 import { resolveCodexNotifierConfig } from '../src/features/codex-notifier/config.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('global dashboard config', () => {
   let home: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'botmux-global-config-'));
+    home = makeTestTempDir('botmux-global-config-');
     vi.stubEnv('HOME', home);
     mkdirSync(dirname(globalConfigPath()), { recursive: true });
   });
@@ -99,18 +99,6 @@ describe('global dashboard config', () => {
       enabled: true,
       source: 'owner/repo/subdir',
       ref: 'reviewed-sha',
-    });
-  });
-
-  it('reads the review-only legacy spec as source/ref for compatibility', () => {
-    writeFileSync(globalConfigPath(), JSON.stringify({
-      dashboard: { herdrTraexPlugin: { enabled: true, spec: ' owner/repo#tag ' } },
-    }));
-
-    expect(readGlobalConfig().dashboard?.herdrTraexPlugin).toEqual({
-      enabled: true,
-      source: 'owner/repo',
-      ref: 'tag',
     });
   });
 

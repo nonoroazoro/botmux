@@ -1,7 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 async function freshStore() {
   vi.resetModules();
@@ -10,7 +8,7 @@ async function freshStore() {
 
 describe('substitute chat toggle store', () => {
   beforeEach(() => {
-    process.env.SESSION_DATA_DIR = mkdtempSync(join(tmpdir(), 'botmux-sub-chat-toggle-'));
+    process.env.SESSION_DATA_DIR = makeTestTempDir('botmux-sub-chat-toggle-');
   });
 
   afterEach(() => {

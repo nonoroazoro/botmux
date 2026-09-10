@@ -1,6 +1,16 @@
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/issue-status-view-1': null,
+  });
+});
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describeIssue, type IssueStatusDeps } from '../src/services/issue-status-view.js';
 import {
@@ -13,7 +23,7 @@ import {
 
 let dataDir: string;
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), 'issue-status-view-'));
+  dataDir = '/fixtures/issue-status-view-1';
 });
 afterEach(() => rmSync(dataDir, { recursive: true, force: true }));
 

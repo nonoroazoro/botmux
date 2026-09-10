@@ -364,15 +364,14 @@ describe('restoreUsageLimitRuntimeState', () => {
       'nonce_limit',
       undefined,
       false,
-      false,
       'zh',
       ds.usageLimit,
       undefined,
       false,
-      // 17th arg: streaming-card usage snapshot (no transcript in this test →
+      // 16th arg: streaming-card usage snapshot (no transcript in this test →
       // empty; turnTokens is always present, null when no turn delta is known).
       { context: null, tokens: null, turnTokens: null },
-      // 18th arg: no configured runtime display name for this Claude fixture.
+      // 17th arg: no configured runtime display name for this Claude fixture.
       undefined,
       // 19th arg: Codex Fast tier badge — undefined for this non-Codex fixture.
       undefined,
@@ -698,14 +697,14 @@ describe('refreshStreamingCardUsage (interval tick)', () => {
   });
 
   it('reads usage fresh so the 12s tick beats the 15s cost-reader throttle', () => {
-    // The whole point of the tick is to break the reparse throttle. The 17th
+    // The whole point of the tick is to break the reparse throttle. The 16th
     // buildStreamingCard arg is the streaming usage snapshot; assert the tick
     // asked for a fresh read (empty transcript here → concrete empty snapshot).
     const ds = workingDs();
     refreshStreamingCardUsage(ds);
     const call = vi.mocked(buildStreamingCard).mock.calls[0]!;
-    // Snapshot present (17th positional arg) and interval < throttle by design.
-    expect(call[16]).toEqual({ context: null, tokens: null, turnTokens: null });
+    // Snapshot present (16th positional arg) and interval < throttle by design.
+    expect(call[15]).toEqual({ context: null, tokens: null, turnTokens: null });
     expect(USAGE_REFRESH_INTERVAL_MS).toBeLessThan(15_000);
   });
 

@@ -7,9 +7,9 @@
  * one explicitly (codex #611 finding 2). Real fs in a temp botmux-home tree.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 let tempDir: string; // botmux home root; dataDir = <tempDir>/data
 
@@ -49,7 +49,7 @@ async function freshHelper() {
 }
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'sched-cleanup-'));
+  tempDir = makeTestTempDir('sched-cleanup-');
   mkdirSync(join(tempDir, 'data'), { recursive: true });
   process.env.SESSION_DATA_DIR = join(tempDir, 'data');
 });

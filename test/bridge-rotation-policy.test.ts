@@ -137,7 +137,7 @@ describe('decideFingerprintSwitch', () => {
     const r = decideFingerprintSwitch(input);
     expect(r).toEqual({ action: 'switch', path: SPAWN_PATH, reason: 'known-sid-substring' });
     expect(accept.substringFilter?.(SPAWN_PATH)).toBe(true);
-    // Phase 2 finder shouldn't even have been consulted on accepted sid sets
+    // Phase 2 resolver shouldn't even have been consulted on accepted sid sets
     // (decideFingerprintSwitch returns immediately on Phase 1 hit).
     expect(accept.exactFilter).toBeUndefined();
   });

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProcessStartIdentity, resolveSessionContext } from '../src/core/session-marker.js';
 import {
   managedOriginCapabilityPath,
   replaceManagedOriginCapabilityFile,
 } from '../src/core/managed-origin-capability.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 // resolveSessionContext is the layer that powers session-id inference for
 // `botmux send` / history / bots. Regression guard: a detached/backgrounded
@@ -15,7 +15,7 @@ import {
 // there in the inherited env.
 describe('resolveSessionContext()', () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'bmx-marker-')); });
+  beforeEach(() => { dir = makeTestTempDir('bmx-marker-'); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
   function writeMarker(pid: number, body: string): void {

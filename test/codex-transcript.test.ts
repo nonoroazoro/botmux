@@ -1,6 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, appendFileSync, rmSync, statSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/codex-transcript-1': null,
+    '/fixtures/codex-home-2': null,
+    '/fixtures/codex-home-3': null,
+    '/fixtures/codex-home-4': null,
+  });
+});
+import { writeFileSync, appendFileSync, rmSync, statSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { drainCodexRollout, codexSessionIdFromRolloutPath, findCodexRolloutBySessionId, findCodexSessionIdByBotmuxSessionId, codexHistorySidIsOwned, splitCodexEventsByCutoff, extractLastCodexTurn, scanCodexThreadSettings, readCodexRecoveryEventWindow, type CodexBridgeEvent } from '../src/services/codex-transcript.js';
 
@@ -72,7 +85,7 @@ function assistantMessageResponseItem(text: string, phase?: string, ts = '2026-0
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'codex-transcript-'));
+  dir = '/fixtures/codex-transcript-1';
   path = join(dir, 'rollout.jsonl');
 });
 
@@ -101,7 +114,7 @@ describe('codexSessionIdFromRolloutPath', () => {
 describe('findCodexRolloutBySessionId', () => {
   it('honors CODEX_HOME when locating rollout transcripts', () => {
     const prevCodexHome = process.env.CODEX_HOME;
-    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    const codexHome = '/fixtures/codex-home-2';
     const sid = '019dd80d-d922-7a11-8339-0208d8c5b4ec';
     const rolloutDir = join(codexHome, 'sessions', '2026', '06', '02');
     const rolloutPath = join(rolloutDir, `rollout-2026-06-02T08-14-07-${sid}.jsonl`);
@@ -157,7 +170,7 @@ describe('codexHistorySidIsOwned (pure attach-ownership decision)', () => {
 describe('findCodexSessionIdByBotmuxSessionId', () => {
   it('bounds the history scan to the requested tail window', () => {
     const prevCodexHome = process.env.CODEX_HOME;
-    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    const codexHome = '/fixtures/codex-home-3';
     const historyPath = join(codexHome, 'history.jsonl');
     process.env.CODEX_HOME = codexHome;
     try {
@@ -181,7 +194,7 @@ describe('findCodexSessionIdByBotmuxSessionId', () => {
 
   it('honors CODEX_HOME and returns the newest history entry for a botmux session', () => {
     const prevCodexHome = process.env.CODEX_HOME;
-    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    const codexHome = '/fixtures/codex-home-4';
     const historyPath = join(codexHome, 'history.jsonl');
     process.env.CODEX_HOME = codexHome;
     try {

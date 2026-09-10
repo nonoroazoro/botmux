@@ -1,6 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/traex-transcript-1': null,
+  });
+});
+import { appendFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CodexBridgeQueue } from '../src/services/codex-bridge-queue.js';
 import {
@@ -74,7 +84,7 @@ function turnAborted(reason: unknown = 'interrupted') {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'traex-transcript-'));
+  dir = '/fixtures/traex-transcript-1';
   path = join(dir, `rollout-2000-01-01T00-00-00-${SID}.jsonl`);
 });
 

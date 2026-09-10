@@ -1,8 +1,7 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import {
-  mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync,
+  mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   hasMatchingManagedOriginCapability,
@@ -11,11 +10,12 @@ import {
   RELAY_ORIGIN_CAPABILITY_BASENAME,
   replaceManagedOriginCapabilityFile,
 } from '../src/core/managed-origin-capability.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 describe('managed origin capability transport', () => {
   const dirs: string[] = [];
   const makeDir = (): string => {
-    const dir = mkdtempSync(join(tmpdir(), 'botmux-origin-cap-'));
+    const dir = makeTestTempDir('botmux-origin-cap-');
     dirs.push(dir);
     return dir;
   };

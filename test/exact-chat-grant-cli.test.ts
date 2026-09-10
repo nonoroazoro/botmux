@@ -2,11 +2,11 @@ import { createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseExactChatGrantCliArgs } from '../src/cli/exact-chat-grant.js';
+import { makeTestTempDir } from './helpers/test-temp-dir.js';
 
 const CLI_PATH = join(__dirname, '..', 'src', 'cli.ts');
 const tempDirs: string[] = [];
@@ -21,7 +21,7 @@ function runCli(
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', CLI_PATH, ...args], {
-      env: { ...process.env, ...env, BOTMUX_WORKFLOW: '' },
+      env: { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -143,7 +143,7 @@ describe('exact chat-grant CLI parser', () => {
 
 describe('botmux grant chat CLI boundary', () => {
   it('resolves the receiver, signs localhost IPC, and forwards repeated subjects', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-exact-grant-cli-'));
+    const root = makeTestTempDir('botmux-exact-grant-cli-');
     tempDirs.push(root);
     const home = join(root, 'home');
     const configDir = join(home, '.botmux');
@@ -247,7 +247,7 @@ describe('botmux grant chat CLI boundary', () => {
   });
 
   it('rejects a missing repeated-flag value before making any IPC request', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-exact-grant-cli-'));
+    const root = makeTestTempDir('botmux-exact-grant-cli-');
     tempDirs.push(root);
     const result = await runCli([
       'grant', 'chat',
@@ -264,7 +264,7 @@ describe('botmux grant chat CLI boundary', () => {
   });
 
   it('forwards stable subject-bot identities without converting them in the CLI', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-exact-grant-cli-'));
+    const root = makeTestTempDir('botmux-exact-grant-cli-');
     tempDirs.push(root);
     const home = join(root, 'home');
     const configDir = join(home, '.botmux');
@@ -352,7 +352,7 @@ describe('botmux grant chat CLI boundary', () => {
   });
 
   it('rejects subject-bot for readback at the CLI boundary', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'botmux-exact-grant-cli-'));
+    const root = makeTestTempDir('botmux-exact-grant-cli-');
     tempDirs.push(root);
     const result = await runCli([
       'grant', 'chat', 'readback',

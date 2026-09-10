@@ -1,7 +1,17 @@
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { resetMemoryFs } from './helpers/memory-fs/index.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('node:fs', async () => (await import('./helpers/memory-fs/index.js')).fs);
+vi.mock('node:fs/promises', async () => (await import('./helpers/memory-fs/index.js')).fs.promises);
+
+// Reset the in-memory fixture tree between cases; no host directories are created.
+beforeEach(() => {
+  resetMemoryFs({
+    '/fixtures/botmux-role-profile-1': null,
+  });
+});
 import {
   deleteRoleProfileEntry,
   deleteRoleProfileIfEmpty,
@@ -16,7 +26,7 @@ import {
 let dataDir: string;
 
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), 'botmux-role-profile-'));
+  dataDir = '/fixtures/botmux-role-profile-1';
 });
 
 describe('role-profile-store', () => {

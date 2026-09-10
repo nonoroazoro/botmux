@@ -3,7 +3,6 @@ import {
   ASK_SKILL,
   BUILTIN_SKILLS,
   ON_DEMAND_BUILTIN_SKILLS,
-  RETIRED_SKILL_NAMES,
   WHITEBOARD_SKILL,
   WHITEBOARD_SKILL_NAME,
   type SkillDef,
@@ -74,10 +73,6 @@ describe('botmux-history and botmux-quoted', () => {
     expect(content).toContain('attachments');
   });
 
-  it('retires the old thread-messages skill name', () => {
-    expect(BUILTIN_SKILLS.some((candidate) => candidate.name === 'botmux-thread-messages')).toBe(false);
-    expect(RETIRED_SKILL_NAMES).toContain('botmux-thread-messages');
-  });
 });
 
 describe('personal assistant artifacts', () => {
@@ -101,7 +96,6 @@ describe('personal assistant artifacts', () => {
     expect(content).not.toContain('botmux ask');
     expect(content).not.toContain('Codex');
     expect(content).not.toContain('Claude');
-    expect(RETIRED_SKILL_NAMES).toContain('botmux-remember');
   });
 
   it('ships independent creators for Knowledge, Skill, and Dynamic Workflow', () => {
@@ -134,59 +128,6 @@ describe('personal assistant artifacts', () => {
       expect(content).toContain('must not be proposed to a team');
     }
   });
-
-  it('keeps legacy Workflow runtimes out of automatic skill injection', () => {
-    const automaticContent = BUILTIN_SKILLS.map((candidate) => candidate.content).join('\n');
-    expect(automaticContent).not.toContain('Saved Workflow');
-    expect(automaticContent).not.toContain('v3 Workflow');
-    expect(automaticContent).not.toContain('botmux workflow ');
-  });
-});
-
-describe('legacy Workflow skills', () => {
-  it('limits v2 workflow handling to explicit maintenance and migration', () => {
-    const content = contentOf('botmux-workflow-create', ON_DEMAND_BUILTIN_SKILLS);
-    const frontmatter = content.split('---')[1] ?? '';
-    expect(frontmatter).toContain('legacy v2 workflow JSON');
-    expect(frontmatter).toContain('Never create or execute a new v2 workflow');
-    expect(content).toContain('$HOME/.botmux/workflows/*.workflow.json');
-    expect(content).toContain('botmux template migrate-v3 <path>');
-    expect(content).toContain('dry-run');
-    expect(content).toContain('larkAppId');
-    expect(content).toContain('humanGate');
-    expect(content).toContain('$ref');
-    expect(content).toContain('${...}');
-    expect(content).not.toContain('botmux template validate');
-  });
-
-  it('documents the complete v3 ad hoc run lifecycle', () => {
-    const content = contentOf('botmux-workflow', ON_DEMAND_BUILTIN_SKILLS);
-    expect(content).toContain('[/workflow new]');
-    expect(content).toContain('Natural-language Workflow creation, management, and execution belongs to the Dynamic Workflow artifact system');
-    for (const command of [
-      'botmux workflow new',
-      'botmux workflow spec-finalize',
-      'botmux workflow approve-spec',
-      'botmux workflow architect',
-      'botmux workflow approve-dag',
-      'botmux workflow start',
-      'botmux workflow save last',
-      'botmux workflow run',
-      'botmux workflow list',
-      'botmux workflow show',
-      'botmux workflow cancel',
-    ]) {
-      expect(content).toContain(command);
-    }
-    expect(content).toContain('"schemaVersion": 1');
-    expect(content).toContain('input_needs');
-    expect(content).toContain('not an upstream node ID list');
-    expect(content).toContain('risk_gate');
-    expect(content).toContain('Gate 1');
-    expect(content).toContain('Gate 2');
-    expect(content).toContain('not `botmux v3 run`');
-    expect(content).toContain('bounded multi-step task that ends in one deliverable');
-  });
 });
 
 describe('collaboration skills', () => {
@@ -215,7 +156,7 @@ describe('collaboration skills', () => {
   });
 });
 
-describe('conditional and retired skills', () => {
+describe('conditional skills', () => {
   it('keeps whiteboard opt-in and compare-and-set safe', () => {
     expect(BUILTIN_SKILLS.some((candidate) => candidate.name === WHITEBOARD_SKILL_NAME)).toBe(false);
     expect(WHITEBOARD_SKILL).toContain('disabled by default');
@@ -227,15 +168,10 @@ describe('conditional and retired skills', () => {
 
   it('keeps ask conditional and documents stdout and clicker identity', () => {
     expect(BUILTIN_SKILLS.some((candidate) => candidate.name === 'botmux-ask')).toBe(false);
-    expect(RETIRED_SKILL_NAMES).not.toContain('botmux-ask');
     expect(ASK_SKILL).toContain('writes the selected key to stdout');
     expect(ASK_SKILL).toContain('does not send stdout back to Lark');
     expect(ASK_SKILL).toContain('may differ from the card clicker');
     expect(ASK_SKILL).toContain('botmux send --mention <open_id>');
   });
 
-  it('keeps retired helper skills prunable', () => {
-    expect(RETIRED_SKILL_NAMES).toContain('botmux-worker-budget');
-    expect(RETIRED_SKILL_NAMES).toContain('botmux-needs-help');
-  });
 });
