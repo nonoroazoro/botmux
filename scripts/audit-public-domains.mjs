@@ -5,7 +5,7 @@
  * Corporate deployment hostnames must be supplied at runtime instead of
  * being committed.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,8 +43,11 @@ function* walk(path) {
 }
 
 const files = [
-  ...rootFiles.map(file => join(repoRoot, file)),
-  ...roots.flatMap(root => [...walk(join(repoRoot, root))]),
+  ...rootFiles.map(file => join(repoRoot, file)).filter(existsSync),
+  ...roots.flatMap(root => {
+    const path = join(repoRoot, root);
+    return existsSync(path) ? [...walk(path)] : [];
+  }),
 ].filter(file => resolve(file) !== selfPath);
 const violations = [];
 for (const file of files) {
