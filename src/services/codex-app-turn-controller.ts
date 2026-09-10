@@ -125,7 +125,7 @@ export class CodexAppTurnController {
 
   enqueue(input: CodexAppRunnerInput): void {
     if (this.fatal) {
-      this.emitStandaloneFailure(input, 'Codex App runner is unavailable.');
+      this.emitStandaloneFailure(input, 'Codex Desktop runner is unavailable.');
       return;
     }
     this.queue.push(input);
@@ -198,7 +198,7 @@ export class CodexAppTurnController {
       const completed = isRecord(params.turn) ? params.turn : undefined;
       const completedError = isRecord(completed?.error) ? completed.error : undefined;
       if (typeof completedError?.message === 'string' && !turn.finalText) {
-        turn.finalText = `Codex App turn failed: ${completedError.message}`;
+        turn.finalText = `Codex Desktop turn failed: ${completedError.message}`;
       }
       if (turn.steerInFlight && turn.appTurnId && !turn.completionRaceEmitted) {
         turn.completionRaceEmitted = true;
@@ -224,7 +224,7 @@ export class CodexAppTurnController {
   ): void {
     if (this.fatal) return;
     this.fatal = true;
-    const message = `Codex App runner error: ${errorMessage(error)}`;
+    const message = `Codex Desktop runner error: ${errorMessage(error)}`;
     const active = this.active;
     const replyTurnId = active?.steerInFlight?.replyTurnId ?? active?.replyTurnId;
     this.emitLifecycle({
@@ -367,7 +367,7 @@ export class CodexAppTurnController {
       this.emitFailure(
         turn,
         turn.replyTurnId,
-        `Codex App runner error: ${errorMessage(error)}`,
+        `Codex Desktop runner error: ${errorMessage(error)}`,
       );
       this.afterTurn();
     }

@@ -107,7 +107,7 @@ export class CodexCyberPolicyRecovery {
       '- Use the recovered Codex conversation below as the sole source for the previous conversation. Do not reconstruct it from Lark topic history.',
       '- Use exact quoted-message or attachment reads only when the recovered task already identifies that message or attachment.',
       '- If static evidence is insufficient, state what remains unverified instead of performing a risky test.',
-      '- Keep the existing Botmux reply route and send the result to the same Lark topic.',
+      '- Keep the existing reply route and send the result to the same Lark topic.',
       '</botmux_cybersecurity_recovery>',
       '',
       contexts,

@@ -7,13 +7,13 @@ type GitDescribe = (
 ) => string;
 
 export interface EffectiveBotmuxVersionOptions {
-  /** Desktop can pass a runtimeVersion query override from the native shell. */
+  /** Optional caller-provided runtime version. */
   versionOverride?: string | null;
   /** Raw package.json version. Legacy linked checkouts may expose 0.0.0. */
   rawVersion?: string | null;
   /** Install root used as the cwd for git describe fallback. */
   rootDir?: string;
-  /** Injectable for tests and desktop discovery probes. */
+  /** Injectable for tests. */
   execFileSync?: GitDescribe;
 }
 

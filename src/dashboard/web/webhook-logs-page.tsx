@@ -44,13 +44,11 @@ interface TriggerLogEntry {
     chatId?: string;
     sessionId?: string;
     rootMessageId?: string;
-    workflowId?: string;
   };
   response?: {
     httpStatus: number;
     durationMs: number;
     sessionId?: string;
-    workflowRunId?: string;
     chatId?: string;
   };
 }
@@ -127,7 +125,6 @@ function TargetFacts(props: { value: TriggerLogEntry['target'] }): React.JSX.Ele
     ['chatId', props.value?.chatId],
     ['sessionId', props.value?.sessionId],
     ['rootMessageId', props.value?.rootMessageId],
-    ['workflowId', props.value?.workflowId],
   ].filter(([, value]) => value !== undefined && value !== null && value !== '');
   if (!items.length) return <p className="webhook-log-detail-empty">{'—'}</p>;
   return (

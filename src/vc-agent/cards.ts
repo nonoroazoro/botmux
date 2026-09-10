@@ -446,7 +446,7 @@ function consumerProfileDetailMarkdown(profiles: readonly VcMeetingConsumerProfi
     const activation = consumerProfileActivationLabel(profile);
     return [
       `**${escapeMd(consumerProfileLabel(profile))}**（profile: \`${escapeMd(profile.id)}\`）`,
-      `agent：${escapeMd(consumerProfileAgentLabel(profile))} · 角色：\`${escapeMd(profile.role)}\` · 回复：${escapeMd(consumerProfileResponseModeLabel(profile))} · 群内形式：${escapeMd(consumerProfileListenerPlacementLabel(profile))} · 受管输出：${escapeMd(consumerProfileSinkLabel(profile))}`,
+      `agent：${escapeMd(consumerProfileAgentLabel(profile))} · 角色：\`${escapeMd(profile.role)}\` · 回复：${escapeMd(consumerProfileResponseModeLabel(profile))} · 群内形式：${escapeMd(consumerProfileListenerPlacementLabel(profile))} · 会中输出：${escapeMd(consumerProfileSinkLabel(profile))}`,
       ...(activation ? [`状态：${escapeMd(activation)}`] : []),
     ].join('\n');
   }).join('\n');

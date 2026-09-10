@@ -42,41 +42,6 @@ import {
 import { listOnlineDaemons } from '../../utils/daemon-discovery.js';
 import { fetchDaemonIpc } from '../../core/daemon-ipc-auth.js';
 import { recordObservedBots } from '../../services/observed-bots-store.js';
-import {
-  handleV3GateAction,
-  isV3GateAction,
-  type V3GateCardHandlerDeps,
-} from './v3-gate-card-handler.js';
-import type { V3GateActionValue } from './v3-gate-card.js';
-import {
-  handleV3BlockedAction,
-  isV3BlockedAction,
-  type V3BlockedCardHandlerDeps,
-} from './v3-blocked-card-handler.js';
-import type { V3BlockedActionValue, V3AskAnswerActionValue } from './v3-blocked-card.js';
-import {
-  handleV3LoopGrantAction,
-  isV3LoopGrantAction,
-  type V3LoopGrantCardHandlerDeps,
-} from './v3-loop-grant-card-handler.js';
-import type { V3LoopGrantActionValue } from './v3-loop-grant-card.js';
-import {
-  handleV3RevisitGrantAction,
-  isV3RevisitGrantAction,
-  type V3RevisitGrantCardHandlerDeps,
-} from './v3-revisit-grant-card-handler.js';
-import type { V3RevisitGrantActionValue } from './v3-revisit-grant-card.js';
-import {
-  handleV3RunSaveAction,
-  isV3RunSaveAction,
-  type V3RunSaveCardHandlerDeps,
-} from './v3-run-save-card-handler.js';
-import type { V3RunSaveActionValue } from './v3-run-save-card.js';
-import {
-  handleV3DistillationAction,
-  isV3DistillationAction,
-  type V3DistillationCardHandlerDeps,
-} from './v3-distillation-card-handler.js';
 import { handleAskCardAction, isAskCardAction } from './ask-card.js';
 import {
   handleCapabilityCardAction,
@@ -122,18 +87,6 @@ export interface CardHandlerDeps {
   activeSessions: Map<string, DaemonSession>;
   sessionReply: (rootId: string, content: string, msgType?: string, larkAppId?: string, turnId?: string) => Promise<string>;
   lastRepoScan: Map<string, ProjectInfo[]>;
-  /** v3 humanGate 审批卡点击处理（driveRun 由 daemon 接的 v3 gate runner 提供）. */
-  v3GateDeps?: V3GateCardHandlerDeps;
-  /** v3 blocked 重试卡点击处理（同一个 runner 的 driveRun）. */
-  v3BlockedDeps?: V3BlockedCardHandlerDeps;
-  /** v3 loop 追加一轮卡点击处理（同一个 runner 的 driveRun）. */
-  v3LoopGrantDeps?: V3LoopGrantCardHandlerDeps;
-  /** v3 回溯预算准许卡点击处理（同一个 runner 的 driveRun）. */
-  v3RevisitGrantDeps?: V3RevisitGrantCardHandlerDeps;
-  /** v3 成功终态卡的「保存复用」动作。 */
-  v3RunSaveDeps?: V3RunSaveCardHandlerDeps;
-  /** v3 参数蒸馏提案的接受/拒绝动作。 */
-  v3DistillationDeps?: V3DistillationCardHandlerDeps;
   /** Personal capability draft and contribution approval actions. */
   capabilityDeps?: CapabilityCardHandlerDeps;
   /** VC meeting invite/consumer card actions. Implemented in daemon to
@@ -1706,57 +1659,12 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
     }
     return { toast: { type: 'success', content: t('card.relay.toast_success', undefined, loc) } };
   }
-
-  // v3 humanGate 审批卡（独立 namespace，不混 v0.2 wait path）。**在通用 sensitive
-  // 权限门之前**处理（codex medium）：v3 卡 value 没有 root_id/session_id，通用门只能
-  // 用 chatId=undefined 做粗判，可能误拦；v3 自己的 `canResolve(binding, operator)`
-  // 才有 run binding 的 chatId，是权威权限门。
-  if (isV3GateAction(value?.action)) {
-    if (!deps.v3GateDeps) return;
-    return await handleV3GateAction(value as unknown as V3GateActionValue, operatorOpenId, deps.v3GateDeps);
-  }
-  if (isV3BlockedAction(value?.action)) {
-    if (!deps.v3BlockedDeps) return;
-    return await handleV3BlockedAction(
-      value as unknown as V3BlockedActionValue | V3AskAnswerActionValue,
-      operatorOpenId,
-      deps.v3BlockedDeps,
-      action?.form_value,
-    );
-  }
-  if (isV3RevisitGrantAction(value?.action)) {
-    if (!deps.v3RevisitGrantDeps) return;
-    return await handleV3RevisitGrantAction(value as unknown as V3RevisitGrantActionValue, operatorOpenId, deps.v3RevisitGrantDeps);
-  }
-  if (isV3LoopGrantAction(value?.action)) {
-    if (!deps.v3LoopGrantDeps) return;
-    return await handleV3LoopGrantAction(value as unknown as V3LoopGrantActionValue, operatorOpenId, deps.v3LoopGrantDeps);
-  }
-  if (isV3RunSaveAction(value?.action)) {
-    if (!deps.v3RunSaveDeps) return;
-    return await handleV3RunSaveAction(
-      value as unknown as V3RunSaveActionValue,
-      operatorOpenId,
-      larkAppId,
-      deps.v3RunSaveDeps,
-    );
-  }
-  if (isV3DistillationAction(value?.action)) {
-    if (!deps.v3DistillationDeps) return;
-    return await handleV3DistillationAction(
-      value,
-      operatorOpenId,
-      larkAppId,
-      cardMessageId,
-      deps.v3DistillationDeps,
-    );
-  }
   if (isCapabilityCardAction(value?.action)) {
     if (!deps.capabilityDeps) return;
     return await handleCapabilityCardAction(value, data, larkAppId, deps.capabilityDeps);
   }
 
-  const isSensitive = value?.action && ['restart', 'close', 'resume', 'skip_repo', 'repo_manual_submit', 'repo_worktree_submit', 'worktree_toggle_mode', 'retry_last_task', 'get_write_link', 'open_local_terminal', 'open_local_cli', 'toggle_stream', 'toggle_display', 'export_text', 'term_action', 'refresh_screenshot', 'takeover', 'disconnect', 'tui_keys', 'tui_text_input', 'wf_approve', 'wf_reject', 'wf_cancel'].includes(value.action);
+  const isSensitive = value?.action && ['restart', 'close', 'resume', 'skip_repo', 'repo_manual_submit', 'repo_worktree_submit', 'worktree_toggle_mode', 'retry_last_task', 'get_write_link', 'open_local_terminal', 'open_local_cli', 'toggle_stream', 'toggle_display', 'export_text', 'term_action', 'refresh_screenshot', 'disconnect', 'tui_keys', 'tui_text_input', 'wf_approve', 'wf_reject', 'wf_cancel'].includes(value.action);
   if (isSensitive) {
     const rootId = value?.root_id;
     // activeSessions is keyed by sessionKey(anchor, larkAppId) — `${anchor}::${larkAppId}`
@@ -1828,21 +1736,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
         return;
       }
     }
-  }
-
-  // Historical v2 workflow cards remain in chat history after the runtime is
-  // removed. Treat every legacy callback as a tombstone instead of allowing it
-  // to fall through to an unrelated generic card action.
-  if (
-    typeof value?.action === 'string' &&
-    (value.action.startsWith('wf_') || value.action.startsWith('dash_workflows_'))
-  ) {
-    return {
-      toast: {
-        type: 'warning',
-        content: 'v2 workflow 已下线；旧卡片不再可操作，请迁移定义后使用 /workflow。',
-      },
-    };
   }
 
   // Handle session card button actions (restart/close)
@@ -2287,11 +2180,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
       logger.info(`[${tag(ds)}] Disconnected (adopt) via card button`);
     }
 
-    if (actionType === 'takeover' && ds && ds.adoptedFrom) {
-      await sessionReply(rootId, t('card.action.takeover_retired', undefined, localeForBot(ds.larkAppId)));
-      logger.info(`[${tag(ds)}] Legacy takeover action ignored (bridge era; historical card)`);
-    }
-
     if (actionType === 'retry_last_task' && ds) {
       const locDs = localeForBot(ds.larkAppId);
       const cliInput = ds.lastCliInput;
@@ -2330,7 +2218,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           ds.streamCardNonce,
           ds.currentImageKey,
           !!ds.adoptedFrom,
-          false,
           locDs,
           undefined,
           writableTerminalLinkFor(ds),
@@ -2736,7 +2623,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
               ds.streamCardNonce,
               ds.currentImageKey,
               !!ds.adoptedFrom,
-              false,
               localeForBot(ds.larkAppId),
               cardUsageLimit(ds),
               writableTerminalLinkFor(ds),
@@ -2782,7 +2668,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           ds.streamCardNonce,
           ds.currentImageKey,
           !!ds.adoptedFrom,
-          false,
           localeForBot(ds.larkAppId),
           cardUsageLimit(ds),
           writableTerminalLinkFor(ds),
@@ -2826,7 +2711,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           ds.streamCardNonce,
           ds.currentImageKey,
           !!ds.adoptedFrom,
-          false,
           localeForBot(ds.larkAppId),
           cardUsageLimit(ds),
           writableTerminalLinkFor(ds),
@@ -2895,7 +2779,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           ds.streamCardNonce,
           ds.currentImageKey,
           !!ds.adoptedFrom,
-          false,
           localeForBot(ds.larkAppId),
           cardUsageLimit(ds),
           writableTerminalLinkFor(ds),
@@ -2947,7 +2830,6 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           ds.streamCardNonce,
           ds.currentImageKey,
           !!ds.adoptedFrom,
-          false,
           localeForBot(ds.larkAppId),
           cardUsageLimit(ds),
           writableTerminalLinkFor(ds),

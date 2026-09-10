@@ -15,7 +15,6 @@ import {
   requireConfigPath,
   rmwBotEntry,
 } from './config-store.js';
-import { isLegacyVcMeetingDefaultConsumerSeedCandidate } from './vc-meeting-consumer-profile-bootstrap.js';
 
 export type VcMeetingConsumerProfileFieldError = {
   path: string;
@@ -32,7 +31,6 @@ export interface VcMeetingConsumerProfilesSnapshot {
   defaultConsumerIds: string[];
   profiles: VcMeetingConsumerProfileConfig[];
   defaultProfileBootstrap?: VcMeetingConsumerConfig['defaultProfileBootstrap'];
-  migrationOffer?: 'enable_seeded_minutes_default';
 }
 
 export interface UpdateVcMeetingConsumerProfilesInput {
@@ -119,9 +117,6 @@ function snapshotFromBot(
     profiles,
     ...(consumer?.defaultProfileBootstrap
       ? { defaultProfileBootstrap: consumer.defaultProfileBootstrap }
-      : {}),
-    ...(rawConsumer && isLegacyVcMeetingDefaultConsumerSeedCandidate(rawConsumer)
-      ? { migrationOffer: 'enable_seeded_minutes_default' as const }
       : {}),
   };
 }

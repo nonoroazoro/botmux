@@ -1,4 +1,4 @@
-import { defaultSummaryRangePrefs, summaryRangeFromLegacyContentTriggers } from '../services/summary-range-store.js';
+import { defaultSummaryRangePrefs } from '../services/summary-range-store.js';
 import { selectionKeyForBot } from '../setup/cli-selection.js';
 import { normalizeUsageDisplay } from '../bot-registry.js';
 import type { CliRuntimeConfig } from '../adapters/cli/runtime.js';
@@ -88,7 +88,6 @@ export function botDefaultsPayload(bot: DashboardBotDescriptor, j?: any, error?:
           deny: Array.isArray(j.sandboxPaths.deny) ? j.sandboxPaths.deny.filter((x: unknown) => typeof x === 'string') : [],
         }
       : null,
-    readIsolation: j?.readIsolation === true,
     readIsolationSupported: j?.readIsolationSupported === true,
     backendType: typeof j?.backendType === 'string' ? j.backendType : null,
     usageDisplay: normalizeUsageDisplay(j ?? {}),
@@ -103,7 +102,6 @@ export function botDefaultsPayload(bot: DashboardBotDescriptor, j?: any, error?:
     autoStartOnGroupJoinPrompt: typeof j?.autoStartOnGroupJoinPrompt === 'string' ? j.autoStartOnGroupJoinPrompt : '',
     autoStartOnNewTopic: j?.autoStartOnNewTopic === true,
     summaryRange: j?.summaryRange
-      ?? summaryRangeFromLegacyContentTriggers(j?.contentTriggers)
       ?? defaultSummaryRangePrefs(),
     summaryMemory: j?.summaryMemory === true,
     summaryMemoryPath: typeof j?.summaryMemoryPath === 'string' && j.summaryMemoryPath.trim() ? j.summaryMemoryPath.trim() : 'summary.md',

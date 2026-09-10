@@ -5,14 +5,6 @@ import { withFileLockSync } from '../utils/file-lock.js';
 import { assertValidPluginId } from '../core/plugins/ids.js';
 import { ensurePluginRegistryDir, pluginRegistryPath } from '../core/plugins/paths.js';
 import type { InstalledPluginRecord, PluginRegistryFile } from '../core/plugins/types.js';
-import {
-  capturePluginMcpPrivateSnapshot,
-  isPluginMcpContribution,
-  isPluginMcpServer,
-  publicPluginMcpContribution,
-  restorePluginMcpPrivateSnapshot,
-  writePluginMcpDescriptor,
-} from '../core/plugins/mcp/private-store.js';
 
 function registryLockTarget(): string {
   ensurePluginRegistryDir();
@@ -42,73 +34,13 @@ function parsePluginRegistry(): PluginRegistryFile {
   }
 }
 
-function hasPrivateMcpFields(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  return ['command', 'env', 'url', 'headers'].some(key => Object.hasOwn(value, key));
-}
-
-function assertPublicPluginRegistry(registry: PluginRegistryFile): void {
-  for (const record of Object.values(registry.plugins)) {
-    const mcp = (record.contributions as { mcp?: unknown } | undefined)?.mcp;
-    if (mcp === undefined) continue;
-    if (!isPluginMcpContribution(mcp) || hasPrivateMcpFields(mcp)) {
-      throw new Error(`invalid_public_plugin_mcp_contribution:${record.id}`);
-    }
-  }
-}
-
 function writePluginRegistryUnlocked(registry: PluginRegistryFile): void {
-  assertPublicPluginRegistry(registry);
   mkdirSync(dirname(pluginRegistryPath()), { recursive: true });
   atomicWriteFileSync(pluginRegistryPath(), JSON.stringify(registry, null, 2) + '\n', { mode: 0o600 });
 }
 
-/** Atomically migrates legacy registry-embedded MCP descriptors into protected
- * per-plugin files. Private writes are rolled back if the public registry swap
- * fails, so readers never observe a half-migrated configuration. */
-function migrateLegacyPluginMcpDescriptors(registry: PluginRegistryFile): PluginRegistryFile {
-  const snapshots = new Map<string, ReturnType<typeof capturePluginMcpPrivateSnapshot>>();
-  try {
-    const legacy: InstalledPluginRecord[] = [];
-    for (const record of Object.values(registry.plugins)) {
-      const mcp = (record.contributions as { mcp?: unknown } | undefined)?.mcp;
-      if (mcp === undefined) continue;
-      if (isPluginMcpServer(mcp)) {
-        if (mcp.name !== record.id) throw new Error(`invalid_legacy_plugin_mcp_descriptor:${record.id}`);
-        legacy.push(record);
-        continue;
-      }
-      if (!isPluginMcpContribution(mcp) || hasPrivateMcpFields(mcp)) {
-        throw new Error(`invalid_plugin_mcp_contribution:${record.id}`);
-      }
-    }
-    if (legacy.length === 0) return registry;
-
-    for (const record of legacy) {
-      const mcp = (record.contributions as unknown as { mcp: unknown }).mcp;
-      if (!isPluginMcpServer(mcp)) throw new Error(`invalid_legacy_plugin_mcp_descriptor:${record.id}`);
-      snapshots.set(record.id, capturePluginMcpPrivateSnapshot(record.id));
-      writePluginMcpDescriptor(record.id, mcp);
-      record.contributions = {
-        ...record.contributions,
-        mcp: publicPluginMcpContribution(mcp),
-      };
-    }
-    writePluginRegistryUnlocked(registry);
-    return registry;
-  } catch (error) {
-    for (const [pluginId, snapshot] of [...snapshots.entries()].reverse()) {
-      try { restorePluginMcpPrivateSnapshot(pluginId, snapshot); } catch { /* preserve migration failure */ }
-    }
-    throw new Error(
-      `plugin_mcp_registry_migration_failed:${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  }
-}
-
 function readPluginRegistryUnlocked(): PluginRegistryFile {
-  return migrateLegacyPluginMcpDescriptors(parsePluginRegistry());
+  return parsePluginRegistry();
 }
 
 export function readPluginRegistry(): PluginRegistryFile {

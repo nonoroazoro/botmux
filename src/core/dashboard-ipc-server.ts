@@ -7,8 +7,6 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { logger } from '../utils/logger.js';
 import { cliAuthBind, verifyHmac } from '../dashboard/auth.js';
-import { WORKFLOW_DAEMON_IPC_ROUTE_PREFIX } from '../workflows/v3/daemon-ipc-auth.js';
-import { V3_SESSION_RUN_MUTATION_ROUTE_PREFIX } from '../workflows/v3/session-relay.js';
 import { listenWithProbe } from '../utils/listen-with-probe.js';
 import { dashboardSecretPath } from './dashboard-secret.js';
 import * as sessionStore from '../services/session-store.js';
@@ -435,10 +433,9 @@ function ipcAuthSecret(): string | null {
   try { return readFileSync(dashboardSecretPath(), 'utf8').trim() || null; }
   catch { return null; }
 }
-/** Authenticate legacy terminal-token routes with the machine-local dashboard
- * secret. Workflow v3 mutations intentionally use their separate, full-request
- * protocol (`workflows/v3/daemon-ipc-auth`) and must never call this bare
- * ts:nonce verifier. */
+/**
+ * Authenticate terminal-token routes with the machine-local dashboard secret.
+ */
 export function ipcHmacAuthorized(req: IncomingMessage, bind?: string): boolean {
   if (trustedHostRequests.has(req)) return true;
   const secret = ipcAuthSecret();
@@ -507,18 +504,6 @@ function routeHasNarrowUntrustedAuth(method: string, pathname: string): boolean 
   if (method === 'POST' && pathname === '/api/hooks/emit') return true;
   if (method === 'POST' && pathname === '/api/attention') return true;
   if (method === 'POST' && pathname === '/api/capabilities/manage') return true;
-  // Workflow v3 mutations carry their own domain-separated full-envelope
-  // protocol (request signature over method/path/exact body with nonce
-  // anti-replay + boot audience, signed response), keyed on the same host
-  // secret as the outer gate. The handler fail-closes on that envelope, which
-  // is strictly stronger binding than the outer ts:nonce HMAC, so the prefix
-  // is admitted here instead of being double-signed with the same secret.
-  if (method === 'POST' && pathname.startsWith(`${WORKFLOW_DAEMON_IPC_ROUTE_PREFIX}/`)) return true;
-  // Workflow v3 session relay: sandboxed / read-isolated chat CLIs cannot read
-  // the host secret, so these handlers verify the session's rotating per-turn
-  // capability and re-derive the caller tuple from the daemon's own live
-  // session record (same posture as /api/asks above).
-  if (method === 'POST' && pathname.startsWith(`${V3_SESSION_RUN_MUTATION_ROUTE_PREFIX}/`)) return true;
   return false;
 }
 
@@ -3191,13 +3176,6 @@ ipcRoute('POST', '/api/trigger', async (req, res) => {
     }
   }
   try {
-    if (valid.request.target.kind === 'workflow') {
-      return jsonRes(res, 410, {
-        ok: false,
-        errorCode: 'legacy_workflow_retired',
-        error: 'v2 workflow trigger targets are retired; migrate the definition and run it through /workflow',
-      });
-    }
     const activeSessions = getActiveSessionsRegistry();
     if (!activeSessions) {
       return jsonRes(res, 503, {
@@ -4037,7 +4015,6 @@ ipcRoute('GET', '/api/bot-default-oncall', async (_req, res) => {
     multiUserIsolation: getBot(cachedLarkAppId).config.multiUserIsolation ?? null,
     groupOpen: getBot(cachedLarkAppId).config.groupOpen === true,
     p2pOpen: getBot(cachedLarkAppId).config.p2pOpen === true,
-    readIsolation: sandboxStore.getBotReadIsolation(cachedLarkAppId),
     // Full enforceability (adapter support + no wrapperCli + macOS) — the UI
     // disables the toggle wherever the worker would fail-close on it.
     readIsolationSupported: readIsolationEnforceable(cachedLarkAppId),
@@ -4196,20 +4173,6 @@ ipcRoute('PUT', '/api/bot-summary-range', async (req, res) => {
   try { raw = await readJsonBody(req); }
   catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
   const r = await updateDashboardSummaryRange(cachedLarkAppId, raw);
-  if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
-  jsonRes(res, 200, { ok: true, summaryRange: r.summaryRange });
-});
-
-// Backward-compatible dashboard endpoint from the short-lived keyword-trigger UI.
-ipcRoute('PUT', '/api/bot-summary-trigger', async (req, res) => {
-  if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
-  let raw: unknown;
-  try { raw = await readJsonBody(req); }
-  catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
-  const body = raw && typeof raw === 'object' && !Array.isArray(raw)
-    ? { limit: (raw as Record<string, unknown>).limit, sinceHours: (raw as Record<string, unknown>).sinceHours }
-    : raw;
-  const r = await updateDashboardSummaryRange(cachedLarkAppId, body);
   if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
   jsonRes(res, 200, { ok: true, summaryRange: r.summaryRange });
 });
@@ -4384,8 +4347,7 @@ ipcRoute('PUT', '/api/bot-agent', async (req, res) => {
     // null explicitly means built-in runtime; both structured and legacy
     // executable overrides are cleared.
   } else if (!selectionChanged) {
-    // Old dashboard clients know only `{cliId, model}`. Preserve the runtime on
-    // same-agent saves so editing a model cannot silently erase new config.
+    // A partial model update keeps the selected executable unchanged.
     nextRuntime = currentBotConfig.cliRuntime;
     nextLegacyPath = nextRuntime ? undefined : currentBotConfig.cliPathOverride;
   }
@@ -4429,20 +4391,13 @@ ipcRoute('PUT', '/api/bot-agent', async (req, res) => {
     ? undefined
     : `配置已保存，但所选 Agent 当前无法启动：${availability.reason ?? '本地启动依赖不可用'}。请先在 daemon 所在机器安装或修正 PATH / CLI 路径。`;
 
-  // If the new CLI/wrapper can no longer enforce a currently-on read isolation,
-  // auto-clear the flag here so the next session doesn't fail-close on it. (The
-  // read-isolation toggle validates at enable time; changing the agent afterwards
-  // is the other way a bot could end up configured-but-unenforceable.)
-  let readIsolationCleared = false;
   const r = await rmwBotEntry(cachedLarkAppId, (entry) => {
     entry.cliId = selected.cliId;
     if (selected.wrapperCli) entry.wrapperCli = selected.wrapperCli;
     else delete entry.wrapperCli;
     if (nextRuntime) {
       entry.cliRuntime = nextRuntime;
-      // Downgrade shadow: older BotMux versions ignore cliRuntime but retain
-      // cliPathOverride, so a rollback still launches this distribution.
-      entry.cliPathOverride = nextRuntime.executable;
+      delete entry.cliPathOverride;
     } else if (nextLegacyPath) {
       entry.cliPathOverride = nextLegacyPath;
       delete entry.cliRuntime;
@@ -4452,11 +4407,6 @@ ipcRoute('PUT', '/api/bot-agent', async (req, res) => {
     }
     if (model) entry.model = model;
     else delete entry.model;
-    if (entry.readIsolation === true &&
-        !readIsolationEnforceableFor({ cliId: selected.cliId, cliPathOverride: effectivePath, wrapperCli: selected.wrapperCli })) {
-      delete entry.readIsolation;
-      readIsolationCleared = true;
-    }
     return { write: true, result: null };
   });
   if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
@@ -4468,7 +4418,6 @@ ipcRoute('PUT', '/api/bot-agent', async (req, res) => {
   if (selected.wrapperCli) bot.config.wrapperCli = selected.wrapperCli;
   else bot.config.wrapperCli = undefined;
   bot.config.model = model || undefined;
-  if (readIsolationCleared) bot.config.readIsolation = false;
 
   // 热切后立刻清掉本 bot 名下失配的存量会话——否则它们冻结的旧 CLI 会被下一条
   // 消息 lazy resume 复活，要等下次 daemon 重启才被 restore 守卫清理。
@@ -4484,12 +4433,7 @@ ipcRoute('PUT', '/api/bot-agent', async (req, res) => {
     model: model || null,
     selectionKey,
     closedMismatchedSessions,
-    // Report the (possibly auto-cleared) read-isolation state + whether the new
-    // agent can still enforce it, so the dashboard updates its toggle immediately
-    // instead of showing a stale enabled/supported state until a full refetch.
-    readIsolation: bot.config.readIsolation === true,
     readIsolationSupported: readIsolationEnforceableFor(bot.config),
-    readIsolationCleared,
     agentAvailable: availability.available,
     availabilityWarning,
     requiredCommand: availability.command,
@@ -4880,33 +4824,6 @@ ipcRoute('PUT', '/api/bot-sandbox-paths', async (req, res) => {
   });
   if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
   jsonRes(res, 200, { ok: true, sandboxPaths: r.sandboxPaths ?? null });
-});
-
-// Per-bot read-isolation toggle. Body `{ enabled: boolean }`. When on, this bot's
-// CLI sessions run under macOS Seatbelt read-deny (siblings' creds/sessions/content
-// unreadable). The macOS counterpart of the file sandbox above.
-ipcRoute('PUT', '/api/bot-read-isolation', async (req, res) => {
-  if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
-  let body: { enabled?: unknown };
-  try { body = await readJsonBody<{ enabled?: unknown }>(req); }
-  catch { return jsonRes(res, 400, { ok: false, error: 'bad_json' }); }
-  const enable = body.enabled === true;
-  // The worker FAIL-CLOSES (refuses to start the session) for a configured
-  // readIsolation that can't be enforced: non-darwin, an adapter without
-  // supportsReadIsolation, or a wrapperCli gateway. Reject enabling it in exactly
-  // those cases so the toggle can never brick the bot's next session. (Turning it
-  // OFF is always allowed — recovers a flag that became unenforceable.)
-  if (enable && !readIsolationEnforceable(cachedLarkAppId)) {
-    return jsonRes(res, 400, { ok: false, error: 'read_isolation_unenforceable' });
-  }
-  const r = await sandboxStore.updateBotReadIsolation(cachedLarkAppId, enable);
-  if (!r.ok) return jsonRes(res, 400, { ok: false, error: r.reason });
-  // Read isolation only takes effect at COLD spawn (provisionIsolatedBotHome +
-  // Seatbelt wrapper run then). Suspend this bot's active sessions so the next
-  // message cold-restarts under the new state — otherwise close+resume would keep
-  // running the old, un-provisioned state and the toggle would silently no-op.
-  const suspendedSessions = await suspendActiveSessionsForBot(cachedLarkAppId);
-  jsonRes(res, 200, { ok: true, readIsolation: r.readIsolation, suspendedSessions });
 });
 
 // Per-bot session backend override (pty | tmux | herdr | zellij | zmx), or clear it

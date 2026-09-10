@@ -47,7 +47,7 @@ const CLI_DISPLAY_LABELS: Record<CliId, string> = {
   'antigravity': 'Antigravity',
   'mtr': 'MTR',
   'hermes': 'Hermes',
-  'codex-app': 'Codex App',
+  'codex-app': 'Codex Desktop',
   'traex': 'TRAE',
   'pi': 'Pi',
   'copilot': 'Copilot',
@@ -184,8 +184,8 @@ export interface BotConfigEditInput {
   /**
    * Structured compatible-runtime edit. Three states:
    *   - undefined -> preserve current value
-   *   - object    -> validate/set it and write an equal legacy path shadow
-   *   - null      -> clear it and its equal legacy path shadow
+   *   - object    -> validate/set it as the executable source
+   *   - null      -> clear the configured runtime
    */
   cliRuntime?: CliRuntimeConfig | null;
   /**
@@ -436,13 +436,7 @@ export function applyBotConfigEdits<T extends Record<string, any>>(
   const cliId = resolveCliId(input.cliChoice);
   if (cliId) out.cliId = cliId;
 
-  // The edit API keeps one explicit executable source. Persisted structured
-  // runtimes additionally carry an equal cliPathOverride shadow so rolling
-  // back to a pre-cliRuntime BotMux still launches the same distribution.
-  // Interactive setup always supplies the path prompt as a string; an empty
-  // answer means "preserve", not "replace the structured runtime with its
-  // legacy shadow". Only a non-empty value (including "-" for clear) is an
-  // actual path edit.
+  // Empty interactive answers preserve the current executable selection.
   const cliPathOverrideEdited = input.cliPathOverride !== undefined
     && input.cliPathOverride.trim().length > 0;
   if (input.cliRuntime !== undefined && input.cliRuntime !== null && cliPathOverrideEdited) {
@@ -450,14 +444,10 @@ export function applyBotConfigEdits<T extends Record<string, any>>(
   }
   const explicitlySettingRuntime = input.cliRuntime !== undefined && input.cliRuntime !== null;
   if (input.cliRuntime === null) {
-    const oldRuntimeExecutable = out.cliRuntime && typeof out.cliRuntime === 'object'
-      ? out.cliRuntime.executable
-      : undefined;
     delete out.cliRuntime;
-    if (oldRuntimeExecutable && out.cliPathOverride === oldRuntimeExecutable) delete out.cliPathOverride;
   } else if (input.cliRuntime !== undefined) {
     out.cliRuntime = normalizeCliRuntimeConfig(input.cliRuntime, 'cliRuntime');
-    out.cliPathOverride = out.cliRuntime.executable;
+    delete out.cliPathOverride;
   }
   if (cliPathOverrideEdited) {
     applyOptionalString(out, 'cliPathOverride', input.cliPathOverride);
@@ -469,19 +459,15 @@ export function applyBotConfigEdits<T extends Record<string, any>>(
   // that a later edit or old client could accidentally revive.
   if (out.cliId !== 'codex') {
     if (explicitlySettingRuntime) throw new Error('cliRuntime is currently supported only for cliId "codex"');
-    const oldRuntimeExecutable = out.cliRuntime && typeof out.cliRuntime === 'object'
-      ? out.cliRuntime.executable
-      : undefined;
     delete out.cliRuntime;
-    if (oldRuntimeExecutable && out.cliPathOverride === oldRuntimeExecutable) delete out.cliPathOverride;
   }
 
   if (out.cliRuntime) {
     out.cliRuntime = normalizeCliRuntimeConfig(out.cliRuntime, 'cliRuntime');
-    if (out.cliPathOverride !== undefined && out.cliPathOverride !== out.cliRuntime.executable) {
-      throw new Error('cliPathOverride must exactly match cliRuntime.executable when both are present');
+    if (out.cliPathOverride !== undefined) {
+      throw new Error('configure cliRuntime or cliPathOverride, not both');
     }
-    out.cliPathOverride = out.cliRuntime.executable;
+    delete out.cliPathOverride;
   }
 
   // wrapperCli 三态：null = 清空，string = 设置（空 / "-" 也清空），undefined = 不动。

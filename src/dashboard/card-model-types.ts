@@ -6,7 +6,7 @@
  * stays erasable and IO-free.
  */
 
-/** Pagination query input shared by list-style modules (sessions/workflows/groups/schedules). */
+/** Pagination query input shared by list-style modules (sessions/groups/schedules). */
 export interface PaginationParams {
   /** 1-based page index. Values < 1 are coerced to 1; values > totalPages coerce to totalPages. */
   page?: number;

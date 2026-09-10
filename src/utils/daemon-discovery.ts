@@ -17,10 +17,9 @@ import { resolveBotmuxDataDir } from '../core/data-dir.js';
 export interface OnlineDaemonInfo {
   larkAppId: string;
   ipcPort: number;
-  /** Random per-process audience for authenticated Workflow v3 mutations. */
+  /** Random per-process identity for device isolation activation. */
   bootInstanceId?: string;
   /** Auth protocol advertised atomically with bootInstanceId + ipcPort. */
-  workflowIpcProtocol?: string;
   botName?: string;
   cliId?: string;
   pid?: number;
@@ -77,9 +76,6 @@ export function listOnlineDaemons(): OnlineDaemonInfo[] {
         ipcPort: d.ipcPort,
         ...(typeof d.bootInstanceId === 'string' && d.bootInstanceId
           ? { bootInstanceId: d.bootInstanceId }
-          : {}),
-        ...(typeof d.workflowIpcProtocol === 'string' && d.workflowIpcProtocol
-          ? { workflowIpcProtocol: d.workflowIpcProtocol }
           : {}),
         ...(typeof d.botName === 'string' && d.botName.trim() ? { botName: d.botName.trim() } : {}),
         ...(typeof d.cliId === 'string' && d.cliId.trim() ? { cliId: d.cliId.trim() } : {}),

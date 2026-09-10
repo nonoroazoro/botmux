@@ -145,10 +145,6 @@ export function createCodexAdapter(pathOverride?: string): CliAdapter {
   let cachedBin: string | undefined;
   return {
     id: 'codex',
-    mcpGateway: {
-      configPath: '~/.codex/config.toml',
-      format: 'codex-toml',
-    },
     // codex 0.137's own filesystem profile can't express a read blocklist, so
     // isolation is enforced by the worker's whole-process macOS Seatbelt wrapper.
     // e2e verified: codex under `sandbox-exec -f <profile>` (with bypass) is
@@ -158,7 +154,6 @@ export function createCodexAdapter(pathOverride?: string): CliAdapter {
     supportsReadIsolation: true,
     multiUserBaseline: {
       skillsDirs: ['~/.codex/skills'],
-      pluginDirs: ['~/.codex/.tmp/plugins/plugins'],
     },
     // Whole ~/.codex kept REAL, not just auth.json: codex writes SQLite state/log
     // DBs (state_*.sqlite / logs_*.sqlite) + history/sessions there. The file

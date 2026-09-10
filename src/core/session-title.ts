@@ -9,7 +9,6 @@ export type SessionTitleUpdateResult =
   | { ok: true; title: string; updatedAt: string; source: SessionTitleSource }
   | { ok: false; error: 'bad_title' };
 
-const BOTMUX_LARK_TITLE_PREFIX = '[BotMux·Lark]';
 const BOTMUX_LARK_TITLE_MAX = 100;
 const BOTMUX_LARK_TITLE_PROMPT_MAX = 2_000;
 
@@ -72,12 +71,12 @@ export function buildBotmuxLarkNativeSessionTitle(
   const normalized = normalizeSessionTitle(content)
     ?? normalizeSessionTitle(emptyContentFallback)
     ?? '新话题';
-  const maxContentLength = BOTMUX_LARK_TITLE_MAX - Array.from(BOTMUX_LARK_TITLE_PREFIX).length - 1;
+  const maxContentLength = BOTMUX_LARK_TITLE_MAX;
   const chars = Array.from(normalized);
   const displayContent = chars.length > maxContentLength
     ? `${chars.slice(0, maxContentLength - 1).join('').trimEnd()}…`
     : normalized;
-  return `${BOTMUX_LARK_TITLE_PREFIX} ${displayContent}`;
+  return displayContent;
 }
 
 export function normalizeSessionTitleSource(value: unknown, fallback: SessionTitleSource): SessionTitleSource {

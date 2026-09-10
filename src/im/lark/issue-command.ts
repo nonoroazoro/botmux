@@ -146,9 +146,9 @@ async function buildBoard(
 ): Promise<IssueCardResult> {
   const teams = await deps.fetchTeams();
   if (!teams.ok || !teams.value) {
-    return toast(teams.reason === 'unbound' ? '本机还没有绑定 botmux 平台' : `拉取团队失败：${teams.reason}`);
+    return toast(teams.reason === 'unbound' ? '本机还没有完成平台绑定' : `拉取团队失败：${teams.reason}`);
   }
-  if (!teams.value.length) return toast('你不在任何 botmux 平台团队里');
+  if (!teams.value.length) return toast('还没有找到你加入的团队');
 
   const teamId = opts.teamId && teams.value.some((t) => t.teamId === opts.teamId) ? opts.teamId : teams.value[0].teamId;
   const team = teams.value.find((t) => t.teamId === teamId)!;

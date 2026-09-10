@@ -338,7 +338,7 @@ export async function sendVideoAttachments(
 ): Promise<SendVideoAttachmentsResult> {
   if (deps.maxMessages !== undefined && videos.length > deps.maxMessages) {
     throw new Error(
-      `受管 VC 回复一次最多发送 ${deps.maxMessages} 个视频；多视频请拆分为受管 action`,
+      `会议回复一次最多发送 ${deps.maxMessages} 个视频，请拆分为多次发送。`,
     );
   }
   const sent: string[] = [];

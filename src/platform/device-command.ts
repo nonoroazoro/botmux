@@ -49,7 +49,7 @@ const DEVICE_USAGE = `用法:
   botmux device status [--json]
   botmux device logout
 
-这些命令只能从宿主终端运行，botmux 管理的 AI CLI 会话内一律拒绝。`;
+这些命令涉及设备凭证，请由管理员直接在运行服务的服务器终端中执行，机器人不能代为操作。`;
 
 /**
  * UX guard for accidental invocation from a managed AI CLI. The mandatory OS
@@ -133,7 +133,7 @@ export async function runDeviceCommand(
     ? dependencies.isAgentContext()
     : isManagedAgentDeviceCommandContext(dependencies);
   if (inAgent) {
-    stderr('❌ botmux device 命令只能在宿主终端执行；AI CLI 会话不能读取或修改设备凭证。');
+    stderr('❌ 该命令涉及设备凭证，请由管理员直接在运行服务的服务器终端中执行，机器人不能代为操作。');
     return 2;
   }
 

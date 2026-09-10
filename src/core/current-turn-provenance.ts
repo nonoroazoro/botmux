@@ -55,7 +55,7 @@ function readPersistedSession(dataDir: string, sessionId: string): PersistedTurn
     ));
   } catch (err) {
     throw new CurrentTurnProvenanceError(
-      `无法读取 botmux session store：${err instanceof Error ? err.message : String(err)}`,
+      `暂时无法读取会话记录：${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -119,14 +119,14 @@ export function resolveCurrentTurnProvenance(
   if (!marker) {
     if (nonEmpty(options.envSessionId)) {
       throw new CurrentTurnProvenanceError(
-        '当前命令已脱离 botmux CLI 进程树，无法验证本轮调用者；请在当前前台 turn 中重试',
+        '无法确认这条命令来自当前会话，请在原会话中重试',
       );
     }
     return null;
   }
   if (!nonEmpty(marker.sessionId) || !nonEmpty(marker.turnId)) {
     throw new CurrentTurnProvenanceError(
-      '当前 botmux CLI 进程标记缺少 sessionId/turnId，拒绝使用陈旧环境变量授权',
+      '当前会话信息不完整，暂时无法确认操作权限，请在原会话中重试',
     );
   }
   if (nonEmpty(options.envSessionId) && options.envSessionId !== marker.sessionId) {

@@ -27,10 +27,13 @@ export function createCodexAppAdapter(pathOverride?: string): CliAdapter {
   let cachedCodexBin: string | undefined;
   return {
     id: 'codex-app',
-    // Whole ~/.codex kept REAL (see codex.ts): under the deny-by-default file
-    // sandbox a path not in authPaths doesn't exist, so codex can't open its
-    // SQLite state/log DBs and hangs ~57s then exits 1. Binding the dir real
-    // gives working fcntl locks.
+    // The runner and its app-server child inherit the same private CODEX_HOME.
+    supportsReadIsolation: true,
+    multiUserBaseline: {
+      skillsDirs: ['~/.codex/skills'],
+    },
+    // Used only without redirection; isolated sessions expose their private
+    // data home instead of the operator's transcripts and SQLite databases.
     authPaths: ['~/.codex'],
     resolvedBin: process.execPath,
 

@@ -41,35 +41,9 @@ interface PluginSkillContribution {
   path?: string;
 }
 
-interface PluginMcpContribution {
-  name?: string;
-  transport?: string;
-  privateRef?: string;
-}
-
 interface PluginCliCommand {
   name: string;
   description?: string;
-}
-
-interface GatewayAdapterReport {
-  cliId: string;
-  state: 'installed' | 'unchanged' | 'configured' | 'removed' | 'absent' | 'adapter-required';
-  configPath?: string;
-  warning?: string;
-}
-
-interface GatewayServerDiagnostic {
-  pluginId: string;
-  serverName: string;
-  status: 'connected' | 'failed';
-  transport: string;
-  error?: string;
-  tools?: number;
-  prompts?: number;
-  resources?: number;
-  sessionId?: string;
-  generatedAt?: string;
 }
 
 interface ManagedPlugin {
@@ -79,22 +53,18 @@ interface ManagedPlugin {
   displayName?: string;
   contributions?: {
     skills?: PluginSkillContribution[];
-    mcp?: PluginMcpContribution;
     dashboard?: Array<{ id: string; route: string; entry: string }>;
     cli?: { entry?: string; commands?: PluginCliCommand[] };
     service?: { entry?: string; mode?: string };
   };
   dependencies?: string[];
   skillsCount?: number;
-  mcpCount?: number;
   dashboard?: Array<{ id: string; route: string; entry: string; url: string }>;
   service?: PluginServiceDeclaration;
   serviceReport?: PluginServiceReport;
   pinnedToSidebar?: boolean;
   enabledGlobal?: boolean;
   enabledByBot?: Record<string, boolean>;
-  gatewayAdapters?: GatewayAdapterReport[];
-  mcpDiagnostics?: GatewayServerDiagnostic[];
 }
 
 interface PluginBotScope {
@@ -107,7 +77,6 @@ interface PluginManagementPayload {
   plugins: ManagedPlugin[];
   globalPlugins: string[];
   bots: PluginBotScope[];
-  gatewayAdapters: GatewayAdapterReport[];
 }
 
 interface PluginFeedback {
@@ -132,7 +101,6 @@ function normalizePluginManagementPayload(body: any): PluginManagementPayload {
     plugins: Array.isArray(body?.plugins) ? body.plugins : [],
     globalPlugins: Array.isArray(body?.globalPlugins) ? body.globalPlugins : [],
     bots: Array.isArray(body?.bots) ? body.bots : [],
-    gatewayAdapters: Array.isArray(body?.gatewayAdapters) ? body.gatewayAdapters : [],
   };
 }
 
@@ -220,8 +188,8 @@ function serviceDisplayLabel(report?: PluginServiceReport): string {
 }
 
 function serviceLifecycleLabel(service: PluginServiceDeclaration): string {
-  if (service.mode === 'manual') return '不随 botmux start/stop/restart 自动开关；仍可在这里手动启动、停止、重启';
-  if (service.mode === 'auto') return 'botmux start/restart 后自动确保运行；默认 restart 不先停止，--with-plugin 才会先停再启动';
+  if (service.mode === 'manual') return '由你手动控制，不随主服务自动启动或停止';
+  if (service.mode === 'auto') return '主服务启动或重启时会检查并启动插件；已经运行的插件保持运行';
   return '未知生命周期策略';
 }
 
@@ -380,56 +348,6 @@ function SkillsPanel(props: { plugin: ManagedPlugin; active: boolean }): React.J
   );
 }
 
-function McpPanel(props: { plugin: ManagedPlugin; active: boolean }): React.JSX.Element {
-  const plugin = props.plugin;
-  const server = plugin.contributions?.mcp;
-  const serverRows: Array<{ label: string; content: ReactNode }> = server ? [{
-    label: server.name || 'mcp',
-    content: (
-      <div className="plugin-info-stack">
-        <div><span>传输</span><Tags values={[server.transport || 'stdio']} /></div>
-        <div><span>运行配置</span><Tags values={['受保护，由 Gateway 按会话加载']} /></div>
-      </div>
-    ),
-  }] : [];
-  const gatewayRows = (plugin.gatewayAdapters ?? []).map(adapter => ({
-    label: adapter.cliId,
-    content: (
-      <div className="plugin-info-stack">
-        <div>
-          <span>Gateway</span>
-          <Tags values={[
-            adapter.state === 'configured' || adapter.state === 'unchanged' || adapter.state === 'installed'
-              ? '已接入'
-              : adapter.state === 'adapter-required' ? '待适配' : '未写入',
-          ]} />
-        </div>
-        {adapter.configPath ? <div><span>配置目标</span><InlineCode>{adapter.configPath}</InlineCode></div> : null}
-        {adapter.warning ? <div className="plugin-warning">{adapter.warning}</div> : null}
-      </div>
-    ),
-  }));
-  const diagnosticRows = (plugin.mcpDiagnostics ?? []).map(item => ({
-    label: item.serverName,
-    content: (
-      <div className="plugin-info-stack">
-        <div><span>最近连接</span><Tags values={[item.status === 'connected' ? '正常' : '失败', item.transport]} /></div>
-        <div><span>能力数量</span><Tags values={[`Tools ${item.tools ?? 0}`, `Prompts ${item.prompts ?? 0}`, `Resources ${item.resources ?? 0}`]} /></div>
-        {item.sessionId ? <div><span>会话</span><InlineCode>{item.sessionId}</InlineCode></div> : null}
-        {item.error ? <div className="plugin-warning">{item.error}</div> : null}
-      </div>
-    ),
-  }));
-  return (
-    <TabPanel id="mcp" active={props.active}>
-      <PanelHeading title="MCP" description="CLI 只连接一个 Botmux Gateway；每一代 CLI 进程按启动时清单连接这些下游 MCP。" />
-      {gatewayRows.length > 0 ? <InfoRows rows={gatewayRows} /> : null}
-      {diagnosticRows.length > 0 ? <InfoRows rows={diagnosticRows} /> : null}
-      {serverRows.length > 0 ? <InfoRows rows={serverRows} /> : <EmptyPanel>这个插件没有提供 MCP server。</EmptyPanel>}
-    </TabPanel>
-  );
-}
-
 function CliPanel(props: { plugin: ManagedPlugin; active: boolean }): React.JSX.Element {
   const cli = props.plugin.contributions?.cli;
   const rows: Array<{ label: string; content: ReactNode }> = [
@@ -441,7 +359,7 @@ function CliPanel(props: { plugin: ManagedPlugin; active: boolean }): React.JSX.
   ];
   return (
     <TabPanel id="cli" active={props.active}>
-      <PanelHeading title="CLI 命令" description="启用插件后，这些命令会进入 botmux 的命令路由。" />
+      <PanelHeading title="CLI 命令" description="启用插件后，机器人就可以使用这些命令。" />
       {rows.length > 0 ? <InfoRows rows={rows} /> : <EmptyPanel>这个插件没有提供 CLI 命令。</EmptyPanel>}
     </TabPanel>
   );
@@ -478,7 +396,6 @@ function PluginTabs(props: { plugin: ManagedPlugin }): React.JSX.Element {
   const commands = props.plugin.contributions?.cli?.commands ?? [];
   const tabs = useMemo(() => [
     { id: 'skills', label: 'Skills', count: props.plugin.skillsCount ?? 0, hint: '会话加载' },
-    { id: 'mcp', label: 'MCP', count: props.plugin.mcpCount ?? 0, hint: 'Gateway 聚合' },
     { id: 'cli', label: 'CLI 命令', count: commands.length, hint: '命令路由' },
     { id: 'dashboard', label: 'Dashboard', count: props.plugin.dashboard?.length ?? 0, hint: '页面入口' },
     {
@@ -487,7 +404,7 @@ function PluginTabs(props: { plugin: ManagedPlugin }): React.JSX.Element {
       count: props.plugin.service ? 1 : 0,
       hint: props.plugin.service ? serviceModeLabel(props.plugin.service) : '无后台进程',
     },
-  ], [commands.length, props.plugin.dashboard?.length, props.plugin.mcpCount, props.plugin.service, props.plugin.skillsCount]);
+  ], [commands.length, props.plugin.dashboard?.length, props.plugin.service, props.plugin.skillsCount]);
   const [activeTab, setActiveTab] = useState(() => tabs.find(tab => tab.count > 0)?.id ?? 'skills');
   return (
     <div className="plugin-tabs">
@@ -510,7 +427,6 @@ function PluginTabs(props: { plugin: ManagedPlugin }): React.JSX.Element {
       </div>
       <div className="plugin-tab-panels">
         <SkillsPanel plugin={props.plugin} active={activeTab === 'skills'} />
-        <McpPanel plugin={props.plugin} active={activeTab === 'mcp'} />
         <CliPanel plugin={props.plugin} active={activeTab === 'cli'} />
         <DashboardPanel plugin={props.plugin} active={activeTab === 'dashboard'} />
         <ServicePanel plugin={props.plugin} active={activeTab === 'service'} />
@@ -637,7 +553,6 @@ function PluginCapabilitySummary(props: {
   const commands = props.plugin.contributions?.cli?.commands ?? [];
   const capabilities = [
     { label: 'Skills', count: props.plugin.skillsCount ?? 0 },
-    { label: 'MCP', count: props.plugin.mcpCount ?? 0 },
     { label: '命令', count: commands.length },
     { label: 'Dashboard', count: props.plugin.dashboard?.length ?? 0 },
   ].filter(item => item.count > 0);
@@ -908,7 +823,7 @@ function PluginManagementPage(): React.JSX.Element {
         <div className="bd-card plugin-summary-card"><span>全局启用</span><strong data-plugin-summary-enabled>{enabledGlobalCount}</strong></div>
       </div>
       {payload.plugins.length === 0 ? (
-        <div className="bd-card empty">暂无已安装插件。用 <code>botmux plugin install</code> 安装后会出现在这里。</div>
+        <div className="bd-card empty">还没有安装插件。请联系管理员安装需要的插件。</div>
       ) : (
         <div className="plugin-card-list">
           {payload.plugins.map(plugin => (

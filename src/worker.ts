@@ -13,14 +13,19 @@
  *   7. On 'restart', kills CLI and re-spawns with --resume
  */
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync, unlinkSync, rmdirSync, existsSync, statSync, lstatSync, readdirSync, readlinkSync, readFileSync, realpathSync, copyFileSync, symlinkSync, watch as fsWatch, createWriteStream, openSync, closeSync, fstatSync, constants as fsConstants, type FSWatcher, type WriteStream } from 'node:fs';
+import { mkdirSync, writeFileSync, unlinkSync, rmdirSync, rmSync, existsSync, statSync, lstatSync, readdirSync, readlinkSync, readFileSync, realpathSync, symlinkSync, watch as fsWatch, createWriteStream, openSync, closeSync, fstatSync, constants as fsConstants, type FSWatcher, type WriteStream } from 'node:fs';
 import { atomicWriteFileSync } from './utils/atomic-write.js';
-import { join, basename, dirname, delimiter, isAbsolute, relative } from 'node:path';
+import { join, basename, dirname, delimiter, isAbsolute, relative, resolve } from 'node:path';
 import { syncMultiUserBaselineDirectory } from './core/multi-user-baseline.js';
+import {
+  provisionCodexProviderConfig,
+  seedCodexPrincipalConfig,
+  syncCodexProviderCredential,
+} from './core/codex-provider-config/index.js';
 import { ensureCodexWorkspaceTrusted } from './core/codex-workspace-trust/index.js';
 import { CodexCyberPolicyRecovery } from './core/CodexCyberPolicyRecovery.js';
 import { resolveBotmuxWrapperBinDir, prependBotmuxBin } from './core/botmux-wrapper.js';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import {
   evaluateCredentialOnlyIsolationGate,
@@ -36,7 +41,7 @@ import {
   isolationPaneMarkerContent,
   type IsolationCapability,
 } from './adapters/cli/read-isolation.js';
-import { buildFsPolicy, compileToSeatbelt, migrateLegacySandboxFields, resolveRedirectedAdapterAuthPaths, FsPolicyConfigError } from './adapters/cli/fs-policy.js';
+import { buildFsPolicy, compileToSeatbelt, resolveRedirectedAdapterAuthPaths, FsPolicyConfigError } from './adapters/cli/fs-policy.js';
 import { killPersistentBackendTarget, killPersistentSession, probePersistentBackendTarget, probePersistentSession, shouldRejectPersistentPostKillProbe, type PersistentBackendType } from './core/persistent-backend.js';
 import { readProcessStartIdentity } from './core/session-marker.js';
 import { roleLibraryRoot, roleLibrarySubtree } from './core/role-library.js';
@@ -81,21 +86,6 @@ import {
   evaluateVcMeetingManagedSend,
 } from './services/vc-meeting-send-policy.js';
 import { TurnTerminalDeduper } from './services/turn-terminal-deduper.js';
-import { defaultGatewayEntry } from './core/plugins/mcp/gateway-installer.js';
-import {
-  sessionMcpGatewayPathRegex,
-  startSessionMcpGatewayHost,
-  type SessionMcpGatewayHost,
-} from './core/plugins/mcp/host.js';
-import {
-  MCP_GATEWAY_REQUIRED_ENV,
-  MCP_GATEWAY_SOCKET_ENV,
-} from './core/plugins/mcp/environment.js';
-import {
-  readSessionMcpRuntimeManifest,
-  sessionMcpRuntimeHostOnlyPaths,
-  type SessionMcpRuntimeManifest,
-} from './core/plugins/mcp/session-runtime.js';
 import { prepareCliPluginGeneration } from './core/plugins/cli-generation.js';
 import {
   loadBotConfigs,
@@ -229,7 +219,6 @@ import {
   backendSandboxCompatibilityError,
   backendSandboxCompatibilityUserMessage,
   decideBackendGate,
-  retireSupersededRecordedHerdrTarget,
   selectSessionBackend,
 } from './adapters/backend/session-backend-selector.js';
 import { buildReproduceCommand, selectReproduceLaunch } from './adapters/backend/reproduce-command.js';
@@ -418,8 +407,8 @@ function probeOwnedZmxSession(
     return {
       probe: 'unknown',
       reason: managed.reason === 'transport-label'
-        ? `ZMX 会话 ${name} 缺少 botmux 传输标签（tail 信号 + history 屏幕 + send 输入）；请手动关闭旧会话后重试`
-        : `ZMX 会话 ${name} 属于另一个完整 botmux session`,
+        ? `ZMX 会话 ${name} 无法验证连接信息，请手动关闭旧会话后再试`
+        : `ZMX 会话 ${name} 属于另一个会话，无法在这里接入`,
     };
   }
   if (expectedPid !== undefined && managed.pid !== expectedPid) {
@@ -765,15 +754,6 @@ async function engageCodexRpc(cfg: Extract<DaemonToWorker, { type: 'init' }>): P
     engineEnv.BOTMUX_SESSION_SCOPE = cfg.rootMessageId?.startsWith('om_') ? 'thread' : 'chat';
     if (cfg.ownerOpenId) engineEnv.BOTMUX_OWNER_OPEN_ID = cfg.ownerOpenId;
     else delete engineEnv.BOTMUX_OWNER_OPEN_ID;
-    // The app-server owns model execution in RPC mode. Its MCP gateway child
-    // must inherit the trusted host socket just like a native CLI process does.
-    if (sessionMcpGatewayHost) {
-      engineEnv[MCP_GATEWAY_SOCKET_ENV] = sessionMcpGatewayHost.socketPath;
-      engineEnv[MCP_GATEWAY_REQUIRED_ENV] = '1';
-    } else {
-      delete engineEnv[MCP_GATEWAY_SOCKET_ENV];
-      delete engineEnv[MCP_GATEWAY_REQUIRED_ENV];
-    }
     // P1-2: the app-server is where the model actually runs, so it needs the SAME
     // per-bot provider env (base-url + token, proxy, feature flags) spawnCli
     // injects into the TUI — else a 3rd-party-provider bot's app-server silently
@@ -781,6 +761,7 @@ async function engageCodexRpc(cfg: Extract<DaemonToWorker, { type: 'init' }>): P
     Object.assign(engineEnv, sanitizePerBotEnv(cfg.env));
     engine = new CodexRpcEngine({
       cliBin, cwd: cfg.workingDir, env: engineEnv, sessionId: cfg.sessionId,
+      botName: cfg.botName,
       model: cfg.model, reasoningEffort: cfg.reasoningEffort, log: (m: string) => log(m),
       appServerFeatures: cfg.cliId === 'traex' ? ['default_mode_request_user_input'] : undefined,
       onRequestUserInput: cfg.cliId === 'traex'
@@ -885,7 +866,7 @@ function armRpcStartupDialogDismiss(): void {
       if (!warnedUpdate) {
         warnedUpdate = true;
         log('Codex RPC: update dialog appeared despite check_for_update_on_startup=false — NOT auto-pressing; asking user to dismiss');
-        send({ type: 'user_notify', message: '⚠️ Codex 更新弹窗挡住了网页终端渲染。为避免误触自更新未自动处理——请在网页终端手动选「Skip」；消息仍经 RPC 正常处理，不影响回复。', turnId: currentBotmuxTurnId });
+        send({ type: 'user_notify', message: 'Codex 的更新提示挡住了网页终端。请先在终端里选择「Skip」，我不会替你确认升级；我们可以继续聊天。', turnId: currentBotmuxTurnId });
       }
     } else if (action === 'dismiss-safe') {
       log('Codex RPC: dismissing a safe "press enter to continue" prompt on the --remote pane');
@@ -905,7 +886,6 @@ let sandboxRelayOutbox: string | null = null;
 let sandboxRelayCapability: { token: string; turnId?: string; dispatchAttempt?: number } | null = null;
 let readIsolationOriginCapabilityFile: string | null = null;
 let sandboxTeardownDone = false;                     // guards the exit-time best-effort teardown from double-running / running on suspend-for-resume
-let sessionMcpGatewayHost: SessionMcpGatewayHost | null = null;
 /** Counts consecutive in-worker restart cycles (see case 'restart'). Used by
  *  the SECONDARY guard so an adapter whose checkResumeTargetExists misses
  *  (returns undefined) or whose resume target vanishes between the check and
@@ -921,15 +901,6 @@ let tmuxRestartTimer: NodeJS.Timeout | null = null;
 let resumeFallbackNotified = false;
 /** Skill catalog to attach to the first user turn after a prompt-less CLI restart. */
 let deferredPluginSkillCatalog: string | null = null;
-
-function stopSessionMcpGatewayHost(): void {
-  const host = sessionMcpGatewayHost;
-  sessionMcpGatewayHost = null;
-  if (!host) return;
-  void host.close().catch((error) => {
-    log(`[mcp-gateway] host shutdown failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
-}
 
 function refreshCliPluginGeneration(
   cfg: Extract<DaemonToWorker, { type: 'init' }>,
@@ -981,34 +952,19 @@ function refreshCliPluginGeneration(
   log(`Plugin generation refreshed: ${generation.pluginManifest.pluginIds.join(', ') || '(none)'}`);
 }
 
-/** Refresh the process-scoped Skill/MCP snapshot and bring up the trusted MCP
- * host before the process that owns model execution starts. Native paste mode
- * calls this from spawnCli; RPC mode calls it before starting the app-server so
- * the fresh first turn includes the catalog and the gateway socket already
- * exists when Codex reads its MCP config. */
-async function prepareCliPluginGenerationAndGateway(
+/** Refresh the process-scoped Skill snapshot before model execution starts. */
+function prepareCliPluginGenerationRuntime(
   cfg: Extract<DaemonToWorker, { type: 'init' }>,
   adapter: CliAdapter,
-): Promise<SessionMcpRuntimeManifest | null> {
+): void {
   refreshCliPluginGeneration(cfg, adapter);
-  const manifest = readSessionMcpRuntimeManifest(cfg.sessionId, config.session.dataDir);
-  stopSessionMcpGatewayHost();
-  if (adapter.mcpGateway && manifest?.entries.length) {
-    sessionMcpGatewayHost = await startSessionMcpGatewayHost({
-      sessionId: cfg.sessionId,
-      dataDir: config.session.dataDir,
-      onError: error => log(`[mcp-gateway] host error: ${error.message}`),
-    });
-    log(`[mcp-gateway] trusted host listening for ${manifest.entries.length} plugin server(s)`);
-  }
-  return manifest;
 }
 
-/** v2 read isolation — provision a bot's PER-BOT config dir under its BOT_HOME so the
- *  CLI (redirected there via CLAUDE_CONFIG_DIR/CODEX_HOME) starts fully set up despite
- *  the global ~/.claude|~/.codex being Seatbelt-denied. Idempotent (guards on
- *  existence), best-effort (only warns). The worker runs UNSANDBOXED, so it can read
- *  the global config/keychain to seed the per-bot copy. */
+/**
+ * Provision private CLI state before the sandboxed process starts. Provider
+ * credentials and immutable capabilities are projected in; runtime state stays
+ * below the principal home.
+ */
 function provisionIsolatedBotHome(
   botHome: string,
   workingDir: string,
@@ -1017,7 +973,7 @@ function provisionIsolatedBotHome(
   hookInstall: HookInstallConfig | undefined,
   log: (m: string) => void,
   multiUser?: { sharedCodexHome?: string },
-): void {
+): ReturnType<typeof provisionCodexProviderConfig> | undefined {
   try {
     if (isClaude) {
       const cdir = join(botHome, multiUser ? '.claude' : 'claude');
@@ -1059,24 +1015,55 @@ function provisionIsolatedBotHome(
     } else {
       const cdir = join(botHome, multiUser ? '.codex' : 'codex');
       mkdirSync(cdir, { recursive: true });
+      if (multiUser && lstatSync(cdir).isSymbolicLink()) {
+        throw new Error('The isolated Codex home must be a private directory');
+      }
       // auth.json: keep synced to the shared account's copy on EVERY spawn (a re-login
       // elsewhere rotates the refresh token, which would strand a stale per-bot copy).
       const sharedHome = multiUser?.sharedCodexHome ?? join(homedir(), '.codex');
-      const authSrc = join(sharedHome, 'auth.json');
-      if (existsSync(authSrc)) writeCredIfChanged(join(cdir, 'auth.json'), readFileSync(authSrc, 'utf-8'));
-      // config.toml: seed ONCE (it may carry per-bot customizations afterwards).
+      if (multiUser) syncCodexProviderCredential(sharedHome, cdir);
+      else {
+        const authSrc = join(sharedHome, 'auth.json');
+        if (existsSync(authSrc)) writeCredIfChanged(join(cdir, 'auth.json'), readFileSync(authSrc, 'utf-8'));
+      }
+      // config.toml: seed provider defaults ONCE without shared project trust;
+      // later trust and runtime edits belong to this principal.
       const cfgDst = join(cdir, 'config.toml');
       const cfgSrc = join(sharedHome, 'config.toml');
-      if (!existsSync(cfgDst) && existsSync(cfgSrc)) copyFileSync(cfgSrc, cfgDst);
+      if (!multiUser && !existsSync(cfgDst) && existsSync(cfgSrc)) {
+        atomicWriteFileSync(
+          cfgDst,
+          seedCodexPrincipalConfig(readFileSync(cfgSrc, 'utf8')),
+          { mode: 0o600, followTargetSymlink: false },
+        );
+      }
       if (multiUser) {
         const source = join(sharedHome, 'AGENTS.md');
         const target = join(cdir, 'AGENTS.md');
+        // Provider instructions are authoritative. The principal may unlink a
+        // projected file at runtime, so restore the exact read-only projection
+        // on every cold spawn instead of preserving a private replacement.
+        const current = lstatSync(target, { throwIfNoEntry: false });
+        if (current) {
+          const expected = existsSync(source) ? realpathSync(source) : undefined;
+          const matches = current.isSymbolicLink()
+            && expected !== undefined
+            && resolve(dirname(target), readlinkSync(target)) === expected;
+          if (!matches) rmSync(target, { recursive: true, force: true });
+        }
         if (!existsSync(target) && existsSync(source)) symlinkSync(realpathSync(source), target);
+      }
+      if (multiUser && (cliId === 'codex' || cliId === 'codex-app')) {
+        return provisionCodexProviderConfig(sharedHome, cdir);
       }
     }
   } catch (e) {
+    if (multiUser && (cliId === 'codex' || cliId === 'codex-app')) {
+      throw new Error(`Could not provision the isolated Codex provider config: ${(e as Error).message}`);
+    }
     log(`[read-isolation] WARN provisioning bot home failed: ${(e as Error).message}`);
   }
+  return undefined;
 }
 
 function claudeSettingsHasProviderAuth(settingsPath: string): boolean {
@@ -1128,9 +1115,19 @@ function freshestClaudeCred(): string | null {
 function writeCredIfChanged(dst: string, raw: string): void {
   const body = raw.endsWith('\n') ? raw : raw + '\n';
   try {
-    if (existsSync(dst) && readFileSync(dst, 'utf-8').trim() === raw.trim()) return;
+    const current = lstatSync(dst, { throwIfNoEntry: false });
+    if (current?.isFile()
+      && (current.mode & 0o777) === 0o600
+      && readFileSync(dst, 'utf-8').trim() === raw.trim()) return;
   } catch { /* unreadable existing file → overwrite below */ }
-  writeFileSync(dst, body, { mode: 0o600 });
+  // The isolated principal owns this directory and may replace the leaf with a
+  // symlink between spawns. Replace the leaf atomically without following it,
+  // otherwise the unsandboxed provisioner could overwrite an arbitrary host file.
+  atomicWriteFileSync(dst, body, {
+    mode: 0o600,
+    durable: true,
+    followTargetSymlink: false,
+  });
 }
 
 /** Seed a fresh per-bot `.claude.json` from the global top-level flags (minus projects)
@@ -1330,7 +1327,7 @@ let closeRequested = false;
  *  （bin + argv + cwd + 关键 env）。原样保留，worker `ready` 时随消息上报给 daemon
  *  持久化。仅有写权限的 dashboard 视图可见。 */
 let capturedSpawnCommand: string | null = null;
-const CLI_DISPLAY_NAMES: Record<string, string> = { 'claude-code': 'Claude', coco: 'CoCo', codex: 'Codex', 'codex-app': 'Codex App', cursor: 'Cursor', gemini: 'Gemini', genius: 'Genius', opencode: 'OpenCode', antigravity: 'Antigravity', mtr: 'MTR', hermes: 'Hermes', traex: 'TRAE', pi: 'Pi', copilot: 'Copilot', 'oh-my-pi': 'Oh My Pi', kimi: 'Kimi', grok: 'Grok Build', 'kiro-cli': 'Kiro', reasonix: 'Reasonix' };
+const CLI_DISPLAY_NAMES: Record<string, string> = { 'claude-code': 'Claude', coco: 'CoCo', codex: 'Codex', 'codex-app': 'Codex Desktop', cursor: 'Cursor', gemini: 'Gemini', genius: 'Genius', opencode: 'OpenCode', antigravity: 'Antigravity', mtr: 'MTR', hermes: 'Hermes', traex: 'TRAE', pi: 'Pi', copilot: 'Copilot', 'oh-my-pi': 'Oh My Pi', kimi: 'Kimi', grok: 'Grok Build', 'kiro-cli': 'Kiro', reasonix: 'Reasonix' };
 function cliName(): string {
   return (lastInitConfig?.cliRuntime?.source === 'configured'
     ? (lastInitConfig.cliRuntime.displayName?.trim() || lastInitConfig.cliRuntime.id)
@@ -4697,12 +4694,8 @@ let scrollback = '';
 let herdrWebHistory: HerdrWebHistoryState | null = null;
 let herdrWebScrollDirection: HerdrWebScrollDirection = null;
 let herdrWebCursor: HerdrWebTerminalCursor | null = null;
-const WORKFLOW_TRANSCRIPT_MAX = 2_000_000; // chars (~2MB)
-const WORKFLOW_OUTPUT_END_MARKER = '</WORKFLOW_OUTPUT>';
 const CRASH_DIAGNOSTIC_RAW_MAX = 200_000; // enough scrollback for the web terminal without huge temp files
-const CRASH_LOG_TAIL_MAX = 2_500; // bounded Feishu text payload
-let workflowTranscript = '';
-let workflowFinalOutputSent = false;
+const CRASH_LOG_TAIL_MAX = 2_500;
 /** Tracks whether the CLI is currently in the alt screen buffer. Updated by
  *  scanning PTY output for DECSET 1049/47/1047 toggles. Used when trimming
  *  scrollback at cap so replay always starts with the correct buffer mode —
@@ -4826,8 +4819,8 @@ function parkCrashDiagnosticTerminal(code: number | null, signal: string | null)
     mkdirSync(dirname(path), { recursive: true });
     const rawTail = tailChars(scrollback, CRASH_DIAGNOSTIC_RAW_MAX);
     const header =
-      `[botmux] ${cliName()} exited (code: ${code ?? 'null'}, signal: ${signal ?? 'null'}).\n` +
-      `[botmux] Captured at ${new Date().toISOString()}.\n\n`;
+      `${cliName()} exited (code: ${code ?? 'null'}, signal: ${signal ?? 'null'}).\n` +
+      `Captured at ${new Date().toISOString()}.\n\n`;
     writeFileSync(path, header + rawTail);
   } catch (err: any) {
     log(`Crash diagnostic log write failed: ${err?.message ?? err}`);
@@ -4875,64 +4868,6 @@ function parkCrashDiagnosticTerminal(code: number | null, signal: string | null)
  *  the ask-hook / CoCo picker paths (driveCocoPicker, handleTuiKeys); cleared
  *  when the prompt resolves or a Lark/terminal input overrides it. */
 let tuiPromptBlocking = false;
-
-function isWorkflowWorker(): boolean {
-  return process.env.BOTMUX_WORKFLOW === '1';
-}
-
-/**
- *  Raw PTY byte stream writer — independent of the IPC `final_output` path.
- *  Powers the dashboard "terminal replay" view: bytes flow straight through
- *  without splitting on `\n` or prefixing each line, so ANSI cursor moves /
- *  status bars / alt-screen toggles all survive and `xterm.write()` on the
- *  client renders an actual recording of the live session.
- *
- *  Lazily opened on first PTY chunk so attempts that never produce data
- *  don't leave empty `pty.log` files behind.  Closed at worker exit by the
- *  process-shutdown hook below.
- */
-let workflowPtyLogStream: WriteStream | undefined;
-let workflowPtyLogOpenFailed = false;
-function appendWorkflowPtyLog(data: string): void {
-  if (!isWorkflowWorker() || workflowPtyLogOpenFailed) return;
-  const path = process.env.BOTMUX_WORKFLOW_PTY_LOG_PATH;
-  if (!path) return;
-  if (!workflowPtyLogStream) {
-    try {
-      mkdirSync(dirname(path), { recursive: true });
-      workflowPtyLogStream = createWriteStream(path, { flags: 'a' });
-      workflowPtyLogStream.on('error', (err) => {
-        log(`workflow pty log write error: ${err.message}`);
-      });
-    } catch (err: any) {
-      workflowPtyLogOpenFailed = true;
-      log(`workflow pty log open failed (${path}): ${err.message}`);
-      return;
-    }
-  }
-  workflowPtyLogStream.write(data);
-}
-
-function captureWorkflowTranscript(data: string): void {
-  appendWorkflowPtyLog(data);
-  if (!isWorkflowWorker() || workflowFinalOutputSent) return;
-  workflowTranscript += data;
-  if (workflowTranscript.length > WORKFLOW_TRANSCRIPT_MAX) {
-    workflowTranscript = workflowTranscript.slice(-WORKFLOW_TRANSCRIPT_MAX);
-  }
-}
-
-function maybeEmitWorkflowTranscriptOutput(): void {
-  if (!isWorkflowWorker() || workflowFinalOutputSent) return;
-  if (!workflowTranscript.includes(WORKFLOW_OUTPUT_END_MARKER)) return;
-  send({
-    type: 'final_output',
-    content: workflowTranscript,
-    lastUuid: `workflow-pty-${Date.now()}`,
-    turnId: currentBotmuxTurnId ?? `workflow-pty-${sessionId || 'unknown'}`,
-  });
-  log('Workflow PTY transcript final_output emitted');
-}
 
 // ─── Stuck Detector (AI-free fallback for blocked CLI states) ───────────────
 
@@ -6110,7 +6045,6 @@ function onPtyData(data: string): void {
   backendScreenRevision += 1;
   lastPtyActivityAtMs = Date.now();
   maybeCaptureKiroSessionId(data);
-  captureWorkflowTranscript(data);
   renderer?.write(data);
 
   // In tmux-attach mode, each web client has its own tmux attach PTY —
@@ -6188,13 +6122,6 @@ async function onBackendScreenResync(snapshot: string): Promise<void> {
   // PTY bytes arrive while the snapshot is rendering they append after this
   // authoritative base rather than being overwritten by a late continuation.
   idleDetector?.reset();
-  if (isWorkflowWorker() && !workflowFinalOutputSent) {
-    // The append-only PTY replay log has no reset opcode. Appending a full
-    // history snapshot would duplicate everything already recorded; keep its
-    // live-byte semantics and rebase only the bounded final-output transcript.
-    workflowTranscript = snapshot.slice(-WORKFLOW_TRANSCRIPT_MAX);
-    maybeEmitWorkflowTranscriptOutput();
-  }
 
   let nextRenderer: TerminalRenderer | null = null;
   if (renderer) {
@@ -6396,7 +6323,6 @@ function markPromptReady(): void {
   // worker-local replay of the durable attempt.
   if (!durableTurnInFlight) inflightInputs.onTurnComplete();
   stuckDetector?.disarm();
-  maybeEmitWorkflowTranscriptOutput();
   if (awaitingFirstPrompt) {
     awaitingFirstPrompt = false;
     awaitingPostSessionStartPromptEvidence = false;
@@ -6793,7 +6719,7 @@ async function detectBareShellLaunch(): Promise<boolean> {
   if (trampolined) {
     message =
       `⚠️ 会话没能启动：pane 里现在是裸 \`${comm}\`，${cli} 没真正跑起来——所以我没把你的消息打进去（否则会被当 shell 命令执行，报 \`parse error\`）。\n\n` +
-      `最可能原因：botmux 用 \`${expectedShell}\` 启动 CLI，但 pane 落到了 \`${comm}\`。通常是 rc 文件（如 \`~/.${expectedShell}rc\`）里有 \`exec ${comm}\` 这类跳转——\`${expectedShell} -i\` 会 source rc，于是 shell 被顶替，CLI 的启动命令没机会跑。\n\n` +
+      `可能是因为会话使用 \`${expectedShell}\` 启动 CLI，但 pane 落到了 \`${comm}\`。通常是 rc 文件（如 \`~/.${expectedShell}rc\`）里有 \`exec ${comm}\` 这类跳转——\`${expectedShell} -i\` 会 source rc，于是 shell 被顶替，CLI 的启动命令没机会跑。\n\n` +
       `两种修法（任选其一，改完重启 daemon 再发一条消息）：\n` +
       `① 给那行加守卫，只在手动开终端时切：\`[ -z "$BASH_EXECUTION_STRING" ] && [ -t 1 ] && exec ${comm}\`（注意 PATH/nvm 等导出放在它之前）\n` +
       `② 给这个 bot 配 \`launchShell: ${comm}\`（dashboard 机器人配置，或 \`/config launchShell ${comm}\`），直接用 \`${comm}\` 启动绕开 \`${expectedShell}\` 的 rc——但要确保 PATH/nvm 在 \`${comm}\` 的 rc 里。`;
@@ -8073,18 +7999,14 @@ async function spawnCli(
   let effectiveReadyHookInstall: HookInstallConfig | undefined = cliAdapter.hookInstall;
   // ── UNIFIED file sandbox (fs-policy, 2026-07-16 refactor) ──
   // ONE toggle, BOTH platforms, identical three-tier deny-by-default semantics
-  // (adapters/cli/fs-policy.ts). Legacy `readIsolation` is auto-migrated to
-  // `sandbox` at daemon startup; honored here too for an unmigrated read-only
-  // BOTS_CONFIG.
-  const sandboxRequested = cfg.sandbox === true || cfg.readIsolation === true || sandboxEnabled();
+  // (adapters/cli/fs-policy.ts).
+  const sandboxRequested = cfg.sandbox === true || sandboxEnabled();
   const buildArgsWorkingDir = sandboxRequested
     ? (() => { try { return realpathSync(cfg.workingDir); } catch { return cfg.workingDir; } })()
     : cfg.workingDir;
   const backendIsolationGate = backendSandboxCompatibilityError({
     backendType: effectiveBackendType,
     fileSandboxRequested: sandboxRequested,
-    // The unified sandbox request above already includes legacy readIsolation.
-    effectiveReadIsolationRequested: false,
   });
   if (backendIsolationGate) {
     throw new Error(backendSandboxCompatibilityUserMessage(backendIsolationGate));
@@ -8130,33 +8052,11 @@ async function spawnCli(
   const isolationRuntimeDataDir = process.env.SESSION_DATA_DIR
     ?? join(defaultBotmuxHome, 'data');
 
-  let mcpRuntimeManifest: SessionMcpRuntimeManifest | null = readSessionMcpRuntimeManifest(
-    cfg.sessionId,
-    config.session.dataDir,
-  );
-  const hasMcpRuntimeEntries = !!cliAdapter.mcpGateway && !!mcpRuntimeManifest?.entries.length;
-  const reuseRecordedHerdrTarget = !sandboxRequested && !hasMcpRuntimeEntries;
-  if (effectiveBackend === 'herdr' && !reuseRecordedHerdrTarget) {
-    // Isolation/MCP incarnations move historical shared-host agents to the
-    // data-root-scoped managed target. Retire the exact old pane before backend
-    // selection mutates the durable stamp or a replacement CLI can spawn.
-    retireSupersededRecordedHerdrTarget({
-      sessionId: cfg.sessionId,
-      ownershipScope: isolationRuntimeDataDir,
-      reuseRecordedHerdrTarget,
-      persistentBackendTarget: cfg.persistentBackendTarget,
-    });
-  }
   const selectBackend = () => selectSessionBackend({
     sessionId: cfg.sessionId,
     backendType: effectiveBackend,
     herdrOwnershipScope: isolationRuntimeDataDir,
     persistentBackendTarget: cfg.persistentBackendTarget,
-    // Old builds could place managed agents in a user's shared Herdr session.
-    // Preserve that recorded target for compatibility unless this incarnation
-    // requires an isolation/MCP boundary that only a Botmux-owned session can
-    // safely provide. Fresh tasks use distinct agents in one machine-wide host.
-    reuseRecordedHerdrTarget,
     // ZMX reattach vs fresh is frozen here from the probe taken above; the
     // backend refuses to silently turn a fresh launch into an attach.
     hasExistingSession: effectiveBackend === 'zmx'
@@ -8203,6 +8103,7 @@ async function spawnCli(
   }
   let isolationBotHome: string | undefined;
   let isolatedCodexHome: string | undefined;
+  let codexProviderConfig: ReturnType<typeof provisionCodexProviderConfig> | undefined;
   const multiUserBaselineReadonlyRoots: string[] = [];
   if (willRedirectCliData) {
     isolationBotHome = cfg.multiUserHomeDir ?? ownBotHome;
@@ -8214,7 +8115,7 @@ async function spawnCli(
     else isolatedCodexHome = join(isolationBotHome, cfg.multiUserHomeDir ? '.codex' : 'codex');
     // Provision the per-bot config dir (auth + onboarding/trust seed + hooks for claude;
     // auth/config copy for codex) so the CLI starts fully set up under the Seatbelt wrapper.
-    provisionIsolatedBotHome(
+    codexProviderConfig = provisionIsolatedBotHome(
       isolationBotHome,
       cfg.workingDir,
       isClaudeFam,
@@ -8223,6 +8124,10 @@ async function spawnCli(
       log,
       cfg.multiUserHomeDir ? { sharedCodexHome: cfg.sharedCodexHome } : undefined,
     );
+    if (codexProviderConfig) {
+      multiUserBaselineReadonlyRoots.push(...codexProviderConfig.readonlyRoots);
+      log(`[codex] Provider config ${codexProviderConfig.changed ? 'refreshed' : 'unchanged'}: ${codexProviderConfig.configPath}; readonly marketplace roots=${codexProviderConfig.readonlyRoots.length}`);
+    }
     if (isClaudeFam && effectiveReadyHookInstall) {
       effectiveReadyHookInstall = {
         ...effectiveReadyHookInstall,
@@ -8240,7 +8145,7 @@ async function spawnCli(
       process.env.CODEX_HOME = isolatedCodexHome;
     }
   }
-  if (cfg.cliId === 'codex' && cfg.disableCliBypass !== true) {
+  if ((cfg.cliId === 'codex' || cfg.cliId === 'codex-app') && cfg.disableCliBypass !== true) {
     const activeCodexHome = isolatedCodexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex');
     const configPath = join(activeCodexHome, 'config.toml');
     try {
@@ -8269,7 +8174,7 @@ async function spawnCli(
     const primarySkillPath = adapterSkillPaths[0] ?? '~/.agents/skills';
     const skillSourcePaths = [...new Set([...adapterSkillPaths, '~/.agents/skills'])];
     const resolveSource = (path: string): string => {
-      if (cfg.cliId === 'codex' && cfg.sharedCodexHome && path === '~/.codex/skills') {
+      if ((cfg.cliId === 'codex' || cfg.cliId === 'codex-app') && cfg.sharedCodexHome && path === '~/.codex/skills') {
         return join(cfg.sharedCodexHome, 'skills');
       }
       return expandHostPath(path);
@@ -8438,78 +8343,6 @@ async function spawnCli(
     }
   }
   let willReattachPersistent = selectedBackend.isReattach === true;
-  if (cliAdapter.mcpGateway && mcpRuntimeManifest?.entries.length && persistentSessionName && effectiveBackendType !== 'pty') {
-    const persistentTarget = selectedBackend.persistentBackendTarget;
-    // ZMX ownership is label/PID-sensitive, so only its inconclusive probe
-    // fails closed. Other backends keep the pre-ZMX target-probe semantics.
-    const paneProbe = effectiveBackendType === 'zmx'
-      ? probeOwnedZmxSession(persistentSessionName, cfg.sessionId, resolvedZmxSessionPid).probe
-      : (persistentTarget ? probePersistentBackendTarget(persistentTarget) : 'missing');
-    if (
-      effectiveBackendType === 'zmx'
-      && resolvedZmxSessionProbe !== 'exists'
-      && paneProbe === 'exists'
-    ) {
-      throw new Error(
-        `[mcp-gateway] refusing to start session ${cfg.sessionId}: ` +
-        'ZMX session appeared after the frozen launch probe',
-      );
-    }
-    if (effectiveBackendType === 'zmx' && paneProbe === 'unknown') {
-      throw new Error(
-        `[mcp-gateway] refusing to start session ${cfg.sessionId}: ` +
-        `could not verify existing ${effectiveBackendType} pane`,
-      );
-    }
-    if (effectiveBackendType === 'zmx') {
-      resolvedZmxSessionProbe = paneProbe;
-    }
-    if (paneProbe === 'exists') {
-      // The trusted Gateway host belongs to the worker and cannot survive a
-      // worker/daemon replacement. Cold-resume the CLI so its MCP client gets a
-      // fresh relay socket instead of reattaching to a dead connection.
-      log(`[mcp-gateway] persistent pane ${cfg.sessionId} has plugin MCP state — cold-resuming with a fresh host`);
-      const persistentBackendType = effectiveBackendType as PersistentBackendType;
-      const persistentTarget = selectedBackend.persistentBackendTarget;
-      if (effectiveBackendType === 'zmx') {
-        ZmxBackend.killManagedSession(
-          persistentSessionName,
-          cfg.sessionId,
-          resolvedZmxSessionPid,
-        );
-      } else if (persistentTarget) {
-        killPersistentBackendTarget(persistentTarget, cfg.sessionId);
-      } else {
-        killPersistentSession(persistentBackendType, persistentSessionName, cfg.sessionId);
-      }
-      // Confirm the stale pane is really gone before re-selecting. Re-selection
-      // below decides reattach-vs-fresh from this probe, so an unconfirmed kill
-      // would let the new backend reattach to the pane we just tried to remove.
-      const postKillProbe = effectiveBackendType === 'zmx'
-        ? probeOwnedZmxSession(persistentSessionName, cfg.sessionId).probe
-        : (persistentTarget
-          ? probePersistentBackendTarget(persistentTarget)
-          : probePersistentSession(persistentBackendType, persistentSessionName));
-      if (shouldRejectPersistentPostKillProbe(persistentBackendType, postKillProbe)) {
-        throw new Error(
-          `[mcp-gateway] refusing to start session ${cfg.sessionId}: ` +
-          `could not confirm stale ${effectiveBackendType} pane termination`,
-        );
-      }
-      if (effectiveBackendType === 'zmx') {
-        resolvedZmxSessionProbe = postKillProbe;
-        resolvedZmxSessionPid = undefined;
-      }
-      selectedBackend = selectBackend();
-      isTmuxMode = selectedBackend.isTmuxMode;
-      isPipeMode = selectedBackend.isPipeMode;
-      isZellijMode = selectedBackend.isZellijMode;
-      backend = selectedBackend.backend;
-      cliLifetimeNonce++;
-      persistentSessionName = selectedBackend.persistentSessionName;
-      willReattachPersistent = selectedBackend.isReattach === true;
-    }
-  }
 
   const replacementExpectedFresh = codexRunnerFreshness === 'restarting_fresh';
   const freshness = decideCodexRunnerFreshness({
@@ -8534,12 +8367,10 @@ async function spawnCli(
   }
 
   // The plugin set is stable only for the lifetime of one real CLI process.
-  // A warm worker reattach keeps the existing Gateway and catalog untouched;
-  // every fresh/resumed CLI spawn atomically refreshes both from current Bot config.
-  if (!willReattachPersistent) {
-    mcpRuntimeManifest = opts.pluginGenerationPrepared
-      ? readSessionMcpRuntimeManifest(cfg.sessionId, config.session.dataDir)
-      : await prepareCliPluginGenerationAndGateway(cfg, cliAdapter);
+  // A warm worker reattach keeps the existing catalog untouched; every fresh
+  // or resumed CLI spawn refreshes it from the current Bot config.
+  if (!willReattachPersistent && !opts.pluginGenerationPrepared) {
+    prepareCliPluginGenerationRuntime(cfg, cliAdapter);
   }
 
   // Re-arm the startup-commands one-shot ONLY for a genuinely fresh CLI process.
@@ -8895,13 +8726,6 @@ async function spawnCli(
   // namespaced BOTMUX_LARK_APP_ID injected below; the worker keeps its own
   // bare creds (forkWorker) for lark-upload. See utils/child-env.ts.
   const childEnv = redactChildEnv(process.env);
-  if (sessionMcpGatewayHost) {
-    childEnv[MCP_GATEWAY_SOCKET_ENV] = sessionMcpGatewayHost.socketPath;
-    childEnv[MCP_GATEWAY_REQUIRED_ENV] = '1';
-  } else {
-    delete childEnv[MCP_GATEWAY_SOCKET_ENV];
-    delete childEnv[MCP_GATEWAY_REQUIRED_ENV];
-  }
   // Put the daemon-written wrapper dir (~/.botmux/bin/botmux = THIS build) ahead of any
   // stale npm-global botmux in PATH, so the agent's `botmux` is always this build. Matters
   // most under read isolation: only this build has the send-cred reader — a shadowing stale
@@ -9097,18 +8921,7 @@ async function spawnCli(
       return out;
     };
 
-    // User three-tier lists: the new sandboxPaths field, or a pre-migration
-    // session/config's legacy fields mapped through the SAME lossless mapping
-    // the startup migration uses.
-    const legacyMapped = migrateLegacySandboxFields({
-      sandbox: cfg.sandbox,
-      readIsolation: cfg.readIsolation,
-      sandboxReadonlyPaths: cfg.sandboxReadonlyPaths,
-      sandboxHidePaths: cfg.sandboxHidePaths,
-      readDenyExtraPaths: cfg.readDenyExtraPaths,
-      sandboxPaths: cfg.sandboxPaths,
-    });
-    const userLists = cfg.sandboxPaths ?? legacyMapped?.sandboxPaths;
+    const userLists = cfg.sandboxPaths;
     const droppedUser: string[] = [];
     const resolveUser = (paths?: readonly string[]) => {
       const out: string[] = [];
@@ -9240,22 +9053,6 @@ async function spawnCli(
         } catch { /* absent authority root */ }
       }
     }
-    if (mcpRuntimeManifest) {
-      mandatoryDenyPaths.push(...sessionMcpRuntimeHostOnlyPaths(
-        mcpRuntimeManifest,
-        config.session.dataDir,
-      ).map(canonical));
-    }
-    if (process.platform === 'darwin') {
-      const gatewaySocketRoot = canonical(
-        sessionMcpGatewayHost ? dirname(sessionMcpGatewayHost.socketDir) : tmpdir(),
-      );
-      mandatoryDenyRegexes.push(sessionMcpGatewayPathRegex(gatewaySocketRoot));
-      if (sessionMcpGatewayHost) {
-        mandatoryReadOnlyPaths.push(canonical(sessionMcpGatewayHost.socketDir));
-      }
-    }
-
     // No-Lark-transport turn (apiOnly bot OR HTTP virtual chat) has no Feishu
     // sender identity and no business with the role system — it gets NO role
     // library grant, and we skip both the resolve and the diagnostic below.
@@ -9368,7 +9165,7 @@ async function spawnCli(
       readonlyRoots: keepExisting([
         ...(cfg.skillReadonlyRoots ?? []),
         ...multiUserBaselineReadonlyRoots,
-        ...(cfg.sharedCodexHome && cfg.cliId === 'codex'
+        ...(cfg.sharedCodexHome && (cfg.cliId === 'codex' || cfg.cliId === 'codex-app')
           ? [join(cfg.sharedCodexHome, 'AGENTS.md'), join(cfg.sharedCodexHome, 'skills')]
           : []),
         ...piInitialPromptReadonlyRoots,
@@ -9476,8 +9273,6 @@ async function spawnCli(
               childEnv.PATH,
             ].filter(Boolean).join(delimiter)
           : childEnv.PATH,
-        trustedBotmuxCommandPaths: [defaultGatewayEntry().command],
-        mcpGatewaySocketPath: sessionMcpGatewayHost?.socketPath,
       });
       if (!sbx) {
         // FAIL-SAFE: never silently run unsandboxed.
@@ -9728,7 +9523,7 @@ async function spawnCli(
     send({
       type: 'user_notify',
       turnId: currentBotmuxTurnId,
-      message: `已创建 Botmux 专属 Herdr 会话：\`${selectedBackend.createdHerdrSessionName}\``,
+      message: `已为你创建独立的 Herdr 会话：\`${selectedBackend.createdHerdrSessionName}\``,
     });
   }
 
@@ -10162,7 +9957,6 @@ async function spawnCli(
         `Handed ${handedOffDurable.length} queued durable input(s) to daemon replay after CLI exit`,
       );
     }
-    stopSessionMcpGatewayHost();
     const exitedTurnId = currentBotmuxTurnId;
     const exitedDispatchAttempt = currentBotmuxDispatchAttempt;
     // Fail closed as soon as this CLI generation ends. The Node worker may
@@ -10332,7 +10126,6 @@ function killCli(opts: {
 } = {}): void {
   currentCliCredentialIsolated = false;
   stopNativeSessionTitleSync();
-  stopSessionMcpGatewayHost();
   stopCodexRpcEngine();
   if (!opts.preservePending) cleanupPiInitialPromptFiles();
   destroyCrashDiagnosticTerminal('killCli');
@@ -10491,7 +10284,7 @@ async function restartCliProcess(
             let rpcPluginGenerationPrepared = false;
             if (codexRpcEligible(restartCfg, { sandboxForced: sandboxEnabled() })) {
               const adapter = createCliAdapterSync(restartCfg.cliId as CliId, restartCfg.cliPathOverride);
-              await prepareCliPluginGenerationAndGateway(restartCfg, adapter);
+              prepareCliPluginGenerationRuntime(restartCfg, adapter);
               rpcPluginGenerationPrepared = true;
               await engageCodexRpc(restartCfg);
             }
@@ -11815,9 +11608,6 @@ function send(msg: WorkerToDaemon): void {
     return;
   }
   const payload = workerIpcPayload(msg);
-  if (isWorkflowWorker() && payload.type === 'final_output') {
-    workflowFinalOutputSent = true;
-  }
   process.send?.(payload);
 }
 
@@ -11995,11 +11785,7 @@ process.on('message', async (raw: unknown) => {
         setDefaultLocale(msg.locale);
       }
       // Scope session store to this bot's per-bot file.
-      // Slice C0: workflow-spawned workers (BOTMUX_WORKFLOW=1) skip this —
-      // their `sessionId` is synthetic (`wf-<runId>-<activityId>-...`) and
-      // must not be appended to the bot's chat-session registry.  The
-      // workflow's own event log is the source of truth for run state.
-      if (msg.larkAppId && process.env.BOTMUX_WORKFLOW !== '1') {
+      if (msg.larkAppId) {
         sessionStore.init(msg.larkAppId);
       }
       // Capture credentials for direct image upload from worker
@@ -12041,25 +11827,14 @@ process.on('message', async (raw: unknown) => {
         }
         let port = 0;
         const webTerminalEnabled = backendSupportsWebTerminal(requestedBackendType);
-        if (!isWorkflowWorker()) {
-          if (webTerminalEnabled) {
-            port = await startWebServer(config.web.workerHost, msg.webPort);
-          } else {
-            log(`Web terminal disabled for ${requestedBackendType} backend (no raw ANSI transport)`);
-          }
-          startScreenUpdates();
-          startStuckDetector();
+        if (webTerminalEnabled) {
+          port = await startWebServer(config.web.workerHost, msg.webPort);
         } else {
-          // Workflow attempts expose a read-only web terminal only when the
-          // backend has a raw terminal stream. Keep chat-side features
-          // disabled: no screen cards, no analyzer, no sessionStore writes.
-          if (webTerminalEnabled) {
-            port = await startWebServer(config.web.workerHost, msg.webPort);
-            log('Workflow worker mode: web terminal enabled; skipping screen updates and screen analyzer');
-          } else {
-            log(`Workflow worker mode: web terminal disabled for ${requestedBackendType} backend`);
-          }
+          log(`Web terminal disabled for ${requestedBackendType} backend (no raw ANSI transport)`);
         }
+        startScreenUpdates();
+        startStuckDetector();
+
         // Hybrid codex RPC input (opt-in): bind the pane to a botmux-owned
         // app-server thread; input flows via JSON-RPC instead of a drop-prone
         // paste. The pure orchestrator (codex-rpc-lifecycle) decides fresh vs
@@ -12077,7 +11852,7 @@ process.on('message', async (raw: unknown) => {
           paneIsRemote: (name) => paneRunsRemoteTui(name, {}, msg.cliRuntime?.executable),
           prepare: async () => {
             const adapter = createCliAdapterSync(msg.cliId as CliId, msg.cliPathOverride);
-            await prepareCliPluginGenerationAndGateway(msg, adapter);
+            prepareCliPluginGenerationRuntime(msg, adapter);
             rpcPluginGenerationPrepared = true;
           },
           engage: () => engageCodexRpc(msg),
@@ -13126,7 +12901,6 @@ process.on('message', async (raw: unknown) => {
 function cleanup(): void {
   stopNativeSessionTitleSync();
   cleanupPiInitialPromptFiles();
-  stopSessionMcpGatewayHost();
   if (tmuxRestartTimer) {
     clearTimeout(tmuxRestartTimer);
     tmuxRestartTimer = null;
@@ -13140,10 +12914,6 @@ function cleanup(): void {
   herdrWebBindings.clear();
   if (wss) { wss.close(); wss = null; }
   if (httpServer) { httpServer.close(); httpServer = null; }
-  if (workflowPtyLogStream) {
-    try { workflowPtyLogStream.end(); } catch { /* already closed */ }
-    workflowPtyLogStream = undefined;
-  }
 }
 
 process.on('SIGTERM', () => { stopScreenshotLoop(); killCli(); cleanup(); process.exit(0); });

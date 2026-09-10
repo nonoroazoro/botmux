@@ -46,9 +46,9 @@ export interface ResolvedCliSelection {
 // ─── Codex 选项 ──────────────────────────────────────────────────────────────
 // 两种形态合并成一个「Codex」二级菜单（都是原生 cliId，无 wrapperCli）：
 //   - Codex     → cliId `codex`     ：标准 codex CLI
-//   - Codex App → cliId `codex-app` ：Codex 桌面 app 的 app-server runner
+//   - Codex Desktop → cliId `codex-app` ：Codex Desktop 的 app-server runner
 const CODEX_NATIVE: CliSelectOption = { key: 'codex', label: 'Codex', cliId: 'codex' };
-const CODEX_APP: CliSelectOption = { key: 'codex-app', label: 'Codex App', cliId: 'codex-app' };
+const CODEX_APP: CliSelectOption = { key: 'codex-app', label: 'Codex Desktop', cliId: 'codex-app' };
 const CODEX_VARIANTS: ReadonlyArray<CliSelectOption> = [CODEX_NATIVE, CODEX_APP];
 
 // ─── TRAE 选项 ───────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ export const CLI_SELECT_TREE: ReadonlyArray<CliSelectGroup> = [
  */
 export const CLI_SELECT_OPTIONS: ReadonlyArray<CliSelectOption> = [
   ...CLI_OPTIONS.flatMap((o) => {
-    if (o.id === 'codex') return CODEX_VARIANTS;  // expands to Codex + Codex App
+    if (o.id === 'codex') return CODEX_VARIANTS;  // expands to Codex + Codex Desktop
     if (o.id === 'codex-app') return [];
     if (o.id === 'coco') return TRAE_VARIANTS;    // expands to TRAE CLI (CoCo) + traex
     if (o.id === 'traex') return [];

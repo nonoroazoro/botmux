@@ -1,6 +1,5 @@
 /**
- * Proactive auto-start policy — pure decision helpers for the two
- * "主动开工" features (see docs/specs/20260529-proactive-auto-start/).
+ * Proactive auto-start policy with pure decision helpers for both triggers.
  *
  * Two independent triggers, both opt-in per bot (default off):
  *   1. Bot added to a new chat  → spawn a session (场景① / autoStartOnGroupJoin)

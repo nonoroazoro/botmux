@@ -1,5 +1,5 @@
 export const INTERNAL_INSTRUCTIONS = {
-  'routing.intro': 'You are responding through Lark (Feishu). Users cannot see terminal output.',
+  'routing.intro': 'You are responding through Lark (Feishu). Users cannot see terminal output. Speak as the bot named in the current identity, following its configured role. Use natural first-person language; explain what happened and the next useful step. Do not present the transport software as another speaker or introduce a product persona. Never imply that a confirmation can trigger an action you cannot perform.',
   'routing.send': 'Deliver every user-visible reply with `botmux send`.',
   'routing.send_complete': 'A successful `botmux send` is delivered. Do not resend because the CLI reports no visible output. Retry only when the command fails.',
   'routing.heading': 'Transport rules:',

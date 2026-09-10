@@ -54,77 +54,11 @@ export function managedHerdrAgentName(
   return `${MANAGED_HERDR_AGENT_PREFIX}${token}`;
 }
 
-/** True only for the strong managed-agent format introduced after the legacy
- * `botmux-${sessionId.slice(0, 8)}` scheme. Persisted legacy names remain valid
- * exact targets for reattach/explicit close, but must not be inferred as safe
- * startup-orphan cleanup authority.
+/**
+ * Recognize complete managed identities before authorizing orphan removal.
  */
 export function isStrongManagedHerdrAgentName(agentName: string): boolean {
   return STRONG_MANAGED_HERDR_AGENT_RE.test(agentName);
-}
-
-/**
- * Retire an old shared-host Herdr agent before a sandbox/MCP incarnation moves
- * the logical session to its data-root-scoped managed target.
- *
- * The durable target stamp is also our cleanup authority. Only the current
- * strong identity proves that the exact pane belongs to this Botmux session;
- * persisted legacy short names are safe reattach coordinates, but not enough
- * authority for automatic destruction. Every close is followed by a probe so
- * Herdr command failures cannot silently turn into a duplicate CLI.
- */
-export function retireSupersededRecordedHerdrTarget(opts: {
-  sessionId: string;
-  ownershipScope?: string;
-  reuseRecordedHerdrTarget: boolean;
-  persistentBackendTarget?: PersistentBackendTarget;
-}): void {
-  if (opts.reuseRecordedHerdrTarget) return;
-  const recorded = opts.persistentBackendTarget;
-  if (recorded?.backendType !== 'herdr' || !recorded.agentName) return;
-
-  const replacementSessionName = HerdrBackend.managedSessionName();
-  const replacementAgentName = managedHerdrAgentName(opts.sessionId, opts.ownershipScope);
-  if (
-    recorded.sessionName === replacementSessionName
-    && recorded.agentName === replacementAgentName
-  ) {
-    return;
-  }
-
-  const exactTarget = `${recorded.sessionName}/${recorded.agentName}`;
-  const initialProbe = HerdrBackend.probeAgent(recorded.sessionName, recorded.agentName);
-  if (initialProbe === 'missing') return;
-  if (initialProbe === 'unknown') {
-    throw new Error(
-      `[herdr migration] probe inconclusive for recorded target ${exactTarget}; `
-      + 'refusing to start a replacement until the old agent can be verified',
-    );
-  }
-
-  if (!isStrongManagedHerdrAgentName(recorded.agentName)) {
-    throw new Error(
-      `[herdr migration] legacy Herdr target ${exactTarget} is still live; `
-      + 'close that old Botmux session/agent explicitly, then retry',
-    );
-  }
-  if (recorded.agentName !== replacementAgentName) {
-    throw new Error(
-      `[herdr migration] recorded Herdr target ${exactTarget} does not match this `
-      + 'Botmux data root; close the old Botmux session/agent explicitly, then retry',
-    );
-  }
-
-  // Close only the exact pane. The surrounding host may be user-owned or may
-  // contain agents belonging to other Botmux sessions.
-  HerdrBackend.killAgent(recorded.sessionName, recorded.agentName);
-  const postKillProbe = HerdrBackend.probeAgent(recorded.sessionName, recorded.agentName);
-  if (postKillProbe !== 'missing') {
-    throw new Error(
-      `[herdr migration] could not verify removal of recorded target ${exactTarget} `
-      + `(probe: ${postKillProbe}); refusing to start a duplicate`,
-    );
-  }
 }
 
 export type BackendGateDecision =
@@ -181,19 +115,13 @@ export function backendGateUserMessage(backend: BackendType, reason: string): st
  * File/read isolation is currently enforced only when Botmux owns the local
  * launch wrapper (PTY or tmux). Herdr, Zellij, and ZMX own/spawn the child
  * outside that bwrap/Seatbelt boundary, so they must fail before backend
- * selection or migration mutates any live resource.
+ * selection mutates any live resource.
  */
 export function backendSandboxCompatibilityError(opts: {
   backendType: BackendType;
   fileSandboxRequested: boolean;
-  /** Compatibility input for callers that still model standalone read
-   * isolation. The worker passes false because its unified sandbox request
-   * already folds in the legacy readIsolation flag on every host. */
-  effectiveReadIsolationRequested: boolean;
 }): string | undefined {
-  const isolationRequested =
-    opts.fileSandboxRequested || opts.effectiveReadIsolationRequested;
-  if (!isolationRequested) return undefined;
+  if (!opts.fileSandboxRequested) return undefined;
   if (
     opts.backendType === 'pty'
     || opts.backendType === 'tmux'
@@ -207,7 +135,7 @@ export function backendSandboxCompatibilityUserMessage(reason: string): string {
   return [
     '⚠️ 当前后端无法执行 botmux 的文件沙盒或读隔离，已拒绝启动以避免未隔离运行。',
     `原因：${reason}`,
-    '请将该 bot 的 backendType 改为 tmux / pty，或关闭 sandbox（含全局 BOTMUX_SANDBOX）及 legacy readIsolation 后重试。',
+    '请将该 bot 的 backendType 改为 tmux / pty，或关闭 sandbox（含全局 BOTMUX_SANDBOX）后重试。',
   ].join('\n');
 }
 
@@ -233,8 +161,6 @@ export function selectSessionBackend(opts: {
   /** Canonical local ownership boundary used to keep machine-wide Herdr agent
    * names distinct across independent Botmux data roots/checkouts. */
   herdrOwnershipScope?: string;
-  /** Migration compatibility for sessions previously placed in a shared user host. */
-  reuseRecordedHerdrTarget?: boolean;
   persistentBackendTarget?: PersistentBackendTarget;
   hasExistingSession?: boolean;
   /** Host-persistent journal for fail-closed ZMX composer recovery. */
@@ -286,84 +212,17 @@ export function selectSessionBackend(opts: {
   }
 
   if (opts.backendType === 'herdr') {
-    const ownedSessionName = HerdrBackend.sessionName(opts.sessionId);
-    // A restarted worker must reattach to the SAME shared host selected by the
-    // prior generation. Re-selecting from UI current/default state could pick a
-    // different workspace, start a duplicate CLI there, and orphan
-    // the still-live managed agent in the recorded host. Isolation/MCP callers
-    // explicitly disable shared reuse, so they intentionally ignore this stamp
-    // and converge back to the machine-wide Botmux-managed session.
-    const recorded = opts.reuseRecordedHerdrTarget === false
-      ? undefined
-      : opts.persistentBackendTarget?.backendType === 'herdr'
-        && opts.persistentBackendTarget.agentName
-        ? opts.persistentBackendTarget
-        : undefined;
-    if (recorded) {
-      const hostProbe = HerdrBackend.probeSession(recorded.sessionName);
-      if (hostProbe === 'unknown') {
-        throw new Error(`recorded herdr session ${recorded.sessionName} probe inconclusive`);
-      }
-      if (hostProbe === 'exists') {
-        const agentProbe = HerdrBackend.probeAgent(recorded.sessionName, recorded.agentName!);
-        if (agentProbe === 'unknown') {
-          throw new Error(`recorded herdr agent ${recorded.sessionName}/${recorded.agentName} probe inconclusive`);
-        }
-        const reattach = agentProbe === 'exists';
-        return {
-          backend: new HerdrBackend(recorded.sessionName, {
-            agentName: recorded.agentName,
-            isReattach: reattach,
-            ownsSession: false,
-            ownsAgent: true,
-          }),
-          isTmuxMode: false,
-          isPipeMode: true,
-          isZellijMode: false,
-          persistentSessionName: recorded.sessionName,
-          persistentBackendTarget: recorded,
-          isReattach: reattach,
-        };
-      }
-    }
-
-    if (opts.reuseRecordedHerdrTarget === false) {
-      // A legacy exclusive `bmx-<sid8>` host was created before sandbox/MCP
-      // incarnation identity became part of Herdr placement. Reattaching it
-      // would silently keep the old, differently-configured CLI alive. The
-      // 8-character address is also too weak to authorize automatic teardown
-      // across data roots, so require an explicit close when it still exists.
-      const legacyProbe = HerdrBackend.probeSession(ownedSessionName);
-      if (legacyProbe === 'unknown') {
-        throw new Error(
-          `legacy herdr session ${ownedSessionName} probe inconclusive; `
-          + 'refusing isolation/MCP migration',
-        );
-      }
-      if (legacyProbe === 'exists') {
-        throw new Error(
-          `legacy herdr session ${ownedSessionName} is still live; `
-          + 'close it explicitly before enabling isolation or MCP',
-        );
-      }
-    } else if (HerdrBackend.hasSession(ownedSessionName)) {
-      return {
-        backend: new HerdrBackend(ownedSessionName, { isReattach: true }),
-        isTmuxMode: false,
-        isPipeMode: true,
-        isZellijMode: false,
-        persistentSessionName: ownedSessionName,
-        persistentBackendTarget: { backendType: 'herdr', sessionName: ownedSessionName },
-        isReattach: true,
-      };
-    }
-
     // Every fresh agent actively launched by this machine's Botmux shares the
     // reserved `botmux` Herdr host, regardless of which Lark bot, dashboard, or
     // other Botmux entry point requested it. Topics remain isolated as distinct
     // managed agents/panes. /adopt stays bound to its explicit user session.
     const hostSessionName = HerdrBackend.managedSessionName();
     const agentName = managedHerdrAgentName(opts.sessionId, opts.herdrOwnershipScope);
+    const recorded = opts.persistentBackendTarget;
+    if (recorded && (recorded.backendType !== 'herdr'
+      || recorded.sessionName !== hostSessionName || recorded.agentName !== agentName)) {
+      throw new Error('Stored Herdr target does not match this session and data root');
+    }
     const hostExists = HerdrBackend.hasSession(hostSessionName);
     const reattach = hostExists && HerdrBackend.hasAgent(hostSessionName, agentName);
     return {

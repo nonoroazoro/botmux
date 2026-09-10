@@ -1,10 +1,4 @@
-/**
- * Canonical skills shipped with botmux.
- *
- * Each definition is a complete SKILL.md. Built-in skills use the botmux CLI,
- * avoid optional MCP dependencies, and keep discovery frontmatter minimal.
- */
-import { ASK_HUMAN_ERROR_CODE, GOAL_ASK_FILE, GOAL_ENV } from '../workflows/v3/contract.js';
+
 import {
   ARTIFACT_MANAGER_SKILL,
   KNOWLEDGE_CREATOR_SKILL,
@@ -286,27 +280,6 @@ EOF
 After sending, briefly tell the user who owns the next step.
 `;
 
-const WORKFLOW_CREATE_SKILL = `---
-name: botmux-workflow-create
-description: Maintain or migrate an explicitly named legacy v2 workflow JSON. Never create or execute a new v2 workflow.
----
-
-# Legacy v2 Workflow Maintenance
-
-New work must use \`botmux-workflow\`. Use this skill only when the user explicitly asks to inspect, repair, or migrate an existing \`$HOME/.botmux/workflows/*.workflow.json\` file.
-
-- Do not write before the user approves the proposed changes.
-- Run \`botmux bots list\` and store \`larkAppId\`, never display names, in \`subagent.bot\`.
-- Modify only the explicit existing absolute path. Do not create compatibility copies.
-- Validate with \`botmux template migrate-v3 <path>\` in dry-run mode.
-- Commit migration only after a clean dry run and explicit owner, app, and scope authorization.
-- Never use retired validate, run, resume, or cancel commands.
-- Recommend \`humanGate\` for external messages, file writes, API mutations, pushes, deletes, and overwrites.
-- Use a whole-field \`$ref\` for objects or arrays. Use \`\${...}\` only inside strings for scalar values. Double-brace templates are unsupported.
-
-Report the modified path and dry-run result. After migration, use \`/workflow run <name>\`.
-`;
-
 export const ASK_SKILL = `---
 name: botmux-ask
 description: Ask a blocking multiple-choice question in the current Lark topic and return a machine-readable answer to the calling shell.
@@ -335,46 +308,6 @@ botmux send --mention <open_id> "..."
 \`\`\`
 
 JSON output includes \`selected\`, \`by\`, \`timedOut\`, and \`comment\`. Exit codes: 0 success, 124 timeout, 2 invalid arguments or missing environment, 3 daemon unavailable or request invalidated. Human-readable diagnostics are on stderr.
-`;
-
-const GOAL_ASK_SKILL = `---
-name: botmux-goal-ask
-description: Pause a v3 goal-mode node for an unavoidable human choice or free-text answer using the file-based ask protocol.
----
-
-# Goal-mode Human Input
-
-Use only when the node cannot safely infer, inspect, or test the required decision. Do not use native question tools or \`botmux ask\`. Authentication and permission failures use ordinary retryable failure manifests instead.
-
-Write \`$${GOAL_ENV.ATTEMPT_DIR}/${GOAL_ASK_FILE}\` as either:
-
-\`\`\`json
-{ "question": "Choose a deployment strategy", "options": ["Canary", "Immediate"] }
-\`\`\`
-
-or:
-
-\`\`\`json
-{ "question": "Describe the billing boundary", "freeText": true }
-\`\`\`
-
-Then write \`$${GOAL_ENV.MANIFEST_PATH}\` and stop:
-
-\`\`\`json
-{
-  "schemaVersion": 1,
-  "status": "fail",
-  "summary": "Same meaning as ask.question",
-  "files": [],
-  "error": {
-    "code": "${ASK_HUMAN_ERROR_CODE}",
-    "message": "Same meaning as ask.question",
-    "retryable": true
-  }
-}
-\`\`\`
-
-After a human answers, the node reruns. Read \`$${GOAL_ENV.INPUTS_PATH}\`, find the input with \`"from": "human"\` and \`"name": "answer"\`, then read its JSON path. Use \`selected\` for choices or \`text\` for free text.
 `;
 
 const ORCHESTRATE_SKILL = `---
@@ -411,84 +344,6 @@ Do not mention an active child bot from the lead topic; that would create a sepa
 7. When all workstreams pass acceptance, deliver one integrated report with outputs and remaining risks.
 
 Keep a small local mapping of workstream, \`task_guid\`, topic root, and assigned bots for recovery. Stop and notify the user after three failed attempts at the same operation.
-`;
-
-const WORKFLOW_V3_SKILL = `---
-name: botmux-workflow
-description: Handle the legacy botmux v3 ad hoc Workflow runtime only when the prompt contains [/workflow new] or the user explicitly requests that runtime. Never use for Knowledge, Skill, or Dynamic Workflow artifacts.
----
-
-# Legacy v3 Ad Hoc Workflow
-
-Use this path only for explicit \`/workflow\` runtime commands. Natural-language Workflow creation, management, and execution belongs to the Dynamic Workflow artifact system. This runtime is for a bounded multi-step task that ends in one deliverable, not a long-running multi-bot project.
-
-## Create and execute
-
-1. Create a run:
-
-\`\`\`bash
-botmux workflow new "<concise goal>"
-\`\`\`
-
-2. Clarify one decision at a time. Recommend a default, inspect facts instead of asking for them, and stop questioning when the user says to use defaults. Capture for each planned node: \`goal\`, \`input_needs\`, \`expected_outputs\`, \`acceptance\`, \`risk_gate\`, and unresolved \`unknowns\`.
-
-3. Write the returned \`specPath\` with a concise narrative and exactly one fenced JSON object:
-
-\`\`\`json
-{
-  "schemaVersion": 1,
-  "runId": "<runId>",
-  "title": "<title>",
-  "requirement": "<requirement>",
-  "acceptance": "<overall acceptance>",
-  "nonGoals": [],
-  "nodes": [{
-    "sketchId": "research",
-    "goal": "Produce facts.md",
-    "input_needs": [],
-    "expected_outputs": ["facts.md"],
-    "acceptance": "The evidence is complete and cited",
-    "risk_gate": false,
-    "unknowns": []
-  }]
-}
-\`\`\`
-
-\`input_needs\` describes required information or products in free text. It is not an upstream node ID list; dependency inference belongs to the architect.
-
-4. Validate and revise until clean:
-
-\`\`\`bash
-botmux workflow spec-finalize <runId>
-\`\`\`
-
-5. Gate 1: present the requirements, steps, outputs, acceptance criteria, and non-goals. After explicit approval:
-
-\`\`\`bash
-botmux workflow approve-spec <runId>
-botmux workflow architect <runId>
-\`\`\`
-
-6. Gate 2: read the generated DAG and notes. Explain nodes, dependencies, and runtime gates. After explicit approval:
-
-\`\`\`bash
-botmux workflow approve-dag <runId>
-botmux workflow start <runId>
-\`\`\`
-
-Use the daemon path, not \`botmux v3 run\`, so Lark approval cards work. If requirements change, use \`revise-spec\`; if only the DAG changes, use \`revise-dag\`.
-
-## Saved runs
-
-\`\`\`bash
-botmux workflow save last <name>
-botmux workflow run <name> --param key=value
-botmux workflow list
-botmux workflow show <name>
-botmux workflow cancel <runId>
-\`\`\`
-
-Save only after explicit user intent and only after a successful run. Request missing required parameters and present ambiguous names as choices. Never add \`--global\`, \`--distill\`, or \`--ack-unsafe\` on the user's behalf. Require the user to issue the corresponding Lark command so the daemon can authorize it.
 `;
 
 export const WHITEBOARD_SKILL = `---
@@ -551,7 +406,6 @@ export const BUILTIN_SKILLS: SkillDef[] = [
   { name: 'botmux-poll', content: POLL_SKILL },
   { name: 'botmux-bots', content: BOTS_SKILL },
   { name: 'botmux-handoff', content: HANDOFF_SKILL },
-  { name: 'botmux-goal-ask', content: GOAL_ASK_SKILL },
   { name: 'botmux-orchestrate', content: ORCHESTRATE_SKILL },
 ];
 
@@ -559,18 +413,4 @@ export const BUILTIN_SKILLS: SkillDef[] = [
  * Legacy Workflow instructions available only to explicit daemon routes.
  */
 export const ON_DEMAND_BUILTIN_SKILLS: SkillDef[] = [
-  { name: 'botmux-workflow-create', content: WORKFLOW_CREATE_SKILL },
-  { name: 'botmux-workflow', content: WORKFLOW_V3_SKILL },
-];
-
-/**
- * Skill directories removed during upgrades.
- */
-export const RETIRED_SKILL_NAMES: string[] = [
-  'botmux-remember',
-  'botmux-thread-messages',
-  'botmux-needs-help',
-  'botmux-worker-budget',
-  'botmux-workflow-create',
-  'botmux-workflow',
 ];

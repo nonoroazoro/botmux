@@ -1,13 +1,7 @@
-export type TriggerSourceType = 'webhook' | 'ui' | 'workflow' | 'schedule' | 'vc_meeting';
-export type TriggerTargetKind = 'turn' | 'workflow';
+export type TriggerSourceType = 'webhook' | 'ui' | 'schedule' | 'vc_meeting';
+export type TriggerTargetKind = 'turn';
 export type TriggerAction = 'queued' | 'delivered' | 'dry_run' | 'ignored' | 'completed';
 export type TriggerAsyncStatus = 'pending' | 'completed';
-export type LegacyWorkflowRetirementReason =
-  | 'pending'
-  | 'migrated'
-  | 'changed_after_migration'
-  | 'identity_conflict';
-
 export interface TriggerRequest {
   source: {
     type: TriggerSourceType;
@@ -21,7 +15,6 @@ export interface TriggerRequest {
     chatId?: string;
     sessionId?: string;
     rootMessageId?: string;
-    workflowId?: string;
   };
   envelope: {
     format: string;
@@ -70,7 +63,6 @@ export type TriggerErrorCode =
   | 'dry_run'
   | 'invalid_signature'
   | 'chat_not_allowed'
-  | 'legacy_workflow_retired'
   | 'group_create_failed'
   | 'lifecycle_extract_failed'
   | 'rate_limited'
@@ -79,8 +71,7 @@ export type TriggerErrorCode =
   | 'target_required'
   | 'trigger_failed'
   | 'wait_timeout'
-  | 'no_output'
-  | 'workflow_trigger_not_implemented';
+  | 'no_output';
 
 /** Four-state async lifecycle for `GET /api/sessions/:id/trigger-result`.
  *  Programmatic callers (task runners) branch on this instead of ok/action:
@@ -96,23 +87,18 @@ export interface TriggerResponse {
   triggerId?: string;
   action?: TriggerAction;
   /** Four-state async lifecycle. Present on trigger-result (async polling)
-   *  responses; absent on synchronous turn/workflow dispatch responses. */
+   *  responses; absent on synchronous turn dispatch responses. */
   state?: AsyncTriggerState;
   /** ISO8601 completion/termination time. Present on completed/failed states. */
   finishedAt?: string;
   target?: {
     kind: TriggerTargetKind;
     sessionId?: string;
-    workflowRunId?: string;
     chatId?: string;
   };
   message?: string;
   errorCode?: TriggerErrorCode;
   error?: string;
-  /** Structured recovery metadata when a v2 definition is no longer runnable. */
-  reason?: LegacyWorkflowRetirementReason;
-  targetWorkflowId?: string;
-  targetRevisionId?: string;
   promptPreview?: string;
   output?: {
     content: string;
@@ -157,8 +143,8 @@ export function validateTriggerRequest(raw: unknown): { ok: true; request: Trigg
   if (!isRecord(source) || !isRecord(target) || !isRecord(envelope)) {
     return { ok: false, status: 400, body: { ok: false, errorCode: 'bad_request', error: 'source, target, and envelope are required objects' } };
   }
-  if (target.kind !== 'turn' && target.kind !== 'workflow') {
-    return { ok: false, status: 400, body: { ok: false, errorCode: 'target_required', error: 'target.kind must be turn or workflow' } };
+  if (target.kind !== 'turn') {
+    return { ok: false, status: 400, body: { ok: false, errorCode: 'target_required', error: 'target.kind must be turn' } };
   }
   const options = isRecord(raw.options) ? raw.options : {};
   const waitForFinalOutput = options.waitForFinalOutput === true;
@@ -174,9 +160,6 @@ export function validateTriggerRequest(raw: unknown): { ok: true; request: Trigg
   }
   if (target.kind === 'turn' && !waitForFinalOutput && !asyncReturnSessionId && !hasChatId && !hasSessionId && !hasRootMessageId) {
     return { ok: false, status: 400, body: { ok: false, errorCode: 'target_required', error: 'turn target requires chatId, sessionId, or rootMessageId' } };
-  }
-  if (target.kind === 'workflow' && typeof target.workflowId !== 'string') {
-    return { ok: false, status: 400, body: { ok: false, errorCode: 'target_required', error: 'workflow target requires workflowId' } };
   }
   if (typeof envelope.sourceName !== 'string' || envelope.trusted !== false) {
     return { ok: false, status: 400, body: { ok: false, errorCode: 'bad_request', error: 'envelope.sourceName is required and envelope.trusted must be false' } };

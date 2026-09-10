@@ -38,7 +38,7 @@ export function hasAgentLaunchConfigChanged(
  *
  * - wrapperCli replaces the adapter binary, so the wrapper's first token is
  *   the real executable (built-in or custom wrapper);
- * - Codex App starts a bundled Node runner which then starts `codex`;
+ * - Codex Desktop starts a bundled Node runner which then starts `codex`;
  *
  */
 function requiredCommand(input: CliAvailabilityInput): string | undefined {
@@ -96,5 +96,5 @@ export function cliUnavailableMessage(input: CliAvailabilityInput, displayName?:
   const result = checkCliAvailability(input);
   if (result.available) return undefined;
   const name = displayName?.trim() || input.cliId;
-  return `无法启动 ${name}：${result.reason ?? '本地启动依赖不可用'}。请先在运行 botmux daemon 的这台机器上安装或修正 PATH / CLI 路径。`;
+  return `无法启动 ${name}：${result.reason ?? '本地启动依赖不可用'}。请先在宿主机上安装或修正 PATH / CLI 路径。`;
 }

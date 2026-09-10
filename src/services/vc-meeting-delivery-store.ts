@@ -3,7 +3,7 @@
  * membership projection（hub 下发的成员投影 + fencing 高水位）与
  * delivery receipt / cursor（每条 member stream 的接收账本）。
  *
- * 对应设计稿 docs/design/2026-07-10-vc-multi-agent-consumer-delivery.md §7.2/§9/§10.3：
+ * Persistence invariants:
  * - key = (listenerAppId, meetingId, memberId, memberEpoch)
  * - projection 携带 ownerBootId / ownerEpoch / membershipGeneration / status /
  *   receiverSessionId；register/update 按 ownerEpoch、memberEpoch、

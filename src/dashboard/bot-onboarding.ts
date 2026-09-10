@@ -640,7 +640,7 @@ export class BotOnboardingManager {
               permission: {
                 ok: false,
                 reason: 'scope_mapping_failed',
-                message: '关键权限发布后仍在传播，等待 botmux 精确回读并启动',
+                message: '关键权限发布后仍在传播，确认生效后会自动启动',
                 eventMode: raw.managedActivationAck?.eventMode,
                 verifiedEventCount: raw.managedActivationAck?.verifiedEventCount,
                 versionId: raw.managedActivationAck?.versionId,
@@ -1635,7 +1635,7 @@ export class BotOnboardingManager {
           status: 'failed',
           appId: created.appId,
           error: created.reason,
-          message: `${created.message}；应用已经创建。为避免重复创建，本任务不会重试创建。可在开放平台读取 App Secret 后运行 botmux setup add --app-id ${created.appId} --app-secret <APP_SECRET> --allowed-users <OWNER_EMAIL> --open-platform-auto 继续。`,
+          message: `${created.message}；应用已经创建。不需要再创建一次。请管理员在飞书开放平台读取 App Secret，然后用现有应用凭证完成配置。`,
         });
         return;
       } else {
@@ -1953,7 +1953,7 @@ export class BotOnboardingManager {
       this.finalizePermissions(id, appId, brand, addedBotIndex, {
         ok: false,
         reason: 'event_verification_failed',
-        message: '受管权限恢复缺少同一 owner 会话的事件与版本精确 ACK',
+        message: '自动恢复权限失败：没有确认同一管理员会话中的事件订阅和应用版本。',
       }, 'failed', 'permission_recovery_failed');
       return;
     }

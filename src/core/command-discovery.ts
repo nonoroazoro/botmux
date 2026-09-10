@@ -19,9 +19,6 @@
  * and a bounded recursive walker keep this importable from the leaf-ish command
  * handler without pulling in the daemon graph.
  *
- * NOT covered: MCP-provided `/mcp__<server>__<prompt>` commands — enumerating
- * those needs a live MCP handshake. {@link listMcpServerNames} cheaply surfaces
- * the server *names* from `.mcp.json` so the caller can at least hint at them.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
@@ -271,25 +268,4 @@ export function discoverSlashCommandsForAdapter(
   }
 
   return dedupeAndSort(found);
-}
-
-/**
- * Cheaply surface MCP *server* names from `<workingDir>/.mcp.json` (the standard
- * project-level MCP config). The actual `/mcp__<server>__<prompt>` commands need
- * a live handshake to enumerate and are out of scope here — this is just a hint.
- */
-export function listMcpServerNames(workingDir: string): string[] {
-  if (!workingDir) return [];
-  const file = join(workingDir, '.mcp.json');
-  if (!existsSync(file)) return [];
-  try {
-    const parsed = JSON.parse(readFileSync(file, 'utf-8'));
-    const servers = parsed?.mcpServers;
-    if (servers && typeof servers === 'object' && !Array.isArray(servers)) {
-      return Object.keys(servers);
-    }
-  } catch {
-    /* malformed .mcp.json — ignore */
-  }
-  return [];
 }

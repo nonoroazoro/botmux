@@ -115,7 +115,6 @@ export function webhookAuditTarget(
     mode: connector.target.mode,
     botId: connector.target.botId,
     ...(connector.target.chatId ? { chatId: connector.target.chatId } : {}),
-    ...(connector.target.workflowId ? { workflowId: connector.target.workflowId } : {}),
     ...overrides,
   };
 }
@@ -129,7 +128,6 @@ export function webhookAuditResponse(
     httpStatus,
     durationMs: Math.max(0, Date.now() - startedAtMs),
     ...(body?.target?.sessionId ? { sessionId: body.target.sessionId } : {}),
-    ...(body?.target?.workflowRunId ? { workflowRunId: body.target.workflowRunId } : {}),
     ...(body?.target?.chatId ? { chatId: body.target.chatId } : {}),
   };
 }

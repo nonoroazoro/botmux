@@ -2,9 +2,9 @@ import type { CodexTaskCompletedEvent, CodexTaskStatus } from './types.js';
 import { canOpenCodexAppThread, isCodexAppThreadId } from './app-opener.js';
 
 const STATUS_META: Record<CodexTaskStatus, { label: string; template: string; title: string }> = {
-  completed: { label: '已完成', template: 'green', title: '🤖 BotMux：💬 Codex 任务完成了，快来看看～' },
-  failed: { label: '失败', template: 'red', title: '🤖 BotMux：⚠️ Codex 任务失败了' },
-  cancelled: { label: '已取消', template: 'orange', title: '🤖 BotMux：⏹️ Codex 任务已取消' },
+  completed: { label: '已完成', template: 'green', title: '💬 Codex 任务已完成' },
+  failed: { label: '失败', template: 'red', title: '⚠️ Codex 任务失败了' },
+  cancelled: { label: '已取消', template: 'orange', title: '⏹️ Codex 任务已取消' },
 };
 function safeSingleLine(value: string, maxLength: number): string {
   const normalized = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -31,7 +31,7 @@ function escapeMarkdownText(value: string): string {
  */
 export function buildCodexCompletionCard(
   event: CodexTaskCompletedEvent,
-  options: { platform?: NodeJS.Platform } = {},
+  options: { platform?: NodeJS.Platform; botName?: string } = {},
 ): string {
   const meta = STATUS_META[event.status];
   const isSideConversation = event.conversationKind === 'side';
@@ -40,11 +40,11 @@ export function buildCodexCompletionCard(
     && isCodexAppThreadId(event.threadId)
     && canOpenCodexAppThread(event.threadId, options.platform);
   const clientLabel = event.clientSurface === 'codex-app'
-    ? isSideConversation ? 'Codex App Side Chat' : 'Codex App'
+    ? isSideConversation ? 'Codex Desktop Side Chat' : 'Codex Desktop'
     : event.clientSurface === 'codex-cli'
     ? 'Codex CLI'
-    : 'Codex App/CLI';
-  const project = safeSingleLine(event.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'Codex App', 80);
+    : 'Codex Desktop/CLI';
+  const project = safeSingleLine(event.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'Codex Desktop', 80);
   const nativeTitle = safeSingleLine(event.title ?? '', 180);
   const conversationTitle = nativeTitle.startsWith(`${project} · `)
     ? nativeTitle
@@ -104,7 +104,7 @@ export function buildCodexCompletionCard(
       elements: [{
         tag: 'button',
         type: 'default',
-        text: { tag: 'plain_text', content: '打开 Codex App ↗' },
+        text: { tag: 'plain_text', content: '打开 Codex Desktop ↗' },
         behaviors: [{
           type: 'callback',
           value: { action: 'codex_notifier_open_app', event_id: event.eventId },
@@ -126,10 +126,10 @@ export function buildCodexCompletionCard(
       tag: 'markdown',
       text_size: 'notation',
       content: isSideConversation
-        ? '🤖 Side Chat 是临时会话；BotMux 会同步结果，但暂不提供接管或回到原会话。'
+        ? 'Side Chat 是临时会话；结果会同步，但暂不提供接管或回到原会话。'
         : canOpenApp
-        ? '🤖 点击后会请求运行 BotMux 的 Mac 打开原 Codex App 会话。'
-        : '🤖 BotMux 已同步任务结果；请先点击按钮接管，再回复卡片话题继续对话。',
+        ? '点击后会请求宿主 Mac 打开原 Codex Desktop 会话。'
+        : '任务结果已同步；请先点击按钮接管，再回复卡片话题继续对话。',
       margin: '4px 0px 0px 0px',
     });
 
@@ -138,7 +138,7 @@ export function buildCodexCompletionCard(
     config: { update_multi: true },
     header: {
       template: meta.template,
-      title: { tag: 'plain_text', content: meta.title },
+      title: { tag: 'plain_text', content: [options.botName?.trim(), meta.title].filter(Boolean).join(' · ') },
     },
     body: { direction: 'vertical', elements },
   });

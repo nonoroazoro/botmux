@@ -12,10 +12,9 @@ export interface DaemonInfo {
   ipcPort: number;
   pid: number;
   startedAt: number;
-  /** Random per-process audience for authenticated Workflow v3 mutations. */
+  /** Random per-process identity for device isolation activation. */
   bootInstanceId?: string;
   /** Auth protocol advertised atomically with the boot identity. */
-  workflowIpcProtocol?: string;
   lastHeartbeat: number;
   /**
    * open_ids of users the bot's allowedUsers list was resolved to (post-email

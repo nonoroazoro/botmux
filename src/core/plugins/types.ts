@@ -12,31 +12,6 @@ export interface PluginSkillEntry {
   path: string;
 }
 
-export interface PluginStdioMcpServer {
-  name: string;
-  transport: 'stdio';
-  command: string[];
-  env?: Record<string, string>;
-}
-
-export interface PluginStreamableHttpMcpServer {
-  name: string;
-  transport: 'streamable-http';
-  url: string;
-  headers?: Record<string, string>;
-}
-
-export type PluginMcpServer = PluginStdioMcpServer | PluginStreamableHttpMcpServer;
-
-/** Public registry metadata. The executable/URL and credentials live in the
- * plugin-private descriptor referenced here and are never copied into the
- * globally readable plugin registry. */
-export interface PluginMcpContribution {
-  name: string;
-  transport: PluginMcpServer['transport'];
-  privateRef: string;
-}
-
 export interface PluginServiceConfig {
   mode: PluginServiceMode;
 }
@@ -62,16 +37,9 @@ export interface PluginServiceContribution extends PluginRuntimeEntrypoint {
 export interface PluginContributions {
   skills?: PluginSkillEntry[];
   dashboard?: PluginDashboardEntry[];
-  mcp?: PluginMcpContribution;
   cli?: PluginCliContribution;
   service?: PluginServiceContribution;
 }
-
-/** Installation-time scan result before MCP details are moved to private
- * storage. This shape must never be persisted in plugins-registry.json. */
-export type ScannedPluginContributions = Omit<PluginContributions, 'mcp'> & {
-  mcp?: PluginMcpServer;
-};
 
 export interface BotmuxPluginManifest {
   schemaVersion: 1;
@@ -137,7 +105,6 @@ export interface PluginMaterializedFile {
   pluginId: string;
   updatedAt: string;
   skills?: Array<{ name: string; path: string }>;
-  mcp?: Array<{ cliId: string; name: string; path: string }>;
   cli?: Array<{ name: string }>;
   dashboard?: Array<{ id: string; entry: string }>;
   service?: Array<{ name: string }>;

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
@@ -38,10 +38,6 @@ function fallbackConfig(identity: { name: string; email: string }): string {
   return `${inheritedSystem}[user]\n\tname = ${JSON.stringify(identity.name)}\n\temail = ${JSON.stringify(identity.email)}\n`;
 }
 
-function legacyConfig(identity: { name: string; email: string }): string {
-  return `[user]\n\tname = ${identity.name}\n\temail = ${identity.email}\n`;
-}
-
 /** Absolute path of the generated Git fallback inside one isolated home. */
 export function multiUserGitFallbackPath(homeDir: string): string {
   return resolve(homeDir, GIT_FALLBACK_CONFIG_NAME);
@@ -61,14 +57,4 @@ export function provisionMultiUserGitIdentity(
     { mode: 0o600, followTargetSymlink: false },
   );
 
-  const gitConfigPath = resolve(homeDir, '.gitconfig');
-  try {
-    const stat = lstatSync(gitConfigPath);
-    if (!stat.isFile() || stat.isSymbolicLink()) return;
-    if (readFileSync(gitConfigPath, 'utf8') === legacyConfig(identity)) {
-      unlinkSync(gitConfigPath);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
 }

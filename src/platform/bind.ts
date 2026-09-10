@@ -35,7 +35,7 @@ export async function cmdBind(
   // network. The OS mask is the security boundary; this guard prevents a user
   // from accidentally handing a reusable host-authority command to an agent.
   if ((dependencies.isAgentContext ?? isManagedAgentHostCommandContext)()) {
-    console.error('❌ botmux bind 只能在宿主终端执行；AI CLI 会话不能消费绑定凭证或修改机器归属。');
+    console.error('❌ 绑定新机器需要管理员直接在运行服务的服务器终端中操作，机器人不能代为执行。');
     process.exitCode = 2;
     return;
   }

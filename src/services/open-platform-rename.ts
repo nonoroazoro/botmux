@@ -260,7 +260,7 @@ async function applyBaseInfoChangeAndRepublishSerialized(
 
   const cookies = (deps.loadCookies ?? defaultLoadCookies)();
   if (!cookies || cookies.length === 0) {
-    return { ok: false, reason: 'no_session', message: '服务器上没有可用的飞书 Web 登录态；在服务器运行 botmux setup 重新扫码后重试' };
+    return { ok: false, reason: 'no_session', message: '飞书登录已失效，请在控制台重新扫码后再试' };
   }
 
   let clientResult: OpenPlatformClientResult;
@@ -372,7 +372,7 @@ export async function renameBotOnOpenPlatform(
 ): Promise<OpenPlatformRenameResult> {
   const r = await applyBaseInfoChangeAndRepublish(appId, brand, deps, {
     changeLog: `Rename to ${newName}`,
-    remark: 'Rename bot via botmux dashboard',
+    remark: 'Update bot name',
     logLabel: 'rename',
     logSummary: `Open Platform rename → "${newName}"`,
     async buildBaseInfoPayload({ langs, desc, i18nBlocks }) {
@@ -468,7 +468,7 @@ export async function changeBotAvatarOnOpenPlatform(
   let avatarUrl = '';
   const r = await applyBaseInfoChangeAndRepublish(appId, brand, deps, {
     changeLog: 'Update bot avatar',
-    remark: 'Update bot avatar via botmux dashboard',
+    remark: 'Update bot avatar',
     logLabel: 'avatar',
     logSummary: 'Open Platform avatar updated',
     async buildBaseInfoPayload({ client, base, langs, desc, i18nBlocks }) {

@@ -6,12 +6,12 @@ import { resolvePluginSkillPackages } from './skills.js';
 import { pluginMaterializedPath } from './paths.js';
 import type { InstalledPluginRecord, PluginMaterializedFile } from './types.js';
 
-type CliCapabilityState = 'supported' | 'adapter-required' | 'unsupported';
+type CliCapabilityState = 'supported' | 'unsupported';
 
-export const CLI_CAPABILITY_MATRIX: Record<string, { skills: CliCapabilityState; mcpGateway: CliCapabilityState }> = {
-  codex: { skills: 'supported', mcpGateway: 'supported' },
-  'claude-code': { skills: 'supported', mcpGateway: 'supported' },
-  opencode: { skills: 'supported', mcpGateway: 'adapter-required' },
+export const CLI_CAPABILITY_MATRIX: Record<string, { skills: CliCapabilityState }> = {
+  codex: { skills: 'supported' },
+  'claude-code': { skills: 'supported' },
+  opencode: { skills: 'supported' },
 };
 
 export function readMaterializedPlugin(pluginId: string): PluginMaterializedFile | undefined {
@@ -41,8 +41,8 @@ function requireInstalledPlugin(pluginId: string): InstalledPluginRecord {
 
 /**
  * Validate the installed contributions and record what the enabled plugin
- * exposes. Skills and MCP remain in the plugin directory; session startup is
- * the only place that resolves and delivers them.
+ * exposes. Skills remain in the plugin directory; session startup is the only
+ * place that resolves and delivers them.
  */
 export function materializePlugin(pluginId: string): PluginMaterializedFile {
   const record = requireInstalledPlugin(pluginId);
@@ -51,16 +51,12 @@ export function materializePlugin(pluginId: string): PluginMaterializedFile {
     throw new Error(resolvedSkills.diagnostics.join(','));
   }
 
-  const mcpServer = record.contributions?.mcp;
   const materialized: PluginMaterializedFile = {
     schemaVersion: 1,
     pluginId: record.id,
     updatedAt: new Date().toISOString(),
     ...(resolvedSkills.skills.length > 0
       ? { skills: resolvedSkills.skills.map(skill => ({ name: skill.name, path: skill.rootDir })) }
-      : {}),
-    ...(mcpServer
-      ? { mcp: [{ cliId: 'botmux-gateway', name: mcpServer.name, path: 'mcp/index.json' }] }
       : {}),
     ...(record.contributions?.cli?.commands?.length
       ? { cli: record.contributions.cli.commands.map(command => ({ name: command.name })) }

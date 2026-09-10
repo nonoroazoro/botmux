@@ -1,13 +1,11 @@
 import {
   getBot,
   type BotConfig,
-  type ContentTriggerConfig,
   type SummaryRangeConfig,
 } from '../bot-registry.js';
 import { rmwBotEntry } from './config-store.js';
 import { logger } from '../utils/logger.js';
 
-export const LEGACY_DASHBOARD_SUMMARY_TRIGGER_NAME = 'dashboard-default-summary-trigger';
 export const DEFAULT_SUMMARY_LIMIT = 50;
 export const DEFAULT_SUMMARY_SINCE_HOURS = 24;
 export const DEFAULT_SUMMARY_PROMPT =
@@ -45,20 +43,8 @@ export function defaultSummaryRangePrefs(): SummaryRangePrefs {
   };
 }
 
-export function summaryRangeFromLegacyContentTriggers(
-  triggers: readonly ContentTriggerConfig[] | undefined,
-): SummaryRangePrefs | undefined {
-  const trigger = triggers?.find(t => t.name === LEGACY_DASHBOARD_SUMMARY_TRIGGER_NAME);
-  if (!trigger) return undefined;
-  return {
-    limit: toNonNegativeInt(trigger.history.regularGroup.limit, DEFAULT_SUMMARY_LIMIT),
-    sinceHours: toNonNegativeInt(trigger.history.regularGroup.sinceHours, DEFAULT_SUMMARY_SINCE_HOURS),
-  };
-}
-
-export function summaryRangeFromBotConfig(config: Pick<BotConfig, 'summaryRange' | 'contentTriggers'>): SummaryRangePrefs {
+export function summaryRangeFromBotConfig(config: Pick<BotConfig, 'summaryRange'>): SummaryRangePrefs {
   return normalizedRangeFromConfig(config.summaryRange)
-    ?? summaryRangeFromLegacyContentTriggers(config.contentTriggers)
     ?? defaultSummaryRangePrefs();
 }
 
@@ -78,14 +64,6 @@ function normalizeSummaryRangePrefs(raw: unknown): NormalizeSummaryRangeResult {
   return { ok: true, prefs: { limit, sinceHours } };
 }
 
-function withoutLegacyDashboardSummaryTrigger(
-  triggers: readonly ContentTriggerConfig[] | undefined,
-): ContentTriggerConfig[] | undefined {
-  if (!triggers) return undefined;
-  const next = triggers.filter(t => t.name !== LEGACY_DASHBOARD_SUMMARY_TRIGGER_NAME);
-  return next.length > 0 ? next : undefined;
-}
-
 export async function updateDashboardSummaryRange(
   larkAppId: string,
   rawBody: unknown,
@@ -97,22 +75,13 @@ export async function updateDashboardSummaryRange(
   let bot;
   try { bot = getBot(larkAppId); } catch { return { ok: false, reason: 'bot_not_registered' }; }
 
-  const nextLegacyTriggers = withoutLegacyDashboardSummaryTrigger(bot.config.contentTriggers);
   const r = await rmwBotEntry<SummaryRangePrefs>(larkAppId, (entry) => {
     entry.summaryRange = { limit: prefs.limit, sinceHours: prefs.sinceHours };
-    if (Array.isArray(entry.contentTriggers)) {
-      const nextRaw = entry.contentTriggers.filter((t: unknown) =>
-        !t || typeof t !== 'object' || Array.isArray(t) || (t as Record<string, unknown>).name !== LEGACY_DASHBOARD_SUMMARY_TRIGGER_NAME,
-      );
-      if (nextRaw.length > 0) entry.contentTriggers = nextRaw;
-      else delete entry.contentTriggers;
-    }
     return { write: true, result: prefs };
   });
   if (!r.ok) return { ok: false, reason: r.reason };
 
   bot.config.summaryRange = { limit: prefs.limit, sinceHours: prefs.sinceHours };
-  bot.config.contentTriggers = nextLegacyTriggers;
   logger.info(`[summary-range:${larkAppId}] dashboard summary range saved limit=${prefs.limit} sinceHours=${prefs.sinceHours}`);
   return { ok: true, summaryRange: summaryRangeFromBotConfig(bot.config) };
 }

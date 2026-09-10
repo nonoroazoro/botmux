@@ -481,7 +481,7 @@ function normalizeVcMeetingConsumerProfiles(raw: unknown): VcMeetingConsumerProf
       strictConfigError(`${profilePath}.role`, 'must be a single printable line');
     }
     if (role.toLowerCase().includes('botmux_role_instructions')) {
-      strictConfigError(`${profilePath}.role`, 'contains a reserved botmux instruction marker');
+      strictConfigError(`${profilePath}.role`, 'contains a reserved internal instruction marker');
     }
     const normalizedInstructions = normalizeVcMeetingProfileInstructions(entry.instructions);
     if (!normalizedInstructions.ok) {
@@ -1148,30 +1148,11 @@ export interface BotConfig {
    */
   sandboxPaths?: { readWrite?: string[]; readOnly?: string[]; deny?: string[] };
   /**
-   * LEGACY (pre fs-policy, kept for downgrade only): privacy masks under the
-   * old read-everything model. Auto-migrated into sandboxPaths.deny at daemon
-   * startup (old fields are kept on disk so a downgraded daemon still reads
-   * them); no longer consulted by the new spawn path.
-   */
-  sandboxHidePaths?: string[];
-  /** LEGACY: extra read-only paths — auto-migrated into sandboxPaths.readOnly
-   *  (see sandboxHidePaths note). */
-  sandboxReadonlyPaths?: string[];
-  /**
    * Whether the sandbox keeps network access. Missing/true preserves the existing
    * behavior; false adds bwrap --unshare-net for sessions that can run offline or
    * rely only on already-mounted local inputs.
    */
   sandboxNetwork?: boolean;
-  /**
-   * LEGACY read-isolation flag (pre fs-policy). The unified sandbox is
-   * deny-by-default, so cross-bot read isolation is inherent — this flag is
-   * auto-migrated to `sandbox: true` at daemon startup and kept on disk only
-   * for downgrade. No longer consulted by the new spawn path.
-   */
-  readIsolation?: boolean;
-  /** LEGACY: extra read-deny paths — auto-migrated into sandboxPaths.deny. */
-  readDenyExtraPaths?: string[];
   backendType?: BackendType;
   /**
    * Max simultaneously-LIVE sessions for this bot. When the bot's live session
@@ -1311,8 +1292,8 @@ export interface BotConfig {
   grantExpiryState?: { [grantKey: string]: { expiresAt: number } };
   /**
    * 开启后：仅靠 per-user 授权（chatGrants / globalGrants）放行的发送者，禁止使用**任何
-   * 斜杠命令**——botmux 自身的 DAEMON 命令、透传（PASSTHROUGH）命令、全部 `/workflow`
-   * 子命令、已退休的 `/template` tombstone、`/introduce`、`/t`/`/topic` —— 只能普通对话。owner / allowedUsers / oncall /
+   * 斜杠命令**——botmux 自身的 DAEMON 命令、透传（PASSTHROUGH）命令、
+   * `/introduce`、`/t`/`/topic` —— 只能普通对话。owner / allowedUsers / oncall /
    * allowedChatGroup 整群成员不受影响。判定以 slash-command invocation 命中为准（不是"凡以
    * `/` 开头的文本"，避免误伤讨论命令用法的普通对话）。默认 false（保持现状：被授权人可用透传）。
    */
@@ -1453,8 +1434,8 @@ export interface BotConfig {
   showInTeam?: boolean;
   /**
    * 主动开工 — 场景①. When true, the bot auto-starts a session when it is added
-   * to a new chat that contains at least one of its allowedUsers (see
-   * docs/specs/20260529-proactive-auto-start/). Default (undefined) = passive
+   * to a new chat that contains at least one of its allowedUsers.
+   * Default (undefined) = passive
    * (only spawns on @mention). Requires the `im.chat.member.bot.added_v1` event
    * to be subscribed for the app in the Feishu console.
    */
@@ -2342,10 +2323,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       continue;
     }
 
-    // cliRuntime is the canonical successor to cliPathOverride. New writers
-    // also persist an exactly-equal path shadow so a rollback to an older
-    // BotMux still launches the same distribution. Any unequal pair would make
-    // old and new versions disagree, so it fails closed below.
+    // Persist one executable source; adapter path arguments are derived below.
     const entryCliId = entry.cliId ?? 'claude-code';
     if (entry.cliRuntime !== undefined && entryCliId !== 'codex') {
       throw new Error(`Bot config [${i}]: cliRuntime is currently supported only for cliId "codex"`);
@@ -2356,11 +2334,8 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
     const cliRuntime = entry.cliRuntime === undefined
       ? undefined
       : normalizeCliRuntimeConfig(entry.cliRuntime, `Bot config [${i}].cliRuntime`);
-    if (cliRuntime && entry.cliPathOverride === undefined) {
-      throw new Error(`Bot config [${i}]: cliPathOverride is required as an exact downgrade shadow of cliRuntime.executable`);
-    }
-    if (cliRuntime && entry.cliPathOverride !== cliRuntime.executable) {
-      throw new Error(`Bot config [${i}]: cliPathOverride must exactly match cliRuntime.executable`);
+    if (cliRuntime && entry.cliPathOverride !== undefined) {
+      throw new Error(`Bot config [${i}]: configure cliRuntime or cliPathOverride, not both`);
     }
 
     // Parse workingDirs from comma-separated workingDir if workingDirs not explicitly set
@@ -2577,6 +2552,11 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       }
     }
 
+    for (const field of ['readIsolation', 'sandboxHidePaths', 'sandboxReadonlyPaths', 'readDenyExtraPaths']) {
+      if (Object.hasOwn(entry, field)) {
+        throw new Error(`Unsupported bot security field ${field}; configure sandbox and sandboxPaths`);
+      }
+    }
     configs.push({
       larkAppId: entry.larkAppId,
       // apiOnly bots may omit the secret (never used — no Feishu connection);
@@ -2594,9 +2574,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
         : undefined,
       cliId: entryCliId,
       cliRuntime,
-      // Compatibility shadow: writers persist it for downgrade safety and the
-      // loader requires an exact match so every accepted config is rollback-safe.
-      cliPathOverride: entry.cliPathOverride,
+      cliPathOverride: cliRuntime?.executable ?? entry.cliPathOverride,
       wrapperCli: typeof entry.wrapperCli === 'string' && entry.wrapperCli.trim()
         ? entry.wrapperCli.trim()
         : undefined,
@@ -2645,11 +2623,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
             deny: normalizeStringList(entry.sandboxPaths.deny),
           }
         : undefined,
-      sandboxHidePaths: normalizeStringList(entry.sandboxHidePaths),
-      sandboxReadonlyPaths: normalizeStringList(entry.sandboxReadonlyPaths),
       sandboxNetwork: typeof entry.sandboxNetwork === 'boolean' ? entry.sandboxNetwork : undefined,
-      readIsolation: entry.readIsolation === true,
-      readDenyExtraPaths: normalizeStringList(entry.readDenyExtraPaths),
       backendType: entry.backendType,
       // Positive integer only; ≤0 / non-int / absent → undefined (= no cap).
       maxLiveWorkers: typeof entry.maxLiveWorkers === 'number'

@@ -137,7 +137,7 @@ export function writeStoredCreateKeepOpen(storage: Storage | undefined, keepOpen
   }
 }
 
-// ── 看板分组维度：工作流列 / 团队（筛选某团队的工作流）/ 机器人列 ─────────────
+// Kanban grouping by session stage, team, or bot.
 export type KanbanGroupBy = 'flow' | 'team' | 'bot';
 
 export const KANBAN_GROUPBY_STORAGE_KEY = 'botmux.dashboard.sessions.kanbanGroupBy';

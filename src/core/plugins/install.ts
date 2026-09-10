@@ -15,14 +15,6 @@ import type { InstalledPluginRecord, PluginPackageManifest, PluginSettingsFile }
 import { readPluginRegistry, upsertInstalledPlugin } from '../../services/plugin-registry-store.js';
 import { atomicWriteFileSync } from '../../utils/atomic-write.js';
 import { assertPluginServiceStopped, withPluginServiceLockSync } from './service-manager.js';
-import {
-  capturePluginMcpPrivateSnapshot,
-  publicPluginMcpContribution,
-  removePluginMcpDescriptor,
-  restorePluginMcpPrivateSnapshot,
-  writePluginMcpDescriptor,
-} from './mcp/private-store.js';
-import type { PluginMcpServer } from './types.js';
 
 export interface InstallPluginOptions {
   source?: 'auto' | 'npm' | 'local';
@@ -115,50 +107,33 @@ function stageRuntime(pluginId: string, sourceDir: string, link: boolean): strin
   return stagedDir;
 }
 
-interface StagedPluginRecord {
-  record: InstalledPluginRecord;
-  mcpServer?: PluginMcpServer;
-}
-
 function makeRecord(
   pkg: PluginPackageManifest,
   source: InstalledPluginRecord['source'],
   runtimeDir: string,
-): StagedPluginRecord {
+): InstalledPluginRecord {
   const now = new Date().toISOString();
-  const scanned = scanPluginContributions(runtimeDir, pkg.botmux);
-  const { mcp: mcpServer, ...publicContributions } = scanned ?? {};
-  const contributions = scanned ? {
-    ...publicContributions,
-    ...(mcpServer ? { mcp: publicPluginMcpContribution(mcpServer) } : {}),
-  } : undefined;
+  const contributions = scanPluginContributions(runtimeDir, pkg.botmux);
   return {
-    record: {
-      id: pkg.botmux.id,
-      packageName: pkg.name,
-      version: pkg.version,
-      source,
-      manifest: pkg.botmux,
-      ...(contributions ? { contributions } : {}),
-      installedAt: now,
-      updatedAt: now,
-    },
-    ...(mcpServer ? { mcpServer } : {}),
+    id: pkg.botmux.id,
+    packageName: pkg.name,
+    version: pkg.version,
+    source,
+    manifest: pkg.botmux,
+    ...(contributions ? { contributions } : {}),
+    installedAt: now,
+    updatedAt: now,
   };
 }
 
-function commitPluginInstall(staged: StagedPluginRecord, stagedDir: string): InstallPluginResult {
-  const pluginId = staged.record.id;
-  const privateSnapshot = capturePluginMcpPrivateSnapshot(pluginId);
+function commitPluginInstall(staged: InstalledPluginRecord, stagedDir: string): InstallPluginResult {
+  const pluginId = staged.id;
   const replacement = replacePluginRuntime(pluginId, stagedDir);
   try {
-    if (staged.mcpServer) writePluginMcpDescriptor(pluginId, staged.mcpServer);
-    else removePluginMcpDescriptor(pluginId);
-    const record = upsertInstalledPlugin(staged.record);
+    const record = upsertInstalledPlugin(staged);
     replacement.commit();
     return { record, runtimeDir: replacement.runtimeDir };
   } catch (error) {
-    try { restorePluginMcpPrivateSnapshot(pluginId, privateSnapshot); } catch { /* preserve the original error */ }
     try { replacement.rollback(); } catch { /* preserve the original error */ }
     throw error;
   }

@@ -94,7 +94,6 @@ const OPEN_TARGETS = [
 ] as const;
 const COMMAND_FILE_PREFIX = 'botmux-open-command-';
 const COMMAND_DIR_PATTERN = /^botmux-open-command-[A-Za-z0-9]{6}$/;
-const LEGACY_COMMAND_DIR_PATTERN = /^botmux-open-[A-Za-z0-9]{6}$/;
 const COMMAND_FILE_TTL_MS = 24 * 60 * 60 * 1000;
 const ITERM_TARGETS = [
   'application "/Applications/iTerm.app"',
@@ -389,7 +388,7 @@ async function removeCommandDir(dir: string): Promise<void> {
 }
 
 function isCommandDirName(name: string): boolean {
-  return COMMAND_DIR_PATTERN.test(name) || LEGACY_COMMAND_DIR_PATTERN.test(name);
+  return COMMAND_DIR_PATTERN.test(name);
 }
 
 async function cleanupStaleCommandDirs(root: string, now: number = Date.now()): Promise<void> {

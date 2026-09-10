@@ -119,6 +119,8 @@ export interface CliRuntimeUpdateAuditDeps {
 }
 
 export interface CliRuntimeUpdateMonitorWiring {
+  /** Resolve the sending bot's current name when a notification is delivered. */
+  botName?: () => string | undefined;
   dataDir: string;
   primaryLarkAppId: string;
   ownerOpenId: () => string | undefined;
@@ -810,7 +812,7 @@ function escapeLarkMarkdown(value: string): string {
 
 export function buildCliRuntimeUpdateCard(
   entry: CliRuntimeUpdateEntry,
-  opts: { dashboardUrl?: string; locale?: Locale } = {},
+  opts: { dashboardUrl?: string; locale?: Locale; botName?: string } = {},
 ): string {
   const locale = opts.locale;
   const markdownDisplayName = escapeLarkMarkdown(entry.displayName);
@@ -829,7 +831,10 @@ export function buildCliRuntimeUpdateCard(
       template: 'orange',
       // A plain-text field does not parse Markdown; keep the user-facing name
       // byte-for-byte instead of exposing Markdown escape backslashes.
-      title: { tag: 'plain_text', content: t('cli_update.card_title', { cli: entry.displayName }, locale) },
+      title: {
+        tag: 'plain_text',
+        content: [opts.botName?.trim(), t('cli_update.card_title', { cli: entry.displayName }, locale)].filter(Boolean).join(' · '),
+      },
     },
     elements: [{ tag: 'markdown', content: lines.join('\n') }],
   });
@@ -857,6 +862,7 @@ export function startCliRuntimeUpdateMonitor(wiring: CliRuntimeUpdateMonitorWiri
           const owner = wiring.ownerOpenId();
           if (!owner) throw new Error('no primary owner configured');
           const card = buildCliRuntimeUpdateCard(entry, {
+            botName: wiring.botName?.(),
             dashboardUrl: wiring.dashboardUrl?.(),
             locale: localeForBot(wiring.primaryLarkAppId),
           });

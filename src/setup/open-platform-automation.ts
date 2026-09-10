@@ -910,7 +910,7 @@ export async function automateOpenPlatformSetup(
       return {
         ok: false,
         reason: 'version_verification_failed',
-        message: '开放平台未返回可发布的精确版本 ID，受管机器人保持未激活',
+        message: '开放平台未返回可发布的版本 ID，机器人暂未激活。',
         sessionFile,
         subscribedEventCount,
         eventWarning,
@@ -1235,7 +1235,7 @@ export async function createOpenPlatformAppWithClient(
   if (!name) throw new Error('应用名称不能为空');
   if (!options.creatorUserId) throw new Error('创建应用缺少创建者 userId,无法完成上架启用');
   const iconFile = options.iconFilePath ?? defaultBotmuxAppIconPath();
-  if (!iconFile || !existsSync(iconFile)) throw new Error('找不到 botmux 默认应用图标');
+  if (!iconFile || !existsSync(iconFile)) throw new Error('找不到默认机器人图标');
 
   const icon = readFileSync(iconFile);
   const form = new FormData();
@@ -1247,7 +1247,7 @@ export async function createOpenPlatformAppWithClient(
   const avatar = pickPayloadString(uploaded, ['url']);
   if (!avatar) throw new Error('开放平台上传图标后没有返回 url');
 
-  const description = options.description?.trim() || 'AI coding assistant powered by botmux';
+  const description = options.description?.trim() || 'Your coding collaborator';
   let appId: string | undefined;
   try {
     const created = await client.postJson(

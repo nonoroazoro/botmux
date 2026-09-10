@@ -16,6 +16,7 @@ import { t, localeForBot, type Locale } from '../i18n/index.js';
 export const GITHUB_REPO = 'deepcoldy/botmux';
 
 export interface RestartReportInput {
+  botName?: string;
   kind: RestartKind;
   /** Current (post-restart) botmux version. */
   version: string;
@@ -69,7 +70,7 @@ export function buildRestartReportCard(input: RestartReportInput, locale?: Local
     config: { wide_screen_mode: true },
     header: {
       template: input.kind === 'update' ? 'green' : input.kind === 'rollback' ? 'orange' : 'blue',
-      title: { tag: 'plain_text', content: t('restart.card_title', undefined, locale) },
+      title: { tag: 'plain_text', content: [input.botName?.trim(), t('restart.card_title', undefined, locale)].filter(Boolean).join(' · ') },
     },
     elements: [{ tag: 'markdown', content: buildRestartReportText(input, locale) }],
   });
@@ -80,6 +81,7 @@ export function releasesUrl(version: string): string {
 }
 
 export interface RestartReportWiring {
+  botName?: string;
   /** Primary bot (bot-0) app id — the DM sender. */
   primaryLarkAppId: string;
   /** Owner to DM (bot-0's first resolved allowedUser); undefined → skip the DM. */
@@ -116,6 +118,7 @@ export async function sendRestartReportIfPending(w: RestartReportWiring): Promis
       ?? t('restart.changelog_link_fallback', { url: releasesUrl(intent.newVersion) }, locale);
   }
   const card = buildRestartReportCard({
+    botName: w.botName,
     kind: intent.kind,
     version,
     sessionCount,

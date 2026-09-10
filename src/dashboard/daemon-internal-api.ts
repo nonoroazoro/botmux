@@ -140,9 +140,6 @@ function bodyField<T = unknown>(body: unknown, name: string): T | undefined {
  * (`dispatchForTest`) is in use; the test is trusted to assert its own
  * scope so we pass everything through.
  *
- * The owner getter argument lets workflows (nested
- * `chatBinding.larkAppId`) reuse the same filter pipeline as sessions /
- * schedules (top-level `larkAppId`).
  */
 function scopeRowsByCaller<T>(
   rows: ReadonlyArray<T>,
@@ -160,8 +157,7 @@ function scopeRowsByCaller<T>(
 
 /**
  * Thin wrapper around `scopeRowsByCaller` for rows with a top-level
- * `larkAppId` field (sessions / schedules / aggregator-shape). Workflows
- * call `scopeRowsByCaller` directly with their own owner getter.
+ * `larkAppId` field (sessions / schedules / aggregator-shape).
  */
 function scopeByCaller(
   rows: ReadonlyArray<unknown>,
@@ -224,32 +220,6 @@ function scopeGroupsMatrixByCaller(
 /** ─── Route table ────────────────────────────────────────────────── */
 
 const ROUTES: RouteDef[] = [
-  // One-version zero-I/O tombstone for stale Feishu dashboard cards. It is
-  // intentionally ahead of all live routes and never resolves a run owner.
-  {
-    method: 'GET',
-    pathRe: /^\/__daemon\/workflows-runs(?:-snapshot|\/.*)$/,
-    handle: async () => ({
-      status: 410,
-      body: {
-        ok: false,
-        error: 'legacy_workflow_retired',
-        message: 'v2 workflow run APIs are retired; migrate definitions with botmux template migrate-v3 and inspect v3 runs via /api/v3/runs',
-      },
-    }),
-  },
-  {
-    method: 'POST',
-    pathRe: /^\/__daemon\/workflows-runs(?:-snapshot|\/.*)$/,
-    handle: async () => ({
-      status: 410,
-      body: {
-        ok: false,
-        error: 'legacy_workflow_retired',
-        message: 'v2 workflow run APIs are retired; migrate definitions with botmux template migrate-v3 and inspect v3 runs via /api/v3/runs',
-      },
-    }),
-  },
   // ── READ ──────────────────────────────
   {
     method: 'GET',

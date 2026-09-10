@@ -219,13 +219,6 @@ export function resolveCliRuntime(input: ResolveCliRuntimeInput): CliRuntimeSnap
       fail(input.context ?? 'cliRuntime', 'structured runtimes are currently supported only for cliId "codex"');
     }
     const configured = normalizeCliRuntimeConfig(input.cliRuntime, input.context ?? 'cliRuntime');
-    // New writers shadow the canonical executable into cliPathOverride so a
-    // rollback to a pre-cliRuntime BotMux still launches the same distribution.
-    // Accept only byte-for-byte equality: two independent executable sources
-    // would make old and new versions disagree and must fail closed.
-    if (hasLegacyPath && input.cliPathOverride !== configured.executable) {
-      fail(input.context ?? 'cliRuntime', 'cliPathOverride must exactly match cliRuntime.executable when both are present');
-    }
     return {
       id: configured.id,
       displayName: configured.displayName ?? configured.id,

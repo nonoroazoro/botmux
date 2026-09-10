@@ -5,5 +5,5 @@
  */
 export function resolveSetupAppName(requestedName: string | undefined, nextBotIndex: number): string {
   const requested = requestedName?.trim();
-  return requested || `botmux-${nextBotIndex}`;
+  return requested || `Bot ${nextBotIndex + 1}`;
 }

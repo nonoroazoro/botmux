@@ -189,7 +189,7 @@ const cliDisplayNames: Record<CliId, string> = {
   'claude-code': 'Claude',
   'coco': 'CoCo',
   'codex': 'Codex',
-  'codex-app': 'Codex App',
+  'codex-app': 'Codex Desktop',
   'cursor': 'Cursor',
   'gemini': 'Gemini',
   'genius': 'Genius',
@@ -498,8 +498,7 @@ function clipDesc(desc?: string): string {
  * Build the `/list-slash-command` card (schema 2.0): a coloured header and four
  * sections — ① fixed passthrough allowlist, ② adapter-default passthrough,
  * ③ user-configured custom passthrough, ④ auto-discovered CLI commands/skills/plugins
- * rendered as a paginated native table (command | description). An optional MCP
- * servers note is appended.
+ * rendered as a paginated native table (command | description).
  */
 export function buildSlashListCard(
   params: {
@@ -509,12 +508,11 @@ export function buildSlashListCard(
     custom: string[];
     discovered: { name: string; description?: string }[];
     workingDir: string;
-    mcpServers: string[];
     discoverySupported?: boolean;
   },
   locale?: Locale,
 ): string {
-  const { cliName, builtin, adapterDefaults = [], custom, discovered, workingDir, mcpServers, discoverySupported = true } = params;
+  const { cliName, builtin, adapterDefaults = [], custom, discovered, workingDir, discoverySupported = true } = params;
   const asCode = (cmds: string[]) => cmds.map((c) => `\`${c}\``).join('  ');
   const elements: any[] = [];
 
@@ -583,16 +581,6 @@ export function buildSlashListCard(
         content: t('slashlist.more', { n: String(discovered.length - MAX) }, locale),
       });
     }
-  }
-
-  // MCP 提示（server 名，prompt 需运行时握手不在此列）
-  if (mcpServers.length > 0) {
-    elements.push({ tag: 'hr' });
-    // schema 2.0 卡片已不支持 note 标签（飞书 ErrCode 200861），改用 markdown 元素
-    elements.push({
-      tag: 'markdown',
-      content: t('slashlist.mcp_note', { servers: mcpServers.join(', ') }, locale),
-    });
   }
 
   return JSON.stringify({
@@ -794,7 +782,6 @@ export function buildStreamingCard(
   cardNonce?: string,
   imageKey?: string,
   adoptMode?: boolean,
-  showTakeover?: boolean,
   locale?: Locale,
   usageLimit?: CliUsageLimitState,
   writableTerminalUrl?: string,
@@ -865,14 +852,6 @@ export function buildStreamingCard(
     });
   }
   if (adoptMode) {
-    if (showTakeover) {
-      headerActions.push({
-        tag: 'button',
-        text: { tag: 'plain_text', content: t('card.btn.takeover', undefined, locale) },
-        type: 'default' as const,
-        value: { action: 'takeover', ...actionBase },
-      });
-    }
     headerActions.push({
       tag: 'button',
       text: { tag: 'plain_text', content: t('card.btn.disconnect', undefined, locale) },

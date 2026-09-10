@@ -14,11 +14,9 @@ interface Connector {
   verify?: { type: 'token' | 'hmac-sha256' };
   target: {
     mode: 'dynamic' | 'fixed' | 'new-group';
-    kind: 'turn' | 'workflow';
     botId: string;
     chatId?: string;
     allowChats?: string[];
-    workflowId?: string;
   };
   promptEnvelope: { sourceName: string; instruction?: string };
   topicMessage?: { mode: 'default' | 'custom' | 'none'; text?: string };
@@ -41,8 +39,6 @@ interface GroupOpt {
 interface CreateForm {
   name: string;
   botId: string;
-  kind: 'turn' | 'workflow';
-  workflowId: string;
   mode: 'dynamic' | 'fixed' | 'new-group';
   chatId: string;
   manualChat: boolean;
@@ -79,8 +75,6 @@ export function replaceConnectorById<T extends { id: string }>(connectors: T[], 
 const emptyForm: CreateForm = {
   name: '',
   botId: '',
-  kind: 'turn',
-  workflowId: '',
   mode: 'dynamic',
   chatId: '',
   manualChat: false,
@@ -107,19 +101,6 @@ export function buildConnectorInstructionUpdateBody(
       instruction,
     },
   };
-}
-
-export function buildConnectorKindOptions(
-  tr: (key: string) => string,
-): Array<{ value: 'turn' | 'workflow'; label: string; disabled?: boolean }> {
-  return [
-    { value: 'turn', label: tr('connectors.kindTurn') },
-    {
-      value: 'workflow',
-      label: tr('connectors.kindWorkflowRetiring'),
-      disabled: true,
-    },
-  ];
 }
 
 function webhookUrl(id: string): string {
@@ -273,8 +254,6 @@ function formFromConnector(connector: Connector, groups: GroupOpt[]): CreateForm
   return {
     name: connector.name,
     botId: connector.target.botId,
-    kind: connector.target.kind,
-    workflowId: connector.target.workflowId || '',
     mode: connector.target.mode,
     chatId: knownChat ? chatId : '',
     manualChat: Boolean(chatId && !knownChat),
@@ -329,7 +308,6 @@ function ConnectorsPage(props: { tab: ConnectorsTab }) {
       : [{ value: '', label: tr('connectors.noOnlineBots') }],
     [bots, tr],
   );
-  const kindOptions = useMemo(() => buildConnectorKindOptions(tr), [tr]);
   const modeOptions = useMemo(() => [
     { value: 'dynamic' as const, label: tr('connectors.modeDynamic') },
     { value: 'fixed' as const, label: tr('connectors.modeFixed') },
@@ -432,10 +410,6 @@ function ConnectorsPage(props: { tab: ConnectorsTab }) {
         : tr('connectors.modeLabelDynamic');
   }
 
-  function kindLabel(k: string): string {
-    return k === 'workflow' ? tr('connectors.kindLabelWorkflow') : tr('connectors.kindLabelTurn');
-  }
-
   function patchForm(patch: Partial<CreateForm>): void {
     setForm(cur => ({ ...cur, ...patch }));
   }
@@ -479,10 +453,6 @@ function ConnectorsPage(props: { tab: ConnectorsTab }) {
     const botId = form.botId;
     if (!name) { setCreateMsg({ text: tr('connectors.errName'), error: true }); return; }
     if (!botId) { setCreateMsg({ text: tr('connectors.errBot'), error: true }); return; }
-    if (form.kind === 'workflow') {
-      setCreateMsg({ text: tr('connectors.errLegacyWorkflowRetired'), error: true });
-      return;
-    }
     const topicMessageText = form.topicMessageText.trim();
     if (form.topicMessageMode === 'custom' && !topicMessageText) {
       setCreateMsg({ text: tr('connectors.errTopicMessage'), error: true });
@@ -492,7 +462,7 @@ function ConnectorsPage(props: { tab: ConnectorsTab }) {
     const body: any = {
       name,
       enabled: editingConnector?.enabled ?? true,
-      target: { kind: form.kind, mode: form.mode, botId },
+      target: { kind: 'turn', mode: form.mode, botId },
       promptEnvelope: { sourceName: name, instruction: form.instruction.trim() },
       topicMessage: {
         mode: form.topicMessageMode,
@@ -554,7 +524,6 @@ function ConnectorsPage(props: { tab: ConnectorsTab }) {
         setForm(cur => ({
           ...cur,
           name: '',
-          workflowId: '',
           manualChatId: '',
           dedup: '',
           secret: '',
@@ -700,24 +669,6 @@ function ConnectorsPage(props: { tab: ConnectorsTab }) {
               onChange={botId => patchForm({ botId })}
             />
           </div>
-
-          <div className="cn-field">
-            <FieldTitle>{tr('connectors.fKind')}</FieldTitle>
-            <ConnectorDropdown
-              id="cn-kind"
-              label={tr('connectors.fKind')}
-              value={form.kind}
-              options={kindOptions}
-              onChange={kind => patchForm({ kind })}
-            />
-          </div>
-
-          {form.kind === 'workflow' ? (
-            <label className="cn-field" htmlFor="cn-wf">
-              <FieldTitle>{tr('connectors.fWf')}</FieldTitle>
-              <input id="cn-wf" value={form.workflowId} onChange={e => patchForm({ workflowId: e.currentTarget.value })} placeholder="workflowId" />
-            </label>
-          ) : null}
 
           <div className="cn-field">
             <FieldTitle>{tr('connectors.fMode')}</FieldTitle>
@@ -945,7 +896,6 @@ function ConnectorsPage(props: { tab: ConnectorsTab }) {
                 editMsg={editMsg}
                 groupName={groupName}
                 modeLabel={modeLabel}
-                kindLabel={kindLabel}
                 onCopy={copyConnectorUrl}
                 onEdit={openEditModal}
                 onToggle={connector => void toggleConnector(connector)}
@@ -1011,7 +961,6 @@ function ConnectorList(props: {
   editMsg: { id: string; text: string; error?: boolean } | null;
   groupName(chatId: string): string;
   modeLabel(mode: string): string;
-  kindLabel(kind: string): string;
   onCopy(connector: Connector): void;
   onEdit(connector: Connector): void;
   onToggle(connector: Connector): void;
@@ -1041,7 +990,6 @@ function ConnectorList(props: {
                 </div>
                 <div className="connector-item-meta">
                   <span>{bot?.botName || c.target.botId}</span>
-                  <span>{props.kindLabel(c.target.kind)}</span>
                   <span>{props.modeLabel(c.target.mode)}</span>
                   {destLabel ? <span>{destLabel}</span> : null}
                   <span>{verifyBadge}</span>
@@ -1055,7 +1003,6 @@ function ConnectorList(props: {
               <code>{url}{isToken ? '/<token>' : ''}</code>
             </div>
             {isToken ? <div className="muted connector-item-note" dangerouslySetInnerHTML={{ __html: tr('connectors.tokenHint') }} /> : null}
-            {c.target.kind === 'workflow' ? <div className="muted connector-item-note">{tr('connectors.legacyWorkflowNote')}</div> : null}
             {c.target.mode === 'dynamic' ? <div className="muted connector-item-note" dangerouslySetInnerHTML={{ __html: tr('connectors.dynamicReqHint') }} /> : null}
             {c.promptEnvelope?.instruction ? <div className="muted connector-item-note">{tr('connectors.instructionPrefix')}{c.promptEnvelope.instruction}</div> : null}
             <div className="muted connector-item-note">

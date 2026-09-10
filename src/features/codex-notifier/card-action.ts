@@ -93,7 +93,7 @@ export function createCodexNotifierCardActionHandler(
         return toast('error', '此完成通知尚未成功送达');
       }
       if (record.event.clientSurface !== 'codex-app') {
-        return toast('error', '此任务不是可信的 Codex App 会话');
+        return toast('error', '此任务不是可信的 Codex Desktop 会话');
       }
 
       const opened = await deps.openAppThread(record.event.threadId);
@@ -103,14 +103,14 @@ export function createCodexNotifierCardActionHandler(
           + `error=${opened.error} detail=${opened.detail ?? ''}`,
         );
         const content = opened.error === 'unsupported_platform'
-          ? '运行 BotMux 的电脑暂不支持打开 Codex App'
+          ? '宿主电脑暂不支持打开 Codex Desktop'
           : opened.error === 'invalid_thread_id'
-          ? '此 Codex App 会话标识无效'
-          : 'Codex App 打开失败，请确认已安装在运行 BotMux 的电脑上';
+          ? '此 Codex Desktop 会话标识无效'
+          : 'Codex Desktop 打开失败，请确认已安装在宿主电脑上';
         return toast('error', content);
       }
       deps.logInfo?.(`[codex-notifier] open app requested event=${eventId.slice(0, 12)}`);
-      return toast('success', '已请求运行 BotMux 的电脑打开原 Codex App 会话');
+      return toast('success', '已请求宿主电脑打开原 Codex Desktop 会话');
     }
 
     const adoptionKey = `${larkAppId}:${eventId}`;

@@ -94,7 +94,7 @@ const DEFAULT_CLI_OPTION: CliOption = { id: 'claude-code', label: 'Claude' };
 function defaultCliOptionsState(): CliOptionsState {
   return {
     options: [DEFAULT_CLI_OPTION],
-    suggestedAppName: 'botmux-0',
+    suggestedAppName: 'Bot 1',
     webSession: { status: 'checking' },
   };
 }
@@ -162,7 +162,7 @@ async function fetchCliOptions(): Promise<CliOptionsState> {
     if (res.ok && Array.isArray(body?.options)) {
       const suggestedAppName = typeof body.suggestedAppName === 'string' && body.suggestedAppName.trim()
         ? body.suggestedAppName.trim()
-        : 'botmux-0';
+        : 'Bot 1';
       const identity = body?.webSession?.identity;
       const webSession: CliOptionsState['webSession'] = body?.webSession?.status === 'ready'
         && typeof identity?.userId === 'string'

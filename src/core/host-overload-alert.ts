@@ -347,14 +347,14 @@ export function formatOverloadAlert(action: OverloadAlertAction, hostLabel?: str
   const mem = `内存已用 ${(m.memUsedFrac * 100).toFixed(0)}%`;
   const swap = m.swapUsedFrac === undefined ? '' : ` · Swap ${(m.swapUsedFrac * 100).toFixed(0)}%`;
   if (action.kind === 'recovered') {
-    return `✅ 机器负载已恢复${host}\n${load} · ${mem}${swap}\n（botmux 会话可以正常冷启动了）`;
+    return `✅ 机器负载已恢复${host}\n${load} · ${mem}${swap}\n我可以继续启动新会话了。`;
   }
   const why = action.reasons.map(r => REASON_LABEL[r]).join(' + ') || '资源';
   return (
     `⚠️ 机器过载告警${host}\n` +
     `触发维度：${why}\n` +
     `${load} · ${mem}${swap}\n` +
-    `此时 botmux 会话冷启动可能超时假死。建议：\`botmux delete stopped\` 清僵尸、挂起闲置会话、或调低各 bot 的 maxLiveWorkers。`
+    `现在启动新会话可能会比较慢，甚至超时。可以先清理已停止的会话、挂起暂时不用的会话，或减少同时运行的会话。`
   );
 }
 
@@ -479,7 +479,7 @@ export function buildOverloadRecoveredCard(action: OverloadAlertAction, hostLabe
     header: { template: 'green', title: { tag: 'plain_text', content: `✅ 机器负载已恢复${host}` } },
     elements: [
       { tag: 'div', text: { tag: 'lark_md', content: metricsLine(action.metrics) } },
-      { tag: 'note', elements: [{ tag: 'lark_md', content: 'botmux 会话可以正常冷启动了。' }] },
+      { tag: 'note', elements: [{ tag: 'lark_md', content: '我可以继续启动新会话了。' }] },
     ],
   });
 }

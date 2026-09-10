@@ -596,7 +596,7 @@ export function BotDefaultsPage() {
     detail = (
       <p className="hint-warn">
         无法加载 bot 列表：{loadError}<br />
-        常见原因：dashboard / daemon 进程还在跑旧代码，执行 <code>botmux restart</code> 后刷新。
+        当前服务可能还没有加载新版本，请重启服务后刷新。
       </p>
     );
   } else if (filtered.length === 0) {
@@ -1771,7 +1771,7 @@ function WorkingDirSection(props: {
       <div className="bd-row" data-wd-dir-row hidden={mode === 'off'}>
         <label>
           <span>{tr('botDefaults.workingDirField')}</span>
-          <input type="text" data-input="workingDir" placeholder="e.g. /root/iserver/botmux" value={workingDir} disabled={busy} onChange={event => setWorkingDir(event.currentTarget.value)} />
+          <input type="text" data-input="workingDir" placeholder="e.g. /workspace/project" value={workingDir} disabled={busy} onChange={event => setWorkingDir(event.currentTarget.value)} />
         </label>
       </div>
       <label className="toggle-row" data-wd-worktree-row hidden={mode !== 'default'}>
@@ -1867,15 +1867,15 @@ function MultiUserIsolationSection(props: { bot: BotDefaultsRow; patchBot: Patch
   const tr = useT();
   const { bot, patchBot } = props;
   const configured = bot.multiUserIsolation;
-  const defaultRoot = `~/BotmuxUsers/${bot.larkAppId}`;
+  const defaultRoot = `~/AgentUsers/${bot.larkAppId}`;
   const [enabled, setEnabled] = useState(configured?.enabled === true);
   const [root, setRoot] = useState(configured?.root ?? defaultRoot);
   const [ownerOnlyTopics, setOwnerOnlyTopics] = useState(configured?.ownerOnlyTopics !== false);
   const [shareCodex, setShareCodex] = useState(Boolean(configured?.sharedCodexHome));
   const [groupOpen, setGroupOpen] = useState(bot.groupOpen === true);
   const [p2pOpen, setP2pOpen] = useState(bot.p2pOpen === true);
-  const [gitName, setGitName] = useState(configured?.defaultGitIdentity?.name ?? 'Botmux Agent');
-  const [gitEmail, setGitEmail] = useState(configured?.defaultGitIdentity?.email ?? 'botmux-agent@botmux.local');
+  const [gitName, setGitName] = useState(configured?.defaultGitIdentity?.name ?? 'Agent');
+  const [gitEmail, setGitEmail] = useState(configured?.defaultGitIdentity?.email ?? 'agent@users.invalid');
   const [status, setStatus] = useState<StatusMessage>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1887,8 +1887,8 @@ function MultiUserIsolationSection(props: { bot: BotDefaultsRow; patchBot: Patch
     setShareCodex(Boolean(current?.sharedCodexHome));
     setGroupOpen(bot.groupOpen === true);
     setP2pOpen(bot.p2pOpen === true);
-    setGitName(current?.defaultGitIdentity?.name ?? 'Botmux Agent');
-    setGitEmail(current?.defaultGitIdentity?.email ?? 'botmux-agent@botmux.local');
+    setGitName(current?.defaultGitIdentity?.name ?? 'Agent');
+    setGitEmail(current?.defaultGitIdentity?.email ?? 'agent@users.invalid');
   }, [bot.multiUserIsolation, bot.groupOpen, bot.p2pOpen, defaultRoot]);
 
   async function save(): Promise<void> {

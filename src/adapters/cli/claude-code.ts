@@ -23,7 +23,6 @@ import { resolveCommand } from './registry.js';
 import { sessionReadyHookCommand } from '../hook-command.js';
 import type { CliAdapter, CliId, PtyHandle } from './types.js';
 import { findJsonlContainingFingerprint, jsonlContainsFingerprint, normaliseForFingerprint } from '../../services/claude-transcript.js';
-import { GOAL_ENV } from '../../workflows/v3/contract.js';
 import { buildBotmuxSystemPromptText } from './shared-hints.js';
 import { delay, scaleMs } from '../../utils/timing.js';
 import { discoverClaudeFamilySessions } from '../../services/resumable-session-discovery.js';
@@ -757,10 +756,6 @@ export function createClaudeFamilyAdapter(variant: ClaudeFamilyVariant, rawBin: 
   let cachedBin: string | undefined;
   return {
     id: variant.id,
-    mcpGateway: {
-      configPath: variant.stateJsonPath,
-      format: 'claude-json',
-    },
     get resolvedBin(): string { return (cachedBin ??= resolveCommand(rawBin)); },
     supportsTypeAhead: true,
     reliableTurnTerminal: variant.reliableTurnTerminal,
@@ -881,9 +876,6 @@ export function createClaudeFamilyAdapter(variant: ClaudeFamilyVariant, rawBin: 
         args.push('--settings', JSON.stringify(inlineSettings));
       }
       const disallowedTools = ['EnterPlanMode', 'ExitPlanMode'];
-      if (process.env[GOAL_ENV.V3_MARKER] === '1') {
-        disallowedTools.push('AskUserQuestion');
-      }
       args.push('--disallowed-tools', disallowedTools.join(','));
       // Inject botmux's built-in skills as a plugin scoped to THIS session only.
       // Keeps them out of the user's global ~/.claude/skills so a standalone

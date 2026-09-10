@@ -211,33 +211,16 @@ function fileVersion(fp: string): string {
   }
 }
 
-/**
- * Migrate legacy schedule task (pre-parsed field) to current shape.
- * Legacy tasks had { type, schedule } only — promote schedule+type into parsed.
- */
-function migrate(raw: any): ScheduledTask | null {
-  if (!raw || typeof raw !== 'object') return null;
-
-  let parsed: ParsedSchedule | undefined = raw.parsed;
-  if (!parsed) {
-    // Legacy format: always treat as cron (old parser only produced cron)
-    if (raw.type === 'cron' && raw.schedule) {
-      parsed = { kind: 'cron', expr: raw.schedule, display: raw.schedule };
-    } else if (raw.schedule) {
-      // Best-effort fallback
-      parsed = { kind: 'cron', expr: raw.schedule, display: raw.schedule };
-    } else {
-      logger.warn(`[schedule-store] Dropping un-migratable task ${raw.id}: missing schedule`);
-      return null;
-    }
+function parseStoredTask(raw: any): ScheduledTask | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!raw.parsed || typeof raw.parsed !== 'object') {
+    throw new Error(`Invalid stored schedule ${raw.id}: parsed is required`);
   }
-
+  const parsed: ParsedSchedule = raw.parsed;
   const executionPosition: ScheduleExecutionPosition | undefined =
     raw.executionPosition === 'top-level' || raw.executionPosition === 'topic' || raw.executionPosition === 'new-topic'
       ? raw.executionPosition
-      : raw.deliver === 'new-topic'
-        ? 'new-topic'
-        : undefined;
+      : undefined;
 
   return {
     id: raw.id,
@@ -273,31 +256,26 @@ function migrate(raw: any): ScheduledTask | null {
 
 interface DiskSnapshot {
   map: Map<string, ScheduledTask>;
-  migratedCount: number;
 }
 
 function readDiskSnapshot(fp: string, strict: boolean): DiskSnapshot {
   const map = new Map<string, ScheduledTask>();
-  if (!existsSync(fp)) return { map, migratedCount: 0 };
+  if (!existsSync(fp)) return { map };
 
   try {
     const data = JSON.parse(readFileSync(fp, 'utf-8'));
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       throw new Error('schedules.json root must be an object');
     }
-    let migratedCount = 0;
     for (const [id, raw] of Object.entries(data)) {
-      const migrated = migrate(raw);
-      if (migrated) {
-        map.set(id, migrated);
-        if (!(raw as any).parsed) migratedCount++;
-      }
+      const task = parseStoredTask(raw);
+      if (task) map.set(id, task);
     }
-    return { map, migratedCount };
+    return { map };
   } catch (err) {
     if (strict) throw err;
     logger.error(`Failed to load schedules: ${err}`);
-    return { map: new Map(), migratedCount: 0 };
+    return { map: new Map() };
   }
 }
 
@@ -403,34 +381,9 @@ function load(appId?: string): void {
   // `botmux schedule add`) or on first load.
   if (state.loaded && currentVersion === state.version) return;
 
-  const snapshot = readDiskSnapshot(fp, false);
-  let nextMap = snapshot.map;
-
-  // Persist legacy normalization under the same mutation lock. Re-read inside
-  // the lock so migration cannot overwrite a concurrent modern writer.
-  if (snapshot.migratedCount > 0) {
-    try {
-      nextMap = withFileLockSync(fp, () => {
-        const current = readDiskSnapshot(fp, true);
-        if (current.migratedCount > 0) persistDiskSnapshot(fp, current.map);
-        return current.map;
-      });
-    } catch (err) {
-      // Reading remains backward compatible even if the optional normalization
-      // write fails. Future mutations still fail closed on malformed storage.
-      logger.error(`[schedule-store] Failed to persist legacy migration: ${err}`);
-      // A different process may have committed between our optimistic read and
-      // lock acquisition. Never pair that newer file version with the stale
-      // pre-lock map, or this process could serve stale data indefinitely.
-      nextMap = readDiskSnapshot(fp, false).map;
-    }
-  }
-
+  const nextMap = readDiskSnapshot(fp, false).map;
   if (!state.loaded) {
-    logger.info(
-      `Loaded ${nextMap.size} scheduled tasks from ${fp}` +
-      `${snapshot.migratedCount ? ` (migrated ${snapshot.migratedCount} legacy)` : ''}`,
-    );
+    logger.info(`Loaded ${nextMap.size} scheduled tasks from ${fp}`);
   } else {
     logger.info(`[schedule-store] Reloaded ${nextMap.size} tasks (file changed)`);
   }
@@ -622,28 +575,6 @@ export function listTasksForBots(appIds: readonly string[]): Array<ScheduledTask
     } catch { /* unreadable (sandboxed sibling / bad appId) → skip */ }
   }
   return out;
-}
-
-/** Bulk-insert raw task entries into one bot's store (startup split
- *  migration). Runs the same in-file legacy normalization as a disk read;
- *  an id already present in the destination wins (the per-bot store is newer
- *  by definition) and the collision is logged. */
-export function importTasks(appId: string, entries: ReadonlyArray<[string, unknown]>): void {
-  if (entries.length === 0) return;
-  mutateTasks(working => {
-    let changed = false;
-    for (const [id, raw] of entries) {
-      const task = migrate(raw);
-      if (!task) continue;
-      if (working.has(id)) {
-        logger.warn(`[schedule-store] import: id ${id} already exists in ${appId}'s store — keeping existing entry`);
-        continue;
-      }
-      working.set(id, task);
-      changed = true;
-    }
-    return { result: undefined, changed };
-  }, appId);
 }
 
 /** Locate a task id across several bots' stores. First hit wins (ids are

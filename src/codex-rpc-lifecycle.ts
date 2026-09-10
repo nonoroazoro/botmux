@@ -64,7 +64,7 @@ export function codexRpcEligible(cfg: InitCfg, runtime: CodexRpcRuntimeGates = {
   return (
     cfg.codexRpcInput === true && RPC_CAPABLE_CLIS.has(cfg.cliId) &&
     cfg.backendType === 'tmux' &&
-    cfg.adoptMode !== true && cfg.readIsolation !== true && cfg.sandbox !== true && runtime.sandboxForced !== true &&
+    cfg.adoptMode !== true && cfg.sandbox !== true && runtime.sandboxForced !== true &&
     cfg.disableCliBypass !== true &&
     !cfg.startupCommands?.length &&
     !cfg.wrapperCli && runtimeExecutableEligible &&
@@ -137,9 +137,9 @@ export function shouldPreMarkFirstTurn(outcome: EngageOutcome): boolean {
 export interface RpcInitEffects {
   paneInfo: (sessionId: string) => { name: string; live: boolean } | null;
   paneIsRemote: (sessionName: string) => boolean;
-  /** Refresh the session-scoped Skill/MCP generation and start its trusted MCP
-   *  host before the app-server starts. For fresh RPC, this also mutates the
-   *  first prompt to include the current Skill catalog. */
+  /** Refresh the session-scoped Skill generation before the app-server starts.
+   * For fresh RPC, this also mutates the first prompt to include the current
+   * Skill catalog. */
   prepare: () => Promise<void>;
   engage: () => Promise<EngageOutcome>;    // engageCodexRpc(cfg) — sets the module engine on success
   killVerify: (sessionName: string) => Promise<boolean>; // kill stale pane, VERIFY gone
@@ -183,7 +183,7 @@ export interface RpcInitDecision {
  *  fresh/resume/kill-failure ORDERING is unit-testable (the worker only wires
  *  real effects + acts on the decision). Mirrors the four cases:
  *   - not eligible                     → nothing (paste).
- *   - no live pane (fresh or resume-  → prepare Skill/MCP state, then engage;
+ *   - no live pane (fresh or resume-  → prepare Skill state, then engage;
  *     without a surviving pane)          fresh pre-sends the first turn inside
  *                                         engage, resume must queue it.
  *   - live RPC-owned pane              → prepare, engage, then kill+VERIFY the stale pane;

@@ -449,17 +449,8 @@ export async function handleWebhookRoute(
 
   const responseOptions = parseTriggerResponseOptions(req, url);
   const presentation = connectorTriggerPresentation(connector);
-  // Stored workflow connectors are tombstones only after the v2 runtime
-  // retirement. Fail before lifecycle state or group creation; dispatching to
-  // a daemon would make the safety property depend on daemon version/skew.
-  if (connector.target.kind === 'workflow') {
-    webhookError(
-      res,
-      410,
-      connectorId,
-      'legacy_workflow_retired',
-      'v2 workflow connector targets are retired; migrate the definition and replace this connector with a turn target',
-    );
+  if (connector.target.kind !== 'turn') {
+    fail(400, 'target_required', 'target.kind must be turn');
     return true;
   }
   if ((responseOptions.waitForFinalOutput || responseOptions.asyncReturnSessionId) && connector.target.kind !== 'turn') {
@@ -616,7 +607,6 @@ export async function handleWebhookRoute(
         kind: connector.target.kind,
         botId: connector.target.botId,
         chatId,
-        workflowId: connector.target.workflowId,
       },
       envelope: {
         format: 'botmux.webhook.v1',
@@ -671,7 +661,6 @@ export async function handleWebhookRoute(
       botId: connector.target.botId,
       chatId,
       ...(rootMessageId ? { rootMessageId } : {}),
-      workflowId: connector.target.workflowId,
     },
     envelope: {
       format: 'botmux.webhook.v1',

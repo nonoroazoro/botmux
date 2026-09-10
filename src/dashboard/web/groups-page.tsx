@@ -431,7 +431,7 @@ function CreateDialog(props: {
           </fieldset>
           <fieldset className="g-modal-field">
             <legend>{tr('groups.bindDir')}</legend>
-            <input type="text" name="bindWorkingDir" placeholder="e.g. ~/projects/botmux" />
+            <input type="text" name="bindWorkingDir" placeholder="e.g. ~/projects/project" />
             <small>{tr('groups.bindDirHelp')}</small>
           </fieldset>
           <fieldset className="g-modal-field g-profile-field">
@@ -903,7 +903,7 @@ function OncallRow(props: {
           ref={inputRef}
           type="text"
           data-input="workingDir"
-          placeholder="e.g. /root/iserver/botmux"
+          placeholder="e.g. /workspace/project"
           value={workingDir}
           disabled={!enabled}
           onChange={ev => setWorkingDir(ev.currentTarget.value)}

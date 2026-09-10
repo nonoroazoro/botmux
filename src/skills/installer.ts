@@ -1,9 +1,9 @@
-import { mkdirSync, existsSync, readFileSync, rmSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { logger } from '../utils/logger.js';
-import { BUILTIN_SKILLS, RETIRED_SKILL_NAMES, ASK_SKILL, ASK_SKILL_NAME, WHITEBOARD_SKILL, WHITEBOARD_SKILL_NAME } from './definitions.js';
+import { BUILTIN_SKILLS, ASK_SKILL, ASK_SKILL_NAME, WHITEBOARD_SKILL, WHITEBOARD_SKILL_NAME } from './definitions.js';
 
 // This module only manages botmux-owned bridge/ask skills. User-defined skills
 // live in src/core/skills/* and services/skill-registry-store.ts so their
@@ -46,40 +46,6 @@ export function ensurePluginSkills(cliId: string, pluginDir: string | undefined)
     logger.warn(`[skills] Failed to write plugin manifest for ${cliId}: ${err.message}`);
   }
   ensureSkills(cliId, join(root, 'skills'));
-}
-
-/**
- * Remove botmux-owned skill directories that earlier versions installed into a
- * shared global skills dir (e.g. `~/.claude/skills`). Once skills move to a
- * per-session plugin dir, these stale global copies would keep leaking into the
- * user's standalone CLI sessions, so we delete them on upgrade.
- *
- * Matches by the `botmux-` directory-name prefix (the namespace botmux owns)
- * rather than the static `BUILTIN_SKILLS` list. A daemon may have previously
- * installed skills that a *different* botmux version shipped (e.g.
- * `botmux-handoff`), and those must be cleaned too. Non-`botmux-` user skills
- * are never touched.
- */
-export function removeGlobalBotmuxSkills(globalSkillsDir: string | undefined): void {
-  if (!globalSkillsDir) return;
-  const dir = expandHome(globalSkillsDir);
-  if (!existsSync(dir)) return;
-  let names: string[];
-  try { names = readdirSync(dir); }
-  catch (err: any) { logger.warn(`[skills] Failed to scan ${dir}: ${err.message}`); return; }
-  for (const name of names) {
-    if (!name.startsWith('botmux-')) continue;
-    const skillDir = join(dir, name);
-    let isDir = false;
-    try { isDir = statSync(skillDir).isDirectory(); } catch { continue; }
-    if (!isDir) continue;
-    try {
-      rmSync(skillDir, { recursive: true, force: true });
-      logger.info(`[skills] Removed leaked global skill ${name} -> ${skillDir}`);
-    } catch (err: any) {
-      logger.warn(`[skills] Failed to remove leaked global skill ${name}: ${err.message}`);
-    }
-  }
 }
 
 /**
@@ -133,9 +99,7 @@ export function ensureWhiteboardSkill(cliId: string, skillsDir: string | undefin
  * directory. Idempotent: writes only when content differs.
  *
  * Each skill becomes {skillsDir}/<name>/SKILL.md. Sub-directory layout
- * matches Claude Code / Gemini / OpenCode convention. Retired skills (renamed
- * or removed in a later version) are deleted from the directory so the CLI
- * doesn't keep surfacing stale entries alongside their replacements.
+ * matches Claude Code / Gemini / OpenCode convention.
  */
 export function ensureSkills(cliId: string, skillsDir: string | undefined): void {
   if (!skillsDir) return;
@@ -157,18 +121,6 @@ export function ensureSkills(cliId: string, skillsDir: string | undefined): void
       logger.info(`[skills] Installed ${skill.name} for ${cliId} -> ${skillFile}`);
     } catch (err: any) {
       logger.warn(`[skills] Failed to install ${skill.name} for ${cliId}: ${err.message}`);
-    }
-  }
-
-  // Clean up retired skill directories, such as botmux-thread-messages replaced by botmux-history.
-  for (const retired of RETIRED_SKILL_NAMES) {
-    const retiredDir = join(dir, retired);
-    if (!existsSync(retiredDir)) continue;
-    try {
-      rmSync(retiredDir, { recursive: true, force: true });
-      logger.info(`[skills] Removed retired skill ${retired} for ${cliId}`);
-    } catch (err: any) {
-      logger.warn(`[skills] Failed to remove retired skill ${retired} for ${cliId}: ${err.message}`);
     }
   }
 }

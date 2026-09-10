@@ -66,7 +66,6 @@ export interface VcMeetingConsumerProfilesGetBody {
   agentOptions: VcMeetingAgentOptionDto[];
   /** Versioned, read-only templates. Applying one creates a detached editable profile. */
   templateCatalog: VcMeetingConsumerProfileTemplateCatalog;
-  migrationOffer?: VcMeetingConsumerProfilesSnapshot['migrationOffer'];
 }
 
 export interface VcMeetingConsumerProfilesPutRequest {
@@ -345,7 +344,6 @@ function snapshotBody(
     profiles: snapshot.profiles.map(vcMeetingConsumerProfileToDto),
     agentOptions,
     templateCatalog: VC_MEETING_CONSUMER_PROFILE_TEMPLATE_CATALOG,
-    ...(snapshot.migrationOffer ? { migrationOffer: snapshot.migrationOffer } : {}),
   };
 }
 

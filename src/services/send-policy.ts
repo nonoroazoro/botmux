@@ -60,7 +60,7 @@ export function managedVcQuoteError(args: ManagedVcQuoteArgs): string | null {
  * safe for meeting-derived (untrusted) model output. */
 export function managedVcCustomCardError(managed: boolean, customCardRequested: boolean): string | null {
   if (!managed || !customCardRequested) return null;
-  return '--card-json/--card-file 不允许用于受管 VC 回复；请使用普通文本。';
+  return '--card-json/--card-file 不支持用于会议回复，请使用普通文本。';
 }
 
 export interface ManagedVcSendControlArgs {
@@ -80,13 +80,13 @@ export interface ManagedVcSendControlArgs {
 export function managedVcSendControlError(args: ManagedVcSendControlArgs): string | null {
   if (!args.managed) return null;
   if (args.sendTopLevel || args.overrideChatId || args.sendInto) {
-    return '--top-level/--chat-id/--into 不能改变受管 VC 的 listener-thread 路由。';
+    return '--top-level/--chat-id/--into 不能改变会议回复的目标话题。';
   }
   if (args.attentionRequested) {
-    return '--attention 不属于受管 VC 主消息 action。';
+    return '会议回复不支持 --attention。';
   }
   if (args.explicitMentionCount > 0 || args.mentionBack || !args.noMention) {
-    return '受管 VC 回复必须显式使用 --no-mention，不能使用 --mention/--mention-back。';
+    return '会议回复必须使用 --no-mention，不能使用 --mention/--mention-back。';
   }
   return null;
 }
@@ -108,10 +108,10 @@ export interface ManagedVcSendPayloadArgs {
 export function managedVcSendPayloadError(args: ManagedVcSendPayloadArgs): string | null {
   if (!args.managed) return null;
   if (args.asVoice || args.imageCount > 0 || args.fileCount > 0 || args.videoCount > 0) {
-    return '受管 VC 回复只允许普通文本；图片、文件、视频和语音上传没有可恢复的 action identity。';
+    return '会议回复只支持普通文本，不能上传图片、文件、视频或语音。';
   }
   if (args.containsNativeAtTag) {
-    return '受管 VC 文本不能包含原生 <at …> 标签。';
+    return '会议回复不能包含原生 <at …> 标签。';
   }
   return null;
 }

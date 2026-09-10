@@ -342,13 +342,6 @@ function readHerdrTraexPlugin(raw: unknown): HerdrTraexPluginConfig | undefined 
   if (typeof r.enabled === 'boolean') out.enabled = r.enabled;
   if (typeof r.source === 'string' && r.source.trim()) out.source = r.source.trim();
   if (typeof r.ref === 'string' && r.ref.trim()) out.ref = r.ref.trim();
-  // Migrate the unmerged review schema in-memory without rewriting config.json.
-  if (!out.source && typeof r.spec === 'string' && r.spec.trim()) {
-    const legacy = r.spec.trim();
-    const hash = legacy.lastIndexOf('#');
-    out.source = hash > 0 ? legacy.slice(0, hash) : legacy;
-    if (!out.ref && hash > 0 && hash < legacy.length - 1) out.ref = legacy.slice(hash + 1);
-  }
   return Object.keys(out).length > 0 ? out : undefined;
 }
 

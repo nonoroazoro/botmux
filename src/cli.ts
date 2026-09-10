@@ -114,15 +114,6 @@ import {
   UnsupportedGlobalInstallError,
 } from './utils/global-install.js';
 import { cliAuthBind, loadDashboardSecret, signCliAuth } from './dashboard/auth.js';
-import {
-  postWorkflowDaemonMutation,
-  type WorkflowDaemonMutation,
-  type WorkflowDaemonMutationResponse,
-} from './workflows/v3/daemon-ipc-client.js';
-import {
-  postWorkflowSessionRunMutation,
-  readWorkflowSessionRelayContext,
-} from './workflows/v3/session-relay-client.js';
 import { fetchDaemonIpc, loadDaemonIpcSecret } from './core/daemon-ipc-auth.js';
 import { isRetryableAskHttpStatus } from './core/ask-types.js';
 import { readManagedOriginCapability } from './core/managed-origin-capability.js';
@@ -158,7 +149,6 @@ import {
   buildBridgeSendPreviewText,
 } from './services/bridge-fallback-gate.js';
 import { bindRestartLeaseTo, writeManualIntentIfAbsentTo } from './services/restart-intent-store.js';
-import { repairMissingChatScope, stripLegacyPendingCardFields } from './services/session-store.js';
 import {
   evaluateVcMeetingManagedSend,
   isTrustedVcMeetingHostRelayParent,
@@ -179,7 +169,6 @@ import {
   describePluginDependencyError,
   enabledPluginDependents,
 } from './core/plugins/dependencies.js';
-import { authorizeV3DaemonCommand } from './workflows/v3/cli-daemon-command-authority.js';
 import { resolveDaemonIpcPort } from './utils/daemon-discovery.js';
 import {
   inspectBotmuxPm2Apps,
@@ -697,7 +686,7 @@ function ecosystemConfig(activationAppId?: string): string {
 }
 
 function hasConfig(): boolean {
-  return existsSync(BOTS_JSON_FILE) || existsSync(ENV_FILE);
+  return existsSync(BOTS_JSON_FILE);
 }
 
 function ask(rl: ReturnType<typeof createInterface>, question: string): Promise<string> {
@@ -1524,31 +1513,6 @@ async function promptEditBotConfig(
   return edited;
 }
 
-/** Parse .env file to extract bot config for migration to bots.json */
-function parseDotEnvToBotConfig(): Record<string, any> {
-  const content = readFileSync(ENV_FILE, 'utf-8');
-  const vars: Record<string, string> = {};
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
-    vars[trimmed.substring(0, eqIdx)] = trimmed.substring(eqIdx + 1);
-  }
-
-  const bot: Record<string, any> = {
-    larkAppId: vars.LARK_APP_ID || '',
-    larkAppSecret: vars.LARK_APP_SECRET || '',
-  };
-  if (vars.CLI_ID) bot.cliId = vars.CLI_ID;
-  if (vars.CLI_PATH?.trim()) bot.cliPathOverride = vars.CLI_PATH.trim();
-  if (vars.BACKEND_TYPE) bot.backendType = vars.BACKEND_TYPE;
-  if (vars.WORKING_DIR) bot.workingDir = vars.WORKING_DIR;
-  if (vars.ALLOWED_USERS) bot.allowedUsers = vars.ALLOWED_USERS.split(',').map((s: string) => s.trim()).filter(Boolean);
-
-  return bot;
-}
-
 /**
  * 收集一个机器人配置并写盘 (单机器人 fresh install / 重新配置).
  *
@@ -1701,19 +1665,9 @@ async function cmdSetupScripted(argv: string[]): Promise<void> {
   }
 
   if (cmd.action === 'add') {
-    // 单机器人 .env 老配置：与 TUI「添加新机器人」一致，先迁移进 bots.json 再追加。
-    let existing = bots;
-    let migratedEnv = false;
+    const existing = bots;
     let createdAppId: string | undefined;
     let createdAppName: string | undefined;
-    if (!existsSync(BOTS_JSON_FILE) && existsSync(ENV_FILE)) {
-      const legacy = parseDotEnvToBotConfig();
-      if (legacy.larkAppId && legacy.larkAppSecret) {
-        existing = [legacy];
-        migratedEnv = true;
-      }
-    }
-
     // --create-app 会产生真实开放平台应用；先用占位凭证完成纯本地字段、owner、
     // CLI 与目录预检，避免参数错误发生在扫码建应用之后而留下孤儿应用。
     if (cmd.createApp) {
@@ -1899,18 +1853,6 @@ async function cmdSetupScripted(argv: string[]): Promise<void> {
       );
       return;
     }
-    if (migratedEnv) {
-      try {
-        renameSync(ENV_FILE, ENV_FILE + '.bak');
-      } catch (err) {
-        // bots.json is already durable and takes precedence over legacy .env.
-        // Do not report a partial app failure that would encourage a duplicate;
-        // leave the old file in place and surface a cleanup warning only.
-        if (!cmd.json) console.error(`⚠️  bots.json 已写入，但旧 .env 备份失败: ${err instanceof Error ? err.message : String(err)}`);
-        migratedEnv = false;
-      }
-    }
-
     // 已有凭证模式默认跳过；--create-app 默认开启并复用刚才的 Web session。
     let openPlatform: SetupOpenPlatformOutcome = { status: 'skipped' };
     if (cmd.openPlatformAuto) {
@@ -1938,7 +1880,6 @@ async function cmdSetupScripted(argv: string[]): Promise<void> {
           appId: bot.larkAppId,
           ...(createdAppName ? { appName: createdAppName } : {}),
           botsFile: BOTS_JSON_FILE,
-          envMigrated: migratedEnv || undefined,
           openPlatform: setupOpenPlatformOutcomeJson(openPlatform),
           continueCommand,
           live: {
@@ -1962,7 +1903,6 @@ async function cmdSetupScripted(argv: string[]): Promise<void> {
         appId: bot.larkAppId,
         ...(cmd.createApp && botBrand(bot) === 'feishu' && !cmd.compatibilityMode ? { appName: resolveSetupAppName(cmd.flags.appName, index) } : {}),
         botsFile: BOTS_JSON_FILE,
-        envMigrated: migratedEnv || undefined,
         openPlatform: setupOpenPlatformOutcomeJson(openPlatform),
         live,
         next,
@@ -1970,7 +1910,6 @@ async function cmdSetupScripted(argv: string[]): Promise<void> {
     } else {
       console.log(`✅ 已添加机器人 ${botProcessName(bot, index, PM2_NAME)} (${bot.larkAppId})，共 ${index + 1} 个`);
       console.log(`   配置文件: ${BOTS_JSON_FILE}`);
-      if (migratedEnv) console.log(`   旧 .env 已迁移并备份: ${ENV_FILE}.bak`);
       if (!cmd.openPlatformAuto) {
         console.log('   已跳过开放平台自动配置（权限导入/发版）。需要时加 --open-platform-auto（要扫码），或运行交互式 botmux setup。');
       }
@@ -2124,7 +2063,6 @@ async function cmdSetup(): Promise<void> {
   ensureConfigDir();
 
   const hasBots = existsSync(BOTS_JSON_FILE);
-  const hasEnv = existsSync(ENV_FILE);
 
   console.log('\n🤖 botmux 配置向导\n');
   console.log(`配置目录: ${CONFIG_DIR}`);
@@ -2298,61 +2236,6 @@ async function cmdSetup(): Promise<void> {
     return;
     }
 
-  } else if (hasEnv) {
-    // --- Single-bot mode (.env exists) ---
-    console.log(`当前使用单机器人配置: ${ENV_FILE}`);
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    const action = await pickChoice(rl, {
-      title: '操作',
-      items: [
-        { label: '添加新机器人', hint: '迁移 .env 到 bots.json 多机器人配置' },
-        { label: '覆盖当前配置' },
-      ],
-      defaultIndex: 0,
-      footer: 'Esc 退出',
-    });
-    if (action === null) {
-      rl.close();
-      console.log('\n已取消。');
-      return;
-    }
-
-    if (action === 1) {
-      rl.close();
-      const ok = await writeSingleBotConfig();
-      if (ok) {
-        renameSync(ENV_FILE, ENV_FILE + '.bak');
-        console.log(`   旧 .env 已备份: ${ENV_FILE}.bak`);
-      }
-      return;
-    }
-
-    // Migrate .env → bots.json
-    const existingBot = parseDotEnvToBotConfig();
-    if (!existingBot.larkAppId || !existingBot.larkAppSecret) {
-      console.log('\n⚠️  当前 .env 缺少 LARK_APP_ID 或 LARK_APP_SECRET，请先完成基础配置');
-      rl.close();
-      await writeSingleBotConfig();
-      return;
-    }
-    console.log(`\n当前机器人: ${existingBot.larkAppId} (${existingBot.cliId ?? 'claude-code'})`);
-    console.log('\n── 添加新机器人 ──\n');
-    const newBot = await promptBotConfig(rl);
-    rl.close();
-    if (!newBot) {
-      console.log('\n⚠️  setup 中止，.env 和 bots.json 都不动。');
-      return;
-    }
-
-    // 写新文件成功后才备份 .env. 失败不动两边.
-    writeBotsJsonAtomic([existingBot, newBot]);
-    renameSync(ENV_FILE, ENV_FILE + '.bak');
-    console.log(`\n✅ 已迁移到多机器人配置`);
-    console.log(`   配置文件: ${BOTS_JSON_FILE}`);
-    console.log(`   旧配置已备份: ${ENV_FILE}.bak`);
-    await finishOpenPlatformSetup(newBot.larkAppId, botBrand(newBot), { reuseOnly: hasSetupWebSession(newBot) });
-    printAddBotLiveHint(newBot.larkAppId);
-
   } else {
     // --- Fresh install ---
     await writeSingleBotConfig();
@@ -2469,7 +2352,6 @@ async function cmdStart(): Promise<void> {
     }
   }
 
-  cleanupLegacyPm2();
   const cfg = ecosystemConfig();
   runPm2(['start', cfg]);
   await reconcilePluginServicesForCli(undefined, { autoOnly: true });
@@ -2595,33 +2477,9 @@ function killPm2GodDaemon(home: string = PM2_HOME): void {
   }
 }
 
-/**
- * One-time migration for users upgrading from versions that used the default
- * ~/.pm2 directory. Removes any lingering botmux-* processes registered under
- * the legacy home so the new dedicated PM2_HOME becomes the sole source of
- * truth. Only touches processes named `botmux` or `botmux-*` — the user's
- * unrelated pm2 apps are left untouched. No-op on fresh installs.
- */
-function cleanupLegacyPm2(): boolean {
-  const legacyHome = join(homedir(), '.pm2');
-  if (legacyHome === PM2_HOME) return false;
-  const legacyPidFile = join(legacyHome, 'pm2.pid');
-  if (!existsSync(legacyPidFile)) return false;
-
-  let legacyPid = 0;
-  try { legacyPid = parseInt(readFileSync(legacyPidFile, 'utf-8').trim(), 10); } catch { return false; }
-  if (!legacyPid) return false;
-  // If the legacy daemon isn't alive anymore there's nothing to clean.
-  try { process.kill(legacyPid, 0); } catch { return false; }
-
-  deleteAllBotmuxProcesses(legacyHome);
-  return true;
-}
-
 async function cmdStop(): Promise<void> {
   const includePluginServices = process.argv.includes('--with-plugin');
   killDuplicatePm2GodDaemons();
-  cleanupLegacyPm2();
   let stopped = false;
   try {
     const output = pm2Capture(['jlist']);
@@ -2672,7 +2530,6 @@ async function cmdRestart(): Promise<void> {
   preflightNodeSanity();
   await ensureSystemDependencies();
   const cfg = ecosystemConfig();
-  cleanupLegacyPm2();
   // Delete all botmux processes (handles both old single-process and new multi-process)
   deleteAllBotmuxProcesses();
   if (includePluginServices) await stopPluginServicesForCli(undefined, { autoOnly: true });
@@ -2983,33 +2840,8 @@ async function ensureSystemDependencies(): Promise<void> {
   }
 }
 
-/**
- * If a legacy ~/.pm2 daemon with botmux processes still exists alongside our
- * new PM2_HOME, warn the user so read-only commands (status/logs) don't
- * silently show an empty new home while the old daemon keeps running.
- */
-function warnIfLegacyBotmuxAlive(): void {
-  const legacyHome = join(homedir(), '.pm2');
-  if (legacyHome === PM2_HOME) return;
-  const legacyPidFile = join(legacyHome, 'pm2.pid');
-  if (!existsSync(legacyPidFile)) return;
-  let legacyPid = 0;
-  try { legacyPid = parseInt(readFileSync(legacyPidFile, 'utf-8').trim(), 10); } catch { return; }
-  if (!legacyPid) return;
-  try { process.kill(legacyPid, 0); } catch { return; }
-  try {
-    const output = pm2Capture(['jlist'], legacyHome);
-    const apps = parsePm2JlistOutput(output);
-    const hasBotmux = apps.some(a => a.name === PM2_NAME || a.name.startsWith(`${PM2_NAME}-`));
-    if (hasBotmux) {
-      console.warn('⚠️  检测到旧版 PM2_HOME (~/.pm2) 下仍有 botmux 进程,运行 `botmux restart` 完成迁移。\n');
-    }
-  } catch { /* ignore */ }
-}
-
 function cmdLogs(): void {
   killDuplicatePm2GodDaemons();
-  warnIfLegacyBotmuxAlive();
   const lines = process.argv.includes('--lines')
     ? process.argv[process.argv.indexOf('--lines') + 1] || '50'
     : '50';
@@ -3051,7 +2883,6 @@ function cmdLogs(): void {
 
 function cmdStatus(): void {
   killDuplicatePm2GodDaemons();
-  warnIfLegacyBotmuxAlive();
   runPm2(['status']);
 }
 
@@ -3260,25 +3091,10 @@ function resolveDataDir(): string {
   return resolveBotmuxDataDir();
 }
 
-/** Load sessions from all session files (legacy + per-bot). */
+/** Load sessions from per-bot session files without modifying storage. */
 function loadSessions(): Map<string, SessionData> {
   const dataDir = resolveDataDir();
   const sessions = new Map<string, SessionData>();
-
-  // Read legacy sessions.json
-  const legacyFp = join(dataDir, 'sessions.json');
-  let legacyData: Record<string, SessionData> = {};
-  if (existsSync(legacyFp)) {
-    try {
-      legacyData = JSON.parse(readFileSync(legacyFp, 'utf-8'));
-      for (const [, v] of Object.entries(legacyData)) {
-        const s = v as SessionData;
-        if (!s || typeof s !== 'object' || !s.sessionId) continue;
-        repairMissingChatScope(s);
-        sessions.set(s.sessionId, s);
-      }
-    } catch { /* ignore */ }
-  }
 
   // Read per-bot session files (sessions-{appId}.json).
   const loadPerBot = (appId: string) => {
@@ -3287,7 +3103,6 @@ function loadSessions(): Map<string, SessionData> {
       for (const [, v] of Object.entries(data)) {
         const session = v as SessionData;
         if (!session || typeof session !== 'object' || !session.sessionId) continue;
-        repairMissingChatScope(session);
         if (!session.larkAppId) session.larkAppId = appId;  // stamp so saveSession writes back correctly
         sessions.set(session.sessionId, session);
       }
@@ -3307,34 +3122,6 @@ function loadSessions(): Map<string, SessionData> {
     if (process.env.BOTMUX_LARK_APP_ID) loadPerBot(process.env.BOTMUX_LARK_APP_ID);
   }
 
-  // Migrate: remove sessions from legacy file if they have larkAppId (belong in per-bot files)
-  let legacyDirty = false;
-  for (const [k, v] of Object.entries(legacyData)) {
-    const s = v as SessionData;
-    if (s.larkAppId) {
-      delete legacyData[k];
-      legacyDirty = true;
-      // Ensure the session exists in its per-bot file
-      const perBotFp = join(dataDir, `sessions-${s.larkAppId}.json`);
-      let perBotData: Record<string, SessionData> = {};
-      if (existsSync(perBotFp)) {
-        try { perBotData = JSON.parse(readFileSync(perBotFp, 'utf-8')); } catch { /* */ }
-      }
-      // Only write if per-bot file doesn't already have this session
-      if (!perBotData[k]) {
-        perBotData[k] = s;
-        const tmpFp = perBotFp + '.tmp';
-        writeFileSync(tmpFp, JSON.stringify(perBotData, null, 2), 'utf-8');
-        renameSync(tmpFp, perBotFp);
-      }
-    }
-  }
-  if (legacyDirty) {
-    const tmpFp = legacyFp + '.tmp';
-    writeFileSync(tmpFp, JSON.stringify(legacyData, null, 2), 'utf-8');
-    renameSync(tmpFp, legacyFp);
-  }
-
   return sessions;
 }
 
@@ -3345,7 +3132,8 @@ function loadSessionFresh(session: SessionData): SessionData | undefined {
 
 function saveSession(session: SessionData): void {
   const dataDir = resolveDataDir();
-  const fileName = session.larkAppId ? `sessions-${session.larkAppId}.json` : 'sessions.json';
+  if (!session.larkAppId) throw new Error('Cannot save a session without its bot appId');
+  const fileName = `sessions-${session.larkAppId}.json`;
   const fp = join(dataDir, fileName);
 
   // Read current file, update session, write back
@@ -3356,36 +3144,18 @@ function saveSession(session: SessionData): void {
   data[session.sessionId] = session;
 
   // Clean up entries where file key doesn't match the entry's sessionId (data
-  // corruption), and strip legacy placeholder-card fields so the file converges
-  // to clean (see stripLegacyPendingCardFields in services/session-store).
+  // corruption).
   for (const [key, val] of Object.entries(data)) {
     if (val && typeof val === 'object' && 'sessionId' in val && (val as SessionData).sessionId !== key) {
       delete data[key];
       continue;
     }
-    if (val && typeof val === 'object') stripLegacyPendingCardFields(val as unknown as Record<string, unknown>);
   }
 
   const tmpFp = fp + '.tmp';
   writeFileSync(tmpFp, JSON.stringify(data, null, 2), 'utf-8');
   renameSync(tmpFp, fp);
 
-  // Remove duplicate from legacy file if session moved to per-bot file (or vice versa)
-  const otherFile = session.larkAppId ? 'sessions.json' : null;
-  if (otherFile) {
-    const otherFp = join(dataDir, otherFile);
-    if (existsSync(otherFp)) {
-      try {
-        const otherData: Record<string, SessionData> = JSON.parse(readFileSync(otherFp, 'utf-8'));
-        if (otherData[session.sessionId]) {
-          delete otherData[session.sessionId];
-          const otherTmp = otherFp + '.tmp';
-          writeFileSync(otherTmp, JSON.stringify(otherData, null, 2), 'utf-8');
-          renameSync(otherTmp, otherFp);
-        }
-      } catch { /* ignore */ }
-    }
-  }
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -4483,7 +4253,7 @@ async function cmdSuspend(): Promise<void> {
   if (!target && !botAppId && !isolated) {
     console.error('用法: botmux suspend <session-id|all> | --bot <appId> | --isolated  [--dry-run]');
     console.error('  挂起后会话保持 active，下条消息冷启动（--resume 续上下文）');
-    console.error('  --isolated  挂起所有 readIsolation=true bot 的活跃会话（凭证轮换后用，');
+    console.error('  --isolated  挂起所有 启用了 sandbox 或 multiUserIsolation 的 bot 的活跃会话（凭证轮换后用，');
     console.error('              下次冷启动由 provisioning 自动同步最新登录凭证）');
     process.exit(1);
   }
@@ -4492,10 +4262,10 @@ async function cmdSuspend(): Promise<void> {
   let matched = [...sessions.values()].filter(s => s.status === 'active');
 
   if (isolated) {
-    const bots = loadBotConfigsForDisplay() as Array<{ larkAppId: string; readIsolation?: boolean }>;
-    const isoIds = new Set((Array.isArray(bots) ? bots : []).filter(b => b?.readIsolation === true).map(b => b.larkAppId));
+    const bots = loadBotConfigsForDisplay() as Array<{ larkAppId: string; sandbox?: boolean; multiUserIsolation?: { enabled: boolean } }>;
+    const isoIds = new Set((Array.isArray(bots) ? bots : []).filter(b => b?.sandbox === true || b?.multiUserIsolation?.enabled === true).map(b => b.larkAppId));
     if (isoIds.size === 0) {
-      console.log('没有 readIsolation=true 的 bot，无事可做。');
+      console.log('没有启用隔离的 bot，无事可做。');
       return;
     }
     matched = matched.filter(s => s.larkAppId && isoIds.has(s.larkAppId));
@@ -4723,7 +4493,6 @@ interface DaemonDescriptorLite {
   larkAppId: string;
   pid?: number;
   bootInstanceId?: string;
-  workflowIpcProtocol?: string;
   lastHeartbeat?: number;
 }
 
@@ -4744,9 +4513,6 @@ function listDaemonDescriptors(): DaemonDescriptorLite[] {
         ...(typeof d.pid === 'number' ? { pid: d.pid } : {}),
         ...(typeof d.bootInstanceId === 'string' && d.bootInstanceId
           ? { bootInstanceId: d.bootInstanceId }
-          : {}),
-        ...(typeof d.workflowIpcProtocol === 'string' && d.workflowIpcProtocol
-          ? { workflowIpcProtocol: d.workflowIpcProtocol }
           : {}),
         ...(typeof d.lastHeartbeat === 'number' ? { lastHeartbeat: d.lastHeartbeat } : {}),
       });
@@ -4869,179 +4635,6 @@ async function readCardUsageSnapshotForSend(
   }
 }
 
-/**
- * Authenticate the human who opened this exact turn against the target run,
- * then return the only daemon app that may receive the mutation. Inherited
- * BOTMUX_LARK_APP_ID is deliberately not an authority (long-lived sessions
- * keep it even when a different human opens a later turn).
- */
-function authorizeWorkflowDaemonCommand(runId: string, rest: string[]): string {
-  return authorizeV3DaemonCommand({
-    runId,
-    dataDir: resolveDataDir(),
-    envSessionId: process.env.BOTMUX_SESSION_ID,
-    requestedLarkAppId: argValue(rest, '--bot'),
-  }).larkAppId;
-}
-
-/**
- * Isolated-session fallback for workflow daemon mutations. Inside a Linux
- * bwrap sandbox or a macOS read-isolated session every leg of the host path
- * above is masked by design (process-tree marker, run directory,
- * `.dashboard-secret`), so the CLI instead presents its per-turn rotating
- * capability and lets the daemon re-derive the caller/chat/bot tuple from its
- * own live session record (workflows/v3/session-relay.ts). Detection is
- * marker-first (a visible live process marker → host path, so a stale
- * capability file can never hijack a healthy host session), then falls back
- * to the worker-published capability file that only isolated sessions have.
- * `--bot` is meaningless here — the run must be bound to this very session's
- * chat tuple, which pins the daemon.
- */
-async function tryWorkflowSessionRelayMutation(
-  runId: string,
-  mutation: WorkflowDaemonMutation,
-  body?: Record<string, unknown>,
-): Promise<WorkflowDaemonMutationResponse | null> {
-  const context = readWorkflowSessionRelayContext({
-    env: process.env,
-    dataDir: resolveDataDir(),
-  });
-  if (!context) return null;
-  try {
-    return await postWorkflowSessionRunMutation({
-      context,
-      runId,
-      mutation,
-      ...(body ? { body } : {}),
-      resolveIpcPort: (larkAppId) => {
-        // Daemon discovery is host state — masked in-sandbox, best-effort under
-        // read isolation. The BOTMUX_DAEMON_IPC_PORT fallback inside the client
-        // covers the masked case.
-        try {
-          return larkAppId ? findDaemon(larkAppId)?.ipcPort : undefined;
-        } catch {
-          return undefined;
-        }
-      },
-    });
-  } catch (err) {
-    console.error(`❌ ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-  }
-}
-
-/** `botmux workflow cancel <runId>` — authenticate the exact current caller
- * against the immutable run binding, then ask the owning daemon to durably
- * record cancellation before interrupting workers. */
-async function cmdWorkflowCancelV3(runId: string | undefined, rest: string[]): Promise<void> {
-  if (!runId) {
-    console.error('用法: botmux workflow cancel <runId> [--reason <text>] [--bot <larkAppId>]');
-    process.exit(1);
-  }
-  const {
-    formatV3RunCancelCliSuccess,
-    parseV3RunCancelCliOptions,
-    parseV3RunCancelDaemonResponse,
-  } = await import('./cli/v3-run-cancel.js');
-  const parsed = parseV3RunCancelCliOptions(rest);
-  if (!parsed.ok) {
-    console.error(`❌ ${parsed.error}`);
-    console.error('用法: botmux workflow cancel <runId> [--reason <text>] [--bot <larkAppId>]');
-    process.exit(1);
-  }
-  const reason = parsed.reason;
-  // An isolated session can only cancel a daemon-bound chat run (a standalone
-  // manual_cli run lives on masked host disk anyway), so relay short-circuits
-  // ahead of the host authority/standalone branching.
-  const relayed = await tryWorkflowSessionRelayMutation(
-    runId, 'cancel', reason ? { reason } : {},
-  );
-  if (relayed) {
-    try {
-      console.log(formatV3RunCancelCliSuccess(parseV3RunCancelDaemonResponse(relayed)));
-    } catch (err) {
-      console.error(`❌ ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
-    }
-    return;
-  }
-  const authority = authorizeV3DaemonCommand({
-    runId,
-    dataDir: resolveDataDir(),
-    envSessionId: process.env.BOTMUX_SESSION_ID,
-    requestedLarkAppId: parsed.larkAppId,
-    allowStandaloneLocal: true,
-  });
-  if (authority.mode === 'standalone') {
-    // A manual_cli run is owned by its foreground/local runtime, not a daemon.
-    // Persisting the shared journal intent is sufficient: runWorkflow polls the
-    // durable cut while a worker is active and aborts it within one tick.
-    const { requestV3RunCancel } = await import('./workflows/v3/daemon-run.js');
-    let outcome;
-    try {
-      outcome = requestV3RunCancel(dirname(authority.runDir), runId, {
-        by: 'standalone-cli',
-        ...(reason ? { reason } : {}),
-      });
-    } catch (err) {
-      console.error(`❌ ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
-    }
-    if (outcome.kind === 'stale-run') throw new Error(`找不到 v3 run ${runId}`);
-    if (outcome.kind === 'already-terminal') {
-      console.log(formatV3RunCancelCliSuccess({
-        ok: true, runId, status: outcome.status, alreadyTerminal: true,
-      }));
-      return;
-    }
-    if (outcome.kind === 'already-cancelled') {
-      console.log(formatV3RunCancelCliSuccess({
-        ok: true, runId, status: 'cancelled', alreadyTerminal: true,
-        ...(outcome.cancelRequestId ? { cancelRequestId: outcome.cancelRequestId } : {}),
-      }));
-      return;
-    }
-    console.log(formatV3RunCancelCliSuccess({
-      ok: true,
-      runId,
-      status: 'cancelling',
-      cancelRequestId: outcome.cancelRequestId,
-      alreadyRequested: outcome.kind === 'already-requested',
-    }));
-    return;
-  }
-
-  const daemon = findDaemon(authority.larkAppId);
-  if (!daemon) {
-    console.error('❌ 没有在线的目标 daemon；v3 run 取消需要由所属 daemon 持久化并中断节点。');
-    process.exit(1);
-  }
-  let secret: string | null = null;
-  try {
-    secret = loadDashboardSecret(dashboardSecretPath());
-  } catch (err) {
-    console.error(`❌ 无法读取 .dashboard-secret：${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-  }
-  if (!secret) {
-    console.error('❌ 缺少 .dashboard-secret，无法认证 v3 cancel daemon 请求；请先重启 botmux 初始化。');
-    process.exit(1);
-  }
-  try {
-    const { postV3RunCancel } = await import('./cli/v3-run-cancel.js');
-    const result = await postV3RunCancel({
-      daemon,
-      runId,
-      secret,
-      ...(reason ? { reason } : {}),
-    });
-    console.log(formatV3RunCancelCliSuccess(result));
-  } catch (err) {
-    console.error(`❌ ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-  }
-}
-
 function requireDashboardSecret(): string {
   let secret: string | null;
   try {
@@ -5098,118 +4691,6 @@ async function waitForExactDispatchAcceptance(input: {
   };
 }
 
-/** `botmux workflow start <runId>` — POST the daemon's v3 start IPC so the run
- *  is daemon-driven (humanGate → 飞书审批卡).  The grill skill calls this after
- *  approve-dag instead of the standalone `botmux v3 run` (which has no card
- *  layer).  The daemon is selected from the authenticated run/current-turn
- *  binding, never from the worker's static BOTMUX_LARK_APP_ID env. */
-async function cmdWorkflowStart(runId: string | undefined, rest: string[]): Promise<void> {
-  if (!runId) {
-    console.error('用法: botmux workflow start <runId> [--bot <larkAppId>]');
-    process.exit(1);
-  }
-  let response = await tryWorkflowSessionRelayMutation(runId, 'start');
-  if (!response) {
-    const larkAppId = authorizeWorkflowDaemonCommand(runId, rest);
-    const daemon = findDaemon(larkAppId);
-    if (!daemon) {
-      console.error('❌ 没有在线 daemon；v3 humanGate run 需要 daemon 驱动（审批卡是 daemon 的活）。');
-      process.exit(1);
-    }
-    try {
-      response = await postWorkflowDaemonMutation({
-        daemon,
-        runId,
-        mutation: 'start',
-      });
-    } catch (err: any) {
-      console.error(`❌ ${err?.message ?? err}`);
-      process.exit(1);
-    }
-  }
-  if (!response.ok) {
-    console.error(`❌ start 失败 (HTTP ${response.status}): ${response.bodyRaw}`);
-    process.exit(1);
-  }
-  console.log(`✅ v3 run "${runId}" 已交 daemon 驱动；humanGate 会在话题里弹审批卡，点了才继续。`);
-}
-
-/** `botmux workflow retry <runId> [--node <id>]` — blocked 节点重试入口（CLI 侧）。
- *  走 daemon 的 retry IPC（journal 写入留在 daemon 进程内，单写者），daemon append
- *  `nodeRetryRequested` 后以新 attempt 重驱动；已退休的 v2 `resume` 不再参与分发。 */
-async function cmdWorkflowRetry(runId: string | undefined, rest: string[]): Promise<void> {
-  if (!runId) {
-    console.error('用法: botmux workflow retry <runId> [--node <nodeId>] [--bot <larkAppId>]');
-    process.exit(1);
-  }
-  const nodeId = argValue(rest, '--node');
-  let response = await tryWorkflowSessionRelayMutation(runId, 'retry', nodeId ? { nodeId } : {});
-  if (!response) {
-    const larkAppId = authorizeWorkflowDaemonCommand(runId, rest);
-    const daemon = findDaemon(larkAppId);
-    if (!daemon) {
-      console.error('❌ 没有在线 daemon；blocked 重试需要 daemon 驱动。');
-      process.exit(1);
-    }
-    try {
-      response = await postWorkflowDaemonMutation({
-        daemon,
-        runId,
-        mutation: 'retry',
-        body: nodeId ? { nodeId } : {},
-      });
-    } catch (err: any) {
-      console.error(`❌ ${err?.message ?? err}`);
-      process.exit(1);
-    }
-  }
-  if (!response.ok) {
-    if (response.bodyRaw.includes('loop_node_use_grant')) {
-      console.error(`❌ 该受阻的是一个 loop（轮数耗尽），不是节点 attempt——用 \`botmux workflow grant ${runId}\` 追加一轮。`);
-    } else {
-      console.error(`❌ retry 失败 (HTTP ${response.status}): ${response.bodyRaw}`);
-    }
-    process.exit(1);
-  }
-  console.log(`🔄 v3 run "${runId}" 重试已受理，节点将以新 attempt 重跑。`);
-}
-
-/** `botmux workflow grant <runId> [--loop <id>]` — 耗尽 loop 追加一轮入口（CLI 侧）。
- *  与 retry 同构：走 daemon 的 grant IPC（单写者），daemon append
- *  `loopIterationGranted` 后重驱动，loop 带上一轮反馈再跑一轮。 */
-async function cmdWorkflowGrant(runId: string | undefined, rest: string[]): Promise<void> {
-  if (!runId) {
-    console.error('用法: botmux workflow grant <runId> [--loop <loopId>] [--bot <larkAppId>]');
-    process.exit(1);
-  }
-  const loopId = argValue(rest, '--loop');
-  let response = await tryWorkflowSessionRelayMutation(runId, 'grant', loopId ? { loopId } : {});
-  if (!response) {
-    const larkAppId = authorizeWorkflowDaemonCommand(runId, rest);
-    const daemon = findDaemon(larkAppId);
-    if (!daemon) {
-      console.error('❌ 没有在线 daemon；loop 追加需要 daemon 驱动。');
-      process.exit(1);
-    }
-    try {
-      response = await postWorkflowDaemonMutation({
-        daemon,
-        runId,
-        mutation: 'grant',
-        body: loopId ? { loopId } : {},
-      });
-    } catch (err: any) {
-      console.error(`❌ ${err?.message ?? err}`);
-      process.exit(1);
-    }
-  }
-  if (!response.ok) {
-    console.error(`❌ grant 失败 (HTTP ${response.status}): ${response.bodyRaw}`);
-    process.exit(1);
-  }
-  console.log(`➕ v3 run "${runId}" 已追加一轮，loop 将带上一轮反馈重跑。`);
-}
-
 /**
  * Request safe recovery for an active Codex-backed Botmux session.
  *
@@ -5222,7 +4703,7 @@ async function cmdWorkflowGrant(runId: string | undefined, rest: string[]): Prom
  */
 async function cmdSafeRecover(): Promise<void> {
   if (findAncestorSessionContext()) {
-    console.error('❌ safe-recover 只能由宿主终端操作，不能在 Botmux 管理的 AI CLI 会话内执行。');
+    console.error('❌ 请在运行服务的服务器终端中执行 safe-recover，机器人不能代为发起恢复。');
     process.exit(1);
   }
   const target = process.argv[3];
@@ -5512,7 +4993,7 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
   upgrade     Self-update is disabled for this fork (alias: update)
   dashboard   打印新的 Web Dashboard 一次性登录 URL（旧 token 同时失效）
   device enroll|status|logout
-              在宿主终端注册、查看或清除 desktop device 凭证（AI CLI 会话内拒绝）
+              由管理员在运行服务的服务器终端中注册、查看或清除 desktop device 凭证
   list        列出活跃会话（交互式选择并连接 tmux）
               --plain  纯文本表格输出（管道/脚本场景）
   delete <id>      关闭指定会话（支持 ID 前缀匹配）
@@ -5542,7 +5023,7 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
        voice status    查看当前语音配置（凭证打码）
        voice disable   关闭语音功能（移除配置）
   vc-agent tat-gate|poll
-                       飞书会议智能体 P0：校验 TAT 会中事件读取、轮询会议事件并触发 workflow
+                       飞书会议智能体 P0：校验 TAT 会中事件读取、轮询会议事件并触发会话
   plugin              管理 botmux 插件
        plugin init <id>
                        基于官方模板创建 botmux 插件仓库
@@ -5576,7 +5057,7 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
        --proactive                    标记为 AI 主动改名（应用 10 分钟防抖）
   poll create --title <标题> --option <选项> --option <选项>
        [--description <说明>] [--chat-id <oc_...>]
-                                      发送支持人类和机器人共同参与的 Botmux Poll
+                                      发送支持人类和机器人共同参与的群投票
   poll vote <poll-id> <序号|option-id|完整选项文本>
                                       让当前会话所属机器人以自身身份投票
   send [content]                       发消息到当前话题（支持 stdin / --content-file）
@@ -5618,29 +5099,7 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
   artifact list|search|show|history|save|delete [--scope personal|bot]
                                        Manage reusable Knowledge, Skill, and Dynamic Workflow artifacts
 
-编排 / workflow（v3）:
-  goal run <goal> [--run-id <id>] [--bot <id|name>] [--working-dir <dir>]
-                  [--timeout <seconds>] [--json]
-                                       在现有 v3 沙箱/worker 路径运行一个 headless goal；
-                                       同一 run-id 可安全重放终态或接续崩溃运行
-  workflow save [last|runId] [名称]
-                                       把成功 run 固化为 chat scope Saved Workflow；
-                                       发布当前 Bot 全局版本 / 确认 unsafe lint 请由用户在飞书显式发送 /workflow save ...
-  workflow run <名称|workflowId> [--param key=value ...]
-  workflow list [--json] | show <名称|workflowId>
-                                       运行 / 查看 Saved Workflow
-  workflow new|spec-finalize|approve-spec|revise-spec|architect|revise-dag [...]
-  workflow approve-dag|start [...]     创建、修订并运行一次性即兴 Workflow
-  workflow cancel <runId> [--reason <text>] [--bot <larkAppId>]
-                                       持久化取消 v3 run 并中断活动节点
-  workflow retry|grant [...]           处理受阻节点 / loop
-  template migrate-v3 [id|path ...] [--all] [--commit ...]
-                                       v2 定义迁移：默认 dry-run，写入需显式 owner/app/scope
-  template archive-runs [--commit|--verify <archive>|--retire <archive> --ack-daemon-stopped]
-                                       v2 历史 run 私有静态归档；retire 在维护窗双验后原子迁入 quarantine
-  （完整参数见 \`botmux workflow help\` / \`botmux template help\`）
-  dispatch --bot <name> [...]          多话题编排：开子话题并把 bot 派进去（详见 \`botmux dispatch --help\`）
-  report [...]                         交接 Review / 进展 / 结果并继承会话位置（详见 \`botmux report --help\`）
+
 
 新建飞书群:
   create-group --bot <name> [--bot ...] [--name "群名"]
@@ -6637,7 +6096,7 @@ function withCustomCardMentionFooter(
   if (!cloned) {
     return {
       ok: false,
-      error: '自定义卡片带 --mention/--mention-back 时必须是 schema 2.0、包含 body.elements，且未占用 botmux_reply_footer 元素 ID；或改用 --no-mention 并在卡片 JSON 内自行处理展示',
+      error: '自定义卡片带 --mention/--mention-back 时必须是 schema 2.0、包含 body.elements，且未占用 agent_reply_footer 元素 ID；或改用 --no-mention 并在卡片 JSON 内自行处理展示',
     };
   }
   return { ok: true, card: cloned };
@@ -6987,20 +6446,6 @@ async function registerSelfFromCredFile(): Promise<void> {
 
 async function cmdSend(rest: string[]): Promise<void> {
   const ancestorCtx = findAncestorSessionContext();
-  // Workflow subagents cannot own chat-facing effects: those belong to a
-  // hostExecutor so retries/resumes can reconcile them. Keep this gate ahead
-  // of both the sandbox relay and VC-origin store reads; neither path may turn
-  // a forbidden workflow send into an observable side effect.
-  if (process.env.BOTMUX_WORKFLOW === '1') {
-    const runId = process.env.BOTMUX_WORKFLOW_RUN_ID ?? '?';
-    const nodeId = process.env.BOTMUX_WORKFLOW_NODE_ID ?? '?';
-    console.error(
-      `botmux send refused inside workflow subagent (run=${runId} node=${nodeId}).\n` +
-      `Workflow subagents must return structured output via the WORKFLOW_OUTPUT marker;\n` +
-      `chat-facing side effects belong in a hostExecutor activity, not a subagent.`,
-    );
-    process.exit(2);
-  }
   // No-transport turn (apiOnly bot OR HTTP virtual session): refuse via the
   // central session-capability gate — same hard door every Feishu-touching CLI
   // command consults.
@@ -8764,7 +8209,7 @@ async function cmdReport(rest: string[]): Promise<void> {
   );
   const sid = sessionIdArg ?? reportContext?.sessionId;
   if (!sid) {
-    console.error('无法推断 session-id。请在当前 Botmux 会话（issue 领取群 / 被 dispatch 派活的会话）里运行，或传 --session-id <id>。');
+    console.error('无法推断 session-id。请在领取该 issue 或收到 dispatch 任务的机器人会话中运行，或传 --session-id <id>。');
     process.exit(1);
   }
   const currentTurnId = reportContext?.sessionId === sid
@@ -9501,21 +8946,6 @@ async function postAsk(body: Record<string, unknown>): Promise<import('./core/as
 }
 
 async function cmdAsk(sub: string, rest: string[]): Promise<void> {
-  // Workflow-subagent safety gate (same posture as cmdSend): a CLI running
-  // inside a workflow subagent (Slice F) must not surface chat UI. Workflow
-  // approvals belong in humanGate / decision nodes so the choice is part of
-  // the run's event log; an ad-hoc `botmux ask` would bypass that audit
-  // trail entirely.
-  if (process.env.BOTMUX_WORKFLOW === '1') {
-    const runId = process.env.BOTMUX_WORKFLOW_RUN_ID ?? '?';
-    const nodeId = process.env.BOTMUX_WORKFLOW_NODE_ID ?? '?';
-    console.error(
-      `botmux ask refused inside workflow subagent (run=${runId} node=${nodeId}).\n` +
-        `Workflow subagents must surface approvals via humanGate / decision nodes\n` +
-        `so the resolution is recorded in the run's event log; ask would bypass it.`,
-    );
-    process.exit(2);
-  }
 
   // Only `buttons` shipped in v0.1.7. The bare alias (`botmux ask --options`)
   // routes here with sub='' — accept it and behave identically. `ask text` /
@@ -9823,11 +9253,6 @@ export async function runHook(
   const adapter = getHookAdapter(cliId);
   if (!adapter) {
     return { stdout: '' };
-  }
-
-  // Workflow-subagent 安全门：workflow 子 agent 内直接 passthrough
-  if (env.BOTMUX_WORKFLOW === '1') {
-    return { stdout: adapter.passthrough(payload) };
   }
 
   // 解析问题：非 askUserQuestion 类事件 → passthrough 放行
@@ -10427,119 +9852,6 @@ function getVersion(): string {
 
 const command = process.argv[2];
 
-// Workflow safety gate (Slice C0): a CLI invoked inside a workflow
-// subagent worker (BOTMUX_WORKFLOW=1, set by v3/ephemeral-pool) must not
-// trigger chat-facing effects, schedule mutations, or recursively authorize /
-// mutate workflows.  Side effects belong in `hostExecutor` activities so they
-// get `effectAttempted` tracking + reconcile; workflow authorization belongs
-// to the host/user. Read-only commands stay allowed for introspection.
-if (process.env.BOTMUX_WORKFLOW === '1') {
-  // Default-deny the root command surface. New botmux commands otherwise
-  // silently become available to a bypass-permission workflow worker until
-  // someone remembers to extend a blacklist. Keep only explicit read-only
-  // introspection plus CLI startup plumbing; mutating subcommands under
-  // schedule/workflow/template/v3 are filtered again below. `mcp serve` is
-  // the stable, botmux-owned Plugin gateway configured for the parent CLI —
-  // it must start inside workflow workers, while every other/future `mcp`
-  // subcommand remains default-denied here.
-  const allowedRoot = new Set([
-    undefined,
-    '--help',
-    '-h',
-    'help',
-    '--version',
-    '-v',
-    'capabilities',
-    'status',
-    'history',
-    'quoted',
-    'bots',
-    'skill',
-    'hook',
-    'session-ready',
-    'mcp',
-    'ask', // dedicated cmdAsk guard emits the humanGate-specific guidance
-    'schedule',
-    'workflow',
-    'template',
-    'v3',
-  ]);
-  const rootDenied = !allowedRoot.has(command);
-  const mcpSub = command === 'mcp' ? (process.argv[3] ?? '') : '';
-  const mcpDenied = command === 'mcp' && mcpSub !== 'serve';
-  const isSchedule = command === 'schedule';
-  const scheduleSub = isSchedule ? (process.argv[3] ?? '') : '';
-  const blockedScheduleSub = new Set([
-    'add',
-    'rm',
-    'remove',
-    'del',
-    'delete',
-    'pause',
-    'disable',
-    'resume',
-    'enable',
-    'run',
-  ]);
-  const workflowSub = command === 'workflow' ? (process.argv[3] ?? '') : '';
-  const blockedWorkflowSub = new Set([
-    // v3 grill / authorization state changes.
-    'new',
-    'spec-finalize',
-    'approve-spec',
-    'revise-spec',
-    'architect',
-    'revise-dag',
-    'approve-dag',
-    // Saved Workflow creation / execution and live-run mutations.
-    'save',
-    'run',
-    'start',
-    'retry',
-    'grant',
-    'cancel',
-  ]);
-  const templateSub = command === 'template' ? (process.argv[3] ?? '') : '';
-  const blockedTemplateSub = new Set(['migrate-v3', 'archive-runs']);
-  const v3Sub = command === 'v3' ? (process.argv[3] ?? '') : '';
-  const workflowMutation =
-    (command === 'workflow' && blockedWorkflowSub.has(workflowSub)) ||
-    (command === 'template' && blockedTemplateSub.has(templateSub)) ||
-    (command === 'v3' && v3Sub === 'run');
-  if (
-    rootDenied ||
-    mcpDenied ||
-    (isSchedule && blockedScheduleSub.has(scheduleSub)) ||
-    workflowMutation
-  ) {
-    const runId = process.env.BOTMUX_WORKFLOW_RUN_ID ?? '?';
-    const nodeId = process.env.BOTMUX_WORKFLOW_NODE_ID ?? '?';
-    const sub = isSchedule
-      ? scheduleSub
-      : command === 'mcp'
-        ? mcpSub
-        : command === 'workflow'
-          ? workflowSub
-          : command === 'template'
-            ? templateSub
-            : command === 'v3'
-              ? v3Sub
-              : '';
-    const guidance = mcpDenied
-      ? 'Only the botmux-owned Plugin MCP gateway bootstrap (`mcp serve`) is available inside a workflow subagent.'
-      : workflowMutation
-        ? 'Workflow authorization and run mutations must be initiated by the host/user, not a subagent.'
-        : rootDenied
-          ? 'This root command is not in the workflow read-only allowlist; chat-facing effects belong in a hostExecutor activity.'
-          : 'Chat-facing or schedule-mutating effects belong in a hostExecutor activity, not a subagent.';
-    console.error(
-      `botmux ${command}${sub ? ` ${sub}` : ''} refused inside workflow ` +
-      `subagent (run=${runId} node=${nodeId}).  ${guidance}`,
-    );
-    process.exit(2);
-  }
-}
-
 /**
  * `botmux voice` — standalone voice-summary configuration (advanced feature,
  * intentionally NOT folded into `botmux setup`). Writes the global `voice`
@@ -10835,7 +10147,7 @@ function printPluginServiceRunningError(err: unknown): boolean {
   const operationLabel = operation === 'uninstall' ? '卸载' : operation === 'install' ? '安装' : '更新';
   console.error(`❌ 无法${operationLabel}插件 ${pluginId}：插件服务仍在运行（${status}${pid}）。`);
   console.error(`   请先运行: botmux plugin service stop ${pluginId}`);
-  console.error('   Botmux 不会在安装、更新或卸载时隐式停止插件服务。');
+  console.error('   安装、更新或卸载不会隐式停止插件服务。');
   return true;
 }
 
@@ -10847,7 +10159,7 @@ function printPluginServiceDeleteError(err: unknown): boolean {
     .join('; ');
   console.error('❌ 插件服务的 PM2 记录删除失败，插件未卸载。');
   if (details) console.error(`   ${details}`);
-  console.error('   请确认 PM2 可用后重新执行卸载；Botmux 未清理插件文件、配置或绑定。');
+  console.error('   请确认 PM2 可用后重新执行卸载；插件文件、配置和绑定均未清理。');
   return true;
 }
 
@@ -11288,20 +10600,6 @@ switch (command) {
     process.exitCode = result.code;
     break;
   }
-  case 'mcp': {
-    const sub = process.argv[3] ?? '';
-    if (sub !== 'serve') {
-      console.error('用法: botmux mcp serve');
-      process.exitCode = 2;
-      break;
-    }
-    if (!process.env.SESSION_DATA_DIR?.trim()) {
-      process.env.SESSION_DATA_DIR = resolveDataDir();
-    }
-    const { runMcpGateway } = await import('./core/plugins/mcp/gateway.js');
-    await runMcpGateway();
-    break;
-  }
   case 'hook': {
     // `botmux hook <cliId>` — hook 客户端，stdin 读 payload，stdout 写 directive
     const cliId = process.argv[3] ?? '';
@@ -11360,51 +10658,6 @@ switch (command) {
     // `botmux session-ready` — Claude 家族 SessionStart hook 客户端，通知 daemon
     // 已越过外层 selector；worker 再等待 hook 后的新 prompt 证据。
     await cmdSessionReady();
-    break;
-  }
-  case 'workflow': {
-    const wfSub = process.argv[3] ?? '';
-    if (wfSub === 'cancel') {
-      // Durable v3 run cancellation. The v2 runtime is retired.
-      await cmdWorkflowCancelV3(process.argv[4], process.argv.slice(5));
-      break;
-    }
-    if (wfSub === 'start') {
-      // `botmux workflow start <runId>` — kick a daemon-driven v3 run (so
-      // humanGate posts approval cards).  Needs a live daemon; findDaemon is
-      // cli.ts-local so this case handles it instead of cmdWorkflow.
-      await cmdWorkflowStart(process.argv[4], process.argv.slice(5));
-      break;
-    }
-    if (wfSub === 'retry') {
-      // v3 blocked-node retry; the former v2 `resume` verb is retired.
-      await cmdWorkflowRetry(process.argv[4], process.argv.slice(5));
-      break;
-    }
-    if (wfSub === 'grant') {
-      // v3 exhausted-loop grant (+1 iteration).
-      await cmdWorkflowGrant(process.argv[4], process.argv.slice(5));
-      break;
-    }
-    const { cmdWorkflow } = await import('./cli/workflow.js');
-    await cmdWorkflow(wfSub, process.argv.slice(4));
-    break;
-  }
-  case 'template': {
-    const { cmdTemplate } = await import('./cli/workflow.js');
-    await cmdTemplate(process.argv[3] ?? '', process.argv.slice(4));
-    break;
-  }
-  case 'v3': {
-    // `botmux v3 run <dag.json>` — run a hand-written next-gen (v3) DAG on the
-    // real ephemeral worker pool, daemon-independent (dogfood path).
-    const { cmdV3 } = await import('./workflows/v3/cli-run.js');
-    await cmdV3(process.argv[3] ?? '', process.argv.slice(4));
-    break;
-  }
-  case 'goal': {
-    const { cmdGoal } = await import('./workflows/v3/goal-cli.js');
-    process.exitCode = await cmdGoal(process.argv[3] ?? '', process.argv.slice(4));
     break;
   }
   case 'send':     await cmdSend(process.argv.slice(3)); break;

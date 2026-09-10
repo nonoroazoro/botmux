@@ -39,7 +39,6 @@ export const dashboardRoutes: DashboardRoute[] = [
       return root => mod.renderPluginPage(root);
     },
   },
-  pageRoute('workflows', '#/workflows', () => import('./v3-page.js'), 'renderV3RunsPage'),
   pageRoute('groups', '#/groups', () => import('./groups-page.js'), 'renderGroupsPage'),
   pageRoute('settings', '#/settings', () => import('./settings-page.js'), 'renderSettingsPage'),
   pageRoute('bot-defaults', '#/bot-defaults', () => import('./bot-defaults-page.js'), 'renderBotDefaultsPage'),

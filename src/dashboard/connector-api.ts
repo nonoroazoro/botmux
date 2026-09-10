@@ -120,24 +120,6 @@ function normalizeTopicMessage(
   return { ok: true, value: { mode: 'custom', text } };
 }
 
-function sameStringSet(left: string[] | undefined, right: string[] | undefined): boolean {
-  return JSON.stringify([...new Set(left ?? [])].sort())
-    === JSON.stringify([...new Set(right ?? [])].sort());
-}
-
-function sameConnectorTarget(
-  left: ConnectorDefinition['target'],
-  right: ConnectorDefinition['target'],
-): boolean {
-  return left.mode === right.mode
-    && left.kind === right.kind
-    && left.botId === right.botId
-    && left.chatId === right.chatId
-    && left.workflowId === right.workflowId
-    && sameStringSet(left.botIds, right.botIds)
-    && sameStringSet(left.allowChats, right.allowChats);
-}
-
 function normalizeConnectorInput(
   raw: unknown,
   opts: { id?: string; prior?: ConnectorDefinition | null; secretRef?: string },
@@ -145,7 +127,6 @@ function normalizeConnectorInput(
   const body = record(raw);
   const c = record(body.connector ?? body);
   const prior = opts.prior ?? null;
-  const targetProvided = hasOwn(c, 'target');
   const verify = record(c.verify ?? prior?.verify);
   const target = record(c.target ?? prior?.target);
   const promptEnvelope = record(c.promptEnvelope ?? prior?.promptEnvelope);
@@ -159,7 +140,7 @@ function normalizeConnectorInput(
   const targetMode = typeof target.mode === 'string' ? target.mode : prior?.target.mode ?? 'dynamic';
   if (!['dynamic', 'fixed', 'new-group'].includes(targetMode)) return { ok: false, error: 'bad_target_mode' };
   const targetKind = typeof target.kind === 'string' ? target.kind : prior?.target.kind ?? 'turn';
-  if (!['turn', 'workflow'].includes(targetKind)) return { ok: false, error: 'bad_target_kind' };
+  if (targetKind !== 'turn') return { ok: false, error: 'bad_target_kind' };
   const botId = typeof target.botId === 'string' && target.botId.trim() ? target.botId.trim() : prior?.target.botId;
   if (!botId) return { ok: false, error: 'target_bot_required' };
   const botIds = hasOwn(target, 'botIds')
@@ -169,10 +150,6 @@ function normalizeConnectorInput(
     ? (typeof target.chatId === 'string' && target.chatId.trim() ? target.chatId.trim() : prior?.target.chatId)
     : undefined;
   if (targetMode === 'fixed' && !chatId) return { ok: false, error: 'fixed_chat_required' };
-  const workflowId = targetKind === 'workflow'
-    ? (typeof target.workflowId === 'string' && target.workflowId.trim() ? target.workflowId.trim() : prior?.target.workflowId)
-    : undefined;
-  if (targetKind === 'workflow' && !workflowId) return { ok: false, error: 'workflow_id_required' };
   // Dedup is now OPTIONAL for new-group (null = a fresh group per event).
   const lifecycleExtractors = targetMode === 'new-group'
     ? (c.lifecycleExtractors === undefined
@@ -212,7 +189,7 @@ function normalizeConnectorInput(
         : prior?.verify.nonceHeader ?? DEFAULT_VERIFY_HEADERS.nonceHeader,
       toleranceSeconds: positiveInt(verify.toleranceSeconds, prior?.verify.toleranceSeconds ?? DEFAULT_VERIFY_HEADERS.toleranceSeconds, 30, 86_400),
     },
-    target: prior?.target.kind === 'workflow' && !targetProvided ? { ...prior.target } : {
+    target: {
       mode: targetMode as ConnectorDefinition['target']['mode'],
       kind: targetKind as ConnectorDefinition['target']['kind'],
       botId,
@@ -221,7 +198,6 @@ function normalizeConnectorInput(
       ...(targetMode === 'dynamic'
         ? { allowChats: hasOwn(target, 'allowChats') ? stringList(target.allowChats) : (prior?.target.allowChats ?? []) }
         : {}),
-      ...(workflowId ? { workflowId } : {}),
     },
     promptEnvelope: {
       sourceName: typeof promptEnvelope.sourceName === 'string' && promptEnvelope.sourceName.trim()
@@ -255,21 +231,6 @@ function normalizeConnectorInput(
     createdAt: prior?.createdAt ?? now,
     updatedAt: prior?.updatedAt ?? now,
   };
-
-  // Workflow targets belong to the retiring v2 engine. Keep existing assets
-  // maintainable during the migration window, but never create a new entry,
-  // convert a turn connector into one, or let an existing workflow connector
-  // drift to a different target. Non-target fields (name, prompt, secret,
-  // enabled state, logging policy, etc.) remain editable.
-  if (!prior && next.target.kind === 'workflow') {
-    return { ok: false, error: 'legacy_workflow_connector_creation_disabled' };
-  }
-  if (prior?.target.kind === 'turn' && next.target.kind === 'workflow') {
-    return { ok: false, error: 'legacy_workflow_connector_creation_disabled' };
-  }
-  if (prior?.target.kind === 'workflow' && !sameConnectorTarget(next.target, prior.target)) {
-    return { ok: false, error: 'legacy_workflow_connector_target_immutable' };
-  }
   return { ok: true, connector: next };
 }
 
@@ -393,9 +354,7 @@ export async function handleConnectorApi(
       }
       try {
         const body = await readJsonBody<any>(req);
-        // Validate the complete update before rotating the secret. In
-        // particular, a rejected legacy-workflow target mutation must not
-        // leave behind an otherwise successful credential side effect.
+        // Validate before rotating the secret so rejected updates have no side effects.
         const preflight = normalizeConnectorInput({ ...body, id }, {
           id,
           prior,

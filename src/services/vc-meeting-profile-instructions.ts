@@ -42,7 +42,7 @@ export function normalizeVcMeetingProfileInstructions(
   // `<botmux_role_instructions\t>` are LLM-equivalent fence boundaries even
   // though they are not byte-identical to the emitted wrapper.
   if (instructions.toLowerCase().includes(RESERVED_INSTRUCTION_MARKER_TOKEN)) {
-    return { ok: false, error: 'contains a reserved botmux instruction marker' };
+    return { ok: false, error: 'contains a reserved internal instruction marker' };
   }
   return { ok: true, instructions };
 }

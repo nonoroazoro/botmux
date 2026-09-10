@@ -32,11 +32,6 @@ import { initFloatingScrollbars } from './floating-scrollbars.js';
 import { initIconTooltips } from './icon-tooltip.js';
 import { PLUGIN_PINS_CHANGED_EVENT } from './plugin-events.js';
 import { updateAndRestartBotmux, type BotmuxUpdatePhase } from './update-action.js';
-import {
-  canonicalDashboardClientShellUrl,
-  dashboardClientShellRedirect,
-  readDashboardClientShell,
-} from './client-shell.js';
 import { dashboardLoginHref } from './auth-login.js';
 import { BOTMUX_UPDATE_FEATURE_ENABLED } from '../../core/botmux-update-feature.js';
 
@@ -131,19 +126,7 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   { id: 'insights', href: '#/insights', labelKey: 'nav.insights', manage: true, icon: <><path d="M2 2v12h12M5 11V7M8.5 11V4.5M12 11V8.5" /></> },
-  {
-    id: 'workflows',
-    href: '#/workflows',
-    labelKey: 'nav.workflows',
-    icon: (
-      <>
-        <circle cx="3.4" cy="3.6" r="1.9" />
-        <circle cx="3.4" cy="12.4" r="1.9" />
-        <circle cx="12.6" cy="8" r="1.9" />
-        <path d="M5.2 4.4l5.6 2.8M5.2 11.6l5.6-2.8" />
-      </>
-    ),
-  },
+
   { id: 'schedules', href: '#/schedules', labelKey: 'nav.schedules', icon: <><circle cx="8" cy="8" r="6.2" /><path d="M8 4.5V8l2.4 1.6" /></> },
   { id: 'whiteboards', href: '#/whiteboards', labelKey: 'nav.whiteboards', manage: true, icon: <><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" /><path d="M4.8 5.2h6.4M4.8 8h6.4M4.8 10.8h4" /></> },
   { id: 'office', href: '#/office', labelKey: 'nav.office', icon: <><rect x="3" y="4" width="10" height="7" rx="2" /><circle cx="6" cy="7.5" r="1" /><circle cx="10" cy="7.5" r="1" /><path d="M8 4V2M4.5 11v2M11.5 11v2" /></> },
@@ -204,9 +187,7 @@ function isActiveNav(item: NavItem, hash: string): boolean {
 }
 
 function sidebarNavItems(): NavItem[] {
-  const builtInItems = readDashboardClientShell()
-    ? NAV_ITEMS.filter(item => item.id !== 'workflows')
-    : NAV_ITEMS;
+  const builtInItems = NAV_ITEMS;
   if (pinnedPluginNavItems.length === 0) return builtInItems;
   const pluginIndex = builtInItems.findIndex(item => item.id === 'plugins');
   if (pluginIndex < 0) return [...builtInItems, ...pinnedPluginNavItems];
@@ -230,15 +211,13 @@ function readShellLocale(): DashboardLocale | null {
 
   const queryIndex = location.hash.indexOf('?');
   if (queryIndex < 0) return null;
-  // Desktop keeps shell flags inside the hash so auth redirects preserve them.
   return normalizeDashboardLocale(new URLSearchParams(location.hash.slice(queryIndex + 1)).get('locale'));
 }
 
 function applyShellLocaleFromHash(): boolean {
   const shellLocale = readShellLocale();
   if (!shellLocale || shellLocale === ui.locale) return false;
-  // Desktop changes locale by rewriting the embedded webview hash. That is an
-  // in-page navigation, so the dashboard must re-apply locale before routing.
+  // Hash navigation is in-page, so re-apply locale before routing.
   ui.setLocale(shellLocale);
   return true;
 }
@@ -252,7 +231,7 @@ function readHashActionParams(): { path: string; params: URLSearchParams } | nul
   };
 }
 
-function consumeDesktopShellRouteAction(): boolean {
+function consumeHashRouteAction(): boolean {
   const action = readHashActionParams();
   const open = action?.params.get('open');
   if (!action || !open) return false;
@@ -260,8 +239,7 @@ function consumeDesktopShellRouteAction(): boolean {
 
   action.params.delete('open');
   const query = action.params.toString();
-  // Desktop uses hash flags as one-shot commands; clear them so locale/route
-  // re-renders do not reopen the same dialog.
+  // Clear one-shot actions so locale and route re-renders do not reopen dialogs.
   history.replaceState(null, '', query ? `${action.path}?${query}` : action.path);
   if (open === 'bot-onboarding') {
     window.dispatchEvent(new Event(OPEN_BOT_ONBOARDING_EVENT));
@@ -501,8 +479,8 @@ function AuthExpiredOverlay(props: {
       <div className="auth-expired-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-expired-title">
         <h2 id="auth-expired-title">{canLogin ? '登录 Dashboard' : '访问链接已失效'}</h2>
         <p>{canLogin
-          ? '当前浏览器尚未登录。点击后将通过 Botmux 平台校验机器 owner 权限，并返回当前页面；无权限账号仍会被拒绝。'
-          : '当前链接/访问已失效，请使用最新授权链接重新进入（运行 botmux dashboard 获取）。'}</p>
+          ? '请先登录。验证你有管理这台机器的权限后，会回到当前页面。'
+          : '当前访问链接已失效，请向管理员获取新链接。'}</p>
         <div className="auth-expired-actions">
           {props.loginUrl ? (
             <a
@@ -1107,10 +1085,6 @@ function DashboardShell(): React.JSX.Element {
           <div className="topbar-left">
             <div className="topbar-brand-block">
               <a className="brand" href="#/">
-                <span className="brand-mark" aria-hidden="true">
-                  <img className="brand-logo-img" src="/assets/brand-logo.png" alt="" decoding="sync" loading="eager" fetchPriority="high" />
-                </span>
-                <strong className="brand-wordmark">Botmux</strong>
                 <span className="brand-product">Dashboard</span>
               </a>
               {BOTMUX_UPDATE_FEATURE_ENABLED
@@ -1131,17 +1105,6 @@ function DashboardShell(): React.JSX.Element {
                 {ui.locale === 'zh' ? 'CN' : 'EN'}
               </button>
               <ThemeMenuSlot />
-              <a
-                className="topbar-docs-link"
-                href="https://deepcoldy.github.io/botmux/"
-                target="_blank"
-                rel="noopener noreferrer"
-                title={t('nav.docs')}
-                aria-label={t('nav.docs')}
-              >
-                {icon(<><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" /><path d="M4.8 5.2h6.4M4.8 8h6.4M4.8 10.8h4" /></>)}
-                <span>{t('nav.docs')}</span>
-              </a>
             </div>
             <span className="topbar-owner" title={ownerAvatar?.name} aria-label={ownerAvatar?.name ?? 'Owner'}>
               <span className="topbar-owner-placeholder" aria-hidden="true">
@@ -1249,7 +1212,7 @@ export function showReadOnlyToast(): void {
       'border-radius:var(--radius-lg);font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.25)';
     document.body.appendChild(el);
   }
-  el.textContent = '当前是只读访问，此操作需要授权链接（运行 botmux dashboard 获取）';
+  el.textContent = '当前只能查看，请向管理员获取有操作权限的链接。';
   el.style.display = 'block';
   if (roToastTimer) window.clearTimeout(roToastTimer);
   roToastTimer = window.setTimeout(() => { el!.style.display = 'none'; }, 4000);
@@ -1356,7 +1319,7 @@ function renderAuthRequiredPage(host: HTMLElement): void {
     '<h2 style="margin:0 0 12px;font-size:20px;color:var(--fg)">此页需要授权链接</h2>' +
     '<p style="margin:0 0 24px;line-height:1.7;color:var(--muted);font-size:14px">' +
     '你当前是只读访问，管理页（群角色 / Profiles / Bot 配置 / 团队 / Webhook）需要授权链接。' +
-    '运行 <code>botmux dashboard</code> 获取最新链接后即可管理。</p>' +
+    '请向管理员获取最新授权链接。</p>' +
     '<a href="#/" style="display:inline-block;padding:8px 22px;background:var(--accent);' +
     'color:var(--on-accent);border-radius:var(--radius-lg);text-decoration:none;font-size:14px">返回总览</a>' +
     '</section>';
@@ -1368,24 +1331,9 @@ async function route(): Promise<void> {
   activeHash = hash;
   renderShell();
 
-  const clientShellRedirect = dashboardClientShellRedirect(hash);
-  if (clientShellRedirect) {
-    window.location.replace(clientShellRedirect);
-    return;
-  }
   if (!isAuthed && MANAGE_ROUTES.some(r => hash.startsWith('#/' + r))) {
     renderAuthRequiredPage(getRouteRoot());
     routeState.rerenderOnUiChange = true;
-    return;
-  }
-  if (hash.startsWith('#/v3')) {
-    window.location.replace(`#/workflows${hash.slice('#/v3'.length)}`);
-    return;
-  } else if (hash.startsWith('#/legacy-workflow')) {
-    window.location.replace('#/workflows');
-    return;
-  } else if (/^#\/workflows(?:\/|-)catalog(?:[/?].*)?$/.test(hash)) {
-    window.location.replace('#/workflows');
     return;
   }
   if (hash.startsWith('#/role-profiles')) {
@@ -1402,7 +1350,7 @@ async function route(): Promise<void> {
       matched ? matched.load : loadOverviewPage,
       { rerenderOnUiChange: matched ? matched.rerenderOnUiChange : false },
     );
-    if (seq === routeState.seq && isAuthed) consumeDesktopShellRouteAction();
+    if (seq === routeState.seq && isAuthed) consumeHashRouteAction();
   } catch (err) {
     if (seq !== routeState.seq) return;
     if (maybeReloadBrowserForStaleRouteChunk(err, {
@@ -1445,10 +1393,6 @@ function initOwnerAvatar(): void {
 }
 
 void (async () => {
-  const canonicalClientShellUrl = canonicalDashboardClientShellUrl(window.location.href);
-  if (canonicalClientShellUrl) {
-    window.history.replaceState(window.history.state, '', canonicalClientShellUrl);
-  }
   ui.init();
   applyShellLocaleFromHash();
   const host = document.getElementById('app-root');
@@ -1481,7 +1425,7 @@ void (async () => {
   try {
     await bootstrap();
   } catch (err) {
-    console.error('botmux dashboard bootstrap failed', err);
+    console.error('Dashboard could not start', err);
     store.setOnline(false);
   }
   void loadNameMaps().then(renderShell);

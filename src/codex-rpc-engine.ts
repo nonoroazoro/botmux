@@ -60,6 +60,8 @@ export interface CodexRpcEngineOpts {
   cliBin: string;
   /** Working directory / agent root for the session. */
   cwd: string;
+  /** User-facing bot identity attached to the Codex thread. */
+  botName?: string;
   /** Child env (must carry CODEX_HOME + proxy vars + BOTMUX_SESSION_ID). */
   env: NodeJS.ProcessEnv;
   /** botmux session id — used to name the app-server orphan-cleanup marker so a
@@ -160,8 +162,13 @@ export class CodexRpcEngine {
     this.writeMarker();
     await this.waitReady(15_000);
     await this.connect(8_000);
+    const botName = this.opts.botName?.trim();
     await this.request('initialize', {
-      clientInfo: { name: 'botmux', version: botmuxVersion(), title: 'botmux' },
+      clientInfo: {
+        name: 'agent-runtime',
+        version: botmuxVersion(),
+        ...(botName ? { title: botName } : {}),
+      },
       capabilities: { experimentalApi: true },
     });
     this.notify('initialized');
@@ -215,7 +222,7 @@ export class CodexRpcEngine {
       cwd: this.opts.cwd,
       approvalPolicy: 'never',
       sandbox: 'danger-full-access',
-      serviceName: 'botmux',
+      ...(this.opts.botName?.trim() ? { serviceName: this.opts.botName.trim() } : {}),
       ephemeral: false,
       persistExtendedHistory: true,
       config,

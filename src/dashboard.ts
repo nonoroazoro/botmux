@@ -37,14 +37,6 @@ import { createDebugTerminalManager } from './dashboard/debug-terminal.js';
 import { pickCreatorForGroup } from './dashboard/operator-selector.js';
 import { buildTeamGroupCreatePayload, planGroupCreator } from './dashboard/team-group.js';
 import { jsonRes } from './dashboard/http.js';
-import { handleV3RunsApi } from './dashboard/v3-runs-api.js';
-import { defaultRunsDir as v3RunsDir } from './workflows/v3/ops-projection.js';
-import {
-  verifyWorkflowDaemonIpcResponse,
-  workflowDaemonIpcHeaders,
-  WORKFLOW_DAEMON_IPC_ROUTE_PREFIX,
-  type WorkflowDaemonIpcTarget,
-} from './workflows/v3/daemon-ipc-auth.js';
 import { handleDashboardTriggerApi } from './dashboard/trigger-api.js';
 import { handleConnectorApi } from './dashboard/connector-api.js';
 import {
@@ -190,10 +182,6 @@ import { startPlatformTunnelClient, type PlatformBotInfo, type PlatformTeamSyncM
 import { applyPlatformTeamSync, getPlatformTeamSyncRev, listPlatformTeams } from './services/platform-team-store.js';
 import { getBotUnionId } from './services/bot-union-ids-store.js';
 import { cleanupIdleSessions, parseIdleCleanupHours } from './dashboard/session-cleanup.js';
-import {
-  compatMachineIdForAuthenticatedRequest,
-  handleDesktopCompat,
-} from './dashboard/compat.js';
 import { isDashboardChunkJsPath, missingDashboardChunkModule } from './dashboard/stale-chunk-module.js';
 import { aggregateRoleBatch, parseRoleBatchTargets } from './dashboard/roles-batch.js';
 import { automateOpenPlatformSetup, vcListenerEventGateError } from './setup/open-platform-automation.js';
@@ -211,7 +199,6 @@ import { listPluginServiceStatus, startPluginServices, stopPluginServices } from
 import { materializePlugin } from './core/plugins/materializer.js';
 import { resolveEffectivePluginIds, updateBotPluginOverride } from './core/plugins/effective.js';
 import { assertPluginBindingTransition, describePluginDependencyError } from './core/plugins/dependencies.js';
-import { inspectGatewayEntry } from './core/plugins/mcp/gateway-installer.js';
 import type { InstalledPluginRecord, PluginDashboardEntry } from './core/plugins/types.js';
 import { fetchDaemonIpc } from './core/daemon-ipc-auth.js';
 
@@ -1714,37 +1701,6 @@ function cleanPluginListForInstalled(list: unknown, installed: Set<string>): str
   return (normalizePluginIdList(list) ?? []).filter(id => installed.has(id));
 }
 
-function latestGatewayDiagnostics(): Map<string, unknown[]> {
-  const root = join(config.session.dataDir, 'mcp-gateway');
-  const byPlugin = new Map<string, unknown[]>();
-  if (!existsSync(root)) return byPlugin;
-  let files: string[] = [];
-  try {
-    files = readdirSync(root)
-      .filter(file => file.endsWith('.json'))
-      .sort((a, b) => statSync(join(root, b)).mtimeMs - statSync(join(root, a)).mtimeMs)
-      .slice(0, 50);
-  } catch { return byPlugin; }
-  const seen = new Set<string>();
-  for (const file of files) {
-    try {
-      const parsed = JSON.parse(readFileSync(join(root, file), 'utf-8'));
-      for (const server of Array.isArray(parsed?.servers) ? parsed.servers : []) {
-        const pluginId = typeof server?.pluginId === 'string' ? server.pluginId : '';
-        const serverName = typeof server?.serverName === 'string' ? server.serverName : '';
-        if (!pluginId || !serverName) continue;
-        const key = `${pluginId}\0${serverName}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const bucket = byPlugin.get(pluginId) ?? [];
-        bucket.push({ ...server, sessionId: parsed.sessionId, generatedAt: parsed.generatedAt });
-        byPlugin.set(pluginId, bucket);
-      }
-    } catch { /* one corrupt diagnostic must not hide the plugin page */ }
-  }
-  return byPlugin;
-}
-
 async function listDashboardPluginsPayload(): Promise<Record<string, unknown>> {
   const registryFile = readPluginRegistry();
   const installed = new Set(Object.keys(registryFile.plugins));
@@ -1761,11 +1717,6 @@ async function listDashboardPluginsPayload(): Promise<Record<string, unknown>> {
       plugins: resolveEffectivePluginIds(bot, { plugins: globalPlugins }),
     };
   });
-  const gatewayAdapters = [...new Map(botConfigs.map(bot => {
-    const adapter = createCliAdapterSync(bot.cliId, bot.cliPathOverride);
-    return [adapter.id, inspectGatewayEntry(adapter)] as const;
-  })).values()];
-  const gatewayDiagnostics = latestGatewayDiagnostics();
   const serviceReports = await listPluginServiceStatus();
   const serviceByPlugin = new Map<string, typeof serviceReports>();
   for (const report of serviceReports) {
@@ -1785,8 +1736,7 @@ async function listDashboardPluginsPayload(): Promise<Record<string, unknown>> {
       displayName: record.manifest.displayName,
       dependencies: record.manifest.dependencies?.plugins ?? [],
       contributions: record.contributions ?? {},
-      skillsCount: record.contributions?.skills?.length ?? (record.manifest as any).skills?.length ?? 0,
-      mcpCount: record.contributions?.mcp ? 1 : 0,
+      skillsCount: record.contributions?.skills?.length ?? 0,
       dashboard: dashboardEntriesForRecord(record).map(entry => ({
         ...entry,
         url: `/plugins/${encodeURIComponent(record.id)}/${entry.entry}`,
@@ -1796,10 +1746,8 @@ async function listDashboardPluginsPayload(): Promise<Record<string, unknown>> {
       pinnedToSidebar: pinnedSet.has(record.id) && dashboardEntriesForRecord(record).length > 0,
       enabledGlobal: globalSet.has(record.id),
       enabledByBot: Object.fromEntries(bots.map(bot => [bot.id, bot.plugins.includes(record.id)])),
-      gatewayAdapters,
-      mcpDiagnostics: gatewayDiagnostics.get(record.id) ?? [],
     }));
-  return { plugins, globalPlugins, bots, gatewayAdapters };
+  return { plugins, globalPlugins, bots };
 }
 
 function writeGlobalPluginBinding(pluginId: string, enabled: boolean): void {
@@ -1947,78 +1895,7 @@ async function proxyToDaemon(
       headers: { 'content-type': 'application/json' },
     });
   }
-  const method = String(init.method ?? 'GET').toUpperCase();
-  const workflowPathTail = daemonPath.startsWith(`${WORKFLOW_DAEMON_IPC_ROUTE_PREFIX}/`)
-    ? daemonPath.slice(WORKFLOW_DAEMON_IPC_ROUTE_PREFIX.length + 1)
-    : '';
-  const isWorkflowMutation = method === 'POST' &&
-    /^[^/]+\/(?:start|cancel|retry|grant)(?:\?.*)?$/.test(workflowPathTail);
-  if (!isWorkflowMutation) {
-    // Non-workflow routes ride the shared trusted-host wrapper (route-bound
-    // X-Botmux-Cli-* HMAC). Workflow mutations keep the domain-separated
-    // full-envelope protocol below; the daemon admits that prefix through its
-    // narrow capability aperture and the handler fail-closes on the envelope.
-    return fetchDaemonIpc(d.ipcPort, daemonPath, init);
-  }
-  if (d.workflowIpcProtocol !== 'v1' || !d.bootInstanceId) {
-    return new Response(JSON.stringify({
-      ok: false,
-      error: 'daemon_upgrade_required',
-      message: 'target daemon does not advertise Workflow IPC v1; upgrade and restart all botmux processes',
-    }), { status: 503, headers: { 'content-type': 'application/json' } });
-  }
-  const bodyRaw = init.body === undefined || init.body === null
-    ? ''
-    : typeof init.body === 'string'
-      ? init.body
-      : (() => { throw new Error('Workflow daemon mutation body must be a pre-serialized string'); })();
-  const target: WorkflowDaemonIpcTarget = {
-    larkAppId: d.larkAppId,
-    ipcPort: d.ipcPort,
-    bootInstanceId: d.bootInstanceId,
-  };
-  const authHeaders = workflowDaemonIpcHeaders({
-    secret: SECRET,
-    method,
-    pathWithQuery: daemonPath,
-    bodyRaw,
-    target,
-  });
-  const workflowResponseAuth = {
-    nonce: authHeaders['X-Botmux-Workflow-Ipc-Nonce']!,
-    target,
-  };
-  const headers = new Headers(init.headers);
-  for (const [key, value] of Object.entries(authHeaders)) {
-    headers.set(key, value);
-  }
-  const upstream = await fetch(
-    `http://127.0.0.1:${d.ipcPort}${daemonPath}`,
-    { ...init, headers },
-  );
-  const responseBody = await upstream.text();
-  const authenticated = verifyWorkflowDaemonIpcResponse({
-    secret: SECRET,
-    requestNonce: workflowResponseAuth.nonce,
-    method,
-    pathWithQuery: daemonPath,
-    status: upstream.status,
-    body: responseBody,
-    target: workflowResponseAuth.target,
-    signature: upstream.headers.get('x-botmux-workflow-ipc-response-signature'),
-  });
-  if (!authenticated) {
-    return new Response(JSON.stringify({
-      ok: false,
-      error: 'daemon_response_unauthenticated',
-      message: 'target daemon response did not verify as Workflow IPC v1',
-    }), { status: 502, headers: { 'content-type': 'application/json' } });
-  }
-  return new Response(responseBody, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: upstream.headers,
-  });
+  return fetchDaemonIpc(d.ipcPort, daemonPath, init);
 }
 
 /** Authenticated adapter for helpers that receive a discovered daemon URL. */
@@ -2615,23 +2492,6 @@ const server = createServer(async (req, res) => {
       return res.end(DASHBOARD_SELF_NONCE);
     }
 
-    // Desktop shell compatibility probe (read-only, no token required). Keep it
-    // outside the browser auth gate so packaged desktop apps can decide whether
-    // this runtime speaks their dashboard protocol before loading the SPA.
-    if (req.method === 'GET' && url.pathname === '/__desktop/compat') {
-      const presentedToken = authedToken(req, url);
-      const boundMachineId = activeToken && presentedToken === activeToken
-        ? readPlatformBinding()?.machineId
-        : null;
-      const compatMachineId = compatMachineIdForAuthenticatedRequest(
-        presentedToken,
-        activeToken,
-        boundMachineId,
-      );
-      handleDesktopCompat(req, res, url, { machineId: compatMachineId ?? undefined });
-      return;
-    }
-
     // Web terminal reverse-proxy: `/s/<sessionId>/*` → the owning bot daemon's
     // terminal proxy. The central platform only tunnels the dashboard port, so
     // terminal links served under the machine subdomain
@@ -2749,8 +2609,8 @@ const server = createServer(async (req, res) => {
       publicReadOnly: globalDashboardConfig?.publicReadOnly
         ?? config.dashboard.publicReadOnly,
     });
-    // `authed` is consumed by route handlers that distinguish the public-read
-    // carve-out from a valid management cookie (notably v3 run details).
+    // Route handlers use this to distinguish public read access from a valid
+    // management cookie.
     const authed = !!presentedToken && presentedToken === activeToken && !!activeToken;
 
     if (decision.kind === 'deny401') {
@@ -2760,7 +2620,7 @@ const server = createServer(async (req, res) => {
         'cache-control': 'no-store',
         ...(loginUrl ? { 'x-botmux-login-url': loginUrl } : {}),
       });
-      res.end('<h1>Token expired</h1><p>Run <code>botmux dashboard</code> to get a fresh URL.</p>');
+      res.end('<h1>This link has expired</h1><p>Ask your administrator for a new access link.</p>');
       return;
     }
 
@@ -2771,14 +2631,6 @@ const server = createServer(async (req, res) => {
       });
       res.end();
       return;
-    }
-
-    if (url.pathname === '/api/workflows' || url.pathname.startsWith('/api/workflows/')) {
-      return jsonRes(res, 410, {
-        ok: false,
-        error: 'legacy_workflow_retired',
-        message: 'v2 workflow dashboard APIs are retired; use /api/v3/runs for v3 run visibility',
-      });
     }
 
     if (req.method === 'GET' && url.pathname === '/__dev/reload') {
@@ -4125,16 +3977,6 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    // v3 workflow runs. Reads project directly from disk; cancel resolves the
-    // immutable run owner and proxies to that daemon (the dashboard never
-    // writes the v3 journal itself).
-    if (await handleV3RunsApi(req, res, url, {
-      runsDir: v3RunsDir(),
-      proxyToDaemon,
-    }, authed)) {
-      return;
-    }
-
     // ─── Groups (Phase B) ────────────────────────────────────────────────────
 
     if (req.method === 'GET' && url.pathname === '/api/groups') {
@@ -4845,23 +4687,6 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    // PUT /api/bots/:appId/read-isolation — proxy to that bot's daemon. Body `{ enabled: boolean }`.
-    let mBotReadIso: RegExpMatchArray | null;
-    if (req.method === 'PUT' && (mBotReadIso = url.pathname.match(/^\/api\/bots\/([^/]+)\/read-isolation$/))) {
-      const appId = decodeURIComponent(mBotReadIso[1]);
-      const chunks: Buffer[] = [];
-      for await (const c of req) chunks.push(c as Buffer);
-      const raw = Buffer.concat(chunks).toString('utf8') || '{}';
-      const upstream = await proxyToDaemon(appId, `/api/bot-read-isolation`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: raw,
-      });
-      res.writeHead(upstream.status, { 'content-type': 'application/json' });
-      res.end(await upstream.text());
-      return;
-    }
-
     // PUT /api/bots/:appId/backend-type — proxy to that bot's daemon. Body
     // `{ backendType: 'pty'|'tmux'|'herdr'|'zellij'|'zmx'|'' }` ('' / 'auto' clears the override).
     let mBotBackendType: RegExpMatchArray | null;
@@ -4943,23 +4768,6 @@ const server = createServer(async (req, res) => {
       for await (const c of req) chunks.push(c as Buffer);
       const raw = Buffer.concat(chunks).toString('utf8') || '{}';
       const upstream = await proxyToDaemon(appId, `/api/bot-summary-range`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: raw,
-      });
-      res.writeHead(upstream.status, { 'content-type': 'application/json' });
-      res.end(await upstream.text());
-      return;
-    }
-
-    // Backward-compatible alias from the short-lived keyword-trigger dashboard.
-    let mBotSummaryTrigger: RegExpMatchArray | null;
-    if (req.method === 'PUT' && (mBotSummaryTrigger = url.pathname.match(/^\/api\/bots\/([^/]+)\/summary-trigger$/))) {
-      const appId = decodeURIComponent(mBotSummaryTrigger[1]);
-      const chunks: Buffer[] = [];
-      for await (const c of req) chunks.push(c as Buffer);
-      const raw = Buffer.concat(chunks).toString('utf8') || '{}';
-      const upstream = await proxyToDaemon(appId, `/api/bot-summary-trigger`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: raw,

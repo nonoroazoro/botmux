@@ -20,17 +20,13 @@
  */
 import { mkdirSync, existsSync, writeFileSync, chmodSync, readdirSync, readFileSync, rmSync, rmdirSync, unlinkSync, statSync, lstatSync, readlinkSync, realpathSync, openSync, fstatSync, readSync, writeSync, closeSync, constants as fsConstants } from 'node:fs';
 import { atomicWriteFileSync } from '../../utils/atomic-write.js';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { userInfo } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { compileToBwrap, type FsPolicy } from '../cli/fs-policy.js';
 import { PROXY_ENV_KEYS } from '../../utils/child-env.js';
 import { isolatedSshMountArgs } from './isolated-ssh.js';
-import {
-  MCP_GATEWAY_REQUIRED_ENV,
-  MCP_GATEWAY_SOCKET_ENV,
-} from '../../core/plugins/mcp/environment.js';
 
 /** Verify (and best-effort auto-install) bubblewrap so the user needn't
  *  pre-install. Installs via the system package manager when the daemon can
@@ -453,9 +449,8 @@ function reclaimMaskMounts(sessionRoot: string): void {
  *  IN-MEMORY accumulator (NOT the manifest — on the failure paths the manifest
  *  may never have been written, so reading it back would reclaim nothing and
  *  leak every created ancestor), then drop the per-session tree. Used when
- *  prepareDirectSandbox bails after masks were materialised (a mkdir/write
- *  threw mid-way, the MCP gateway socket check fails, or the manifest write
- *  itself fails). */
+ *  prepareDirectSandbox bails after masks were materialised because a
+ *  mkdir/write or manifest write fails. */
 function rollbackSandboxSetup(sessionRoot: string, createdMasks: MaskMountEntry[]): void {
   reclaimMaskEntries(createdMasks);
   try { rmSync(sessionRoot, { recursive: true, force: true }); } catch { /* */ }
@@ -545,12 +540,6 @@ export function prepareDirectSandbox(opts: {
   cliArgs: string[];
   /** Worker-composed PATH, including the isolated user's projected bin dirs. */
   pathEnv?: string;
-  /** Absolute Botmux command paths already persisted in CLI MCP configs.
-   * Bind the worker-generated relay shim at those exact paths so a stale or
-   * tampered host wrapper cannot replace the trusted gateway entry. */
-  trustedBotmuxCommandPaths?: readonly string[];
-  /** Worker-owned Unix socket for the credential-bearing MCP Gateway. */
-  mcpGatewaySocketPath?: string;
 }): DirectSandboxSpawn | null {
   if (process.platform !== 'linux') return null;
   if (!ensureSandboxDeps()) return null;
@@ -657,32 +646,6 @@ export function prepareDirectSandbox(opts: {
   // Shim bin at a fixed path under the fresh /run tmpfs — appended after the
   // rule mounts (later mount wins over the tmpfs). PATH points here first.
   args.push('--ro-bind', shimBin, '/run/sbxbin');
-  for (const rawTarget of [...new Set(opts.trustedBotmuxCommandPaths ?? [])]) {
-    if (typeof rawTarget !== 'string' || !isAbsolute(rawTarget)) continue;
-    const target = resolve(rawTarget);
-    try {
-      if (!lstatSync(target).isFile()) continue;
-      args.push('--ro-bind', shim, target);
-    } catch { /* missing/stale config target — PATH shim remains available */ }
-  }
-
-  let sandboxMcpGatewaySocketPath: string | undefined;
-  if (opts.mcpGatewaySocketPath) {
-    try {
-      const socketPath = resolve(opts.mcpGatewaySocketPath);
-      if (!lstatSync(socketPath).isSocket()) { rollbackSandboxSetup(sessionRoot, createdMasks); return null; }
-      const hostDir = realpathSync(dirname(socketPath));
-      const sandboxDir = '/run/botmux-mcp';
-      args.push('--dir', sandboxDir, '--ro-bind', hostDir, sandboxDir);
-      sandboxMcpGatewaySocketPath = join(sandboxDir, basename(socketPath));
-    } catch {
-      // Spawn-setup failure AFTER mask mountpoints were pre-created: reclaim the
-      // empty ones (from the in-memory list) and drop the tree so nothing leaks.
-      rollbackSandboxSetup(sessionRoot, createdMasks);
-      return null;
-    }
-  }
-
   // Authoritative child env via bwrap --setenv (works on pty AND tmux — the
   // tmux backend only forwards a fixed whitelist).
   //
@@ -690,10 +653,9 @@ export function prepareDirectSandbox(opts: {
   // paths (the policy's readOnly exec rules are realpath'd by the worker). The
   // host's own $PATH is LEXICAL and can point at symlink-form dirs (e.g.
   // ~/.local/bin → a shared-drive/fnm/nvm path) that don't exist in the fresh
-  // root — so the trusted `botmux` shim's bare `node` would fail `not found`
-  // and the MCP gateway would exit (Connection closed). Prepend the canonical
-  // dirs of node + the CLI bin (deduped) so bare-name resolution always hits a
-  // bound path, THEN keep the host PATH as a lexical fallback.
+  // root. Prepend the canonical dirs of node + the CLI bin (deduped) so
+  // bare-name resolution always hits a bound path, then keep the host PATH as
+  // a lexical fallback.
   const canonicalExecDirs: string[] = [];
   const pushExecDir = (p: string | undefined) => {
     if (!p) return;
@@ -713,10 +675,6 @@ export function prepareDirectSandbox(opts: {
   };
   if (process.env.BOTMUX_DAEMON_IPC_PORT) {
     env.BOTMUX_DAEMON_IPC_PORT = process.env.BOTMUX_DAEMON_IPC_PORT;
-  }
-  if (sandboxMcpGatewaySocketPath) {
-    env[MCP_GATEWAY_SOCKET_ENV] = sandboxMcpGatewaySocketPath;
-    env[MCP_GATEWAY_REQUIRED_ENV] = '1';
   }
   for (const k of PROXY_ENV_KEYS) {
     const v = process.env[k];

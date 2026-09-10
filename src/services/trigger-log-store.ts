@@ -31,20 +31,18 @@ export interface TriggerLogRequest {
 }
 
 export interface TriggerLogTarget {
-  kind?: 'turn' | 'workflow';
+  kind?: 'turn';
   mode?: 'dynamic' | 'fixed' | 'new-group';
   botId?: string;
   chatId?: string;
   sessionId?: string;
   rootMessageId?: string;
-  workflowId?: string;
 }
 
 export interface TriggerLogResponse {
   httpStatus: number;
   durationMs: number;
   sessionId?: string;
-  workflowRunId?: string;
   chatId?: string;
 }
 

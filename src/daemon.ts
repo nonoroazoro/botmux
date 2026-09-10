@@ -78,13 +78,10 @@ import {
 import { setDisplayNameRefresher, findConfigField, applyConfigField } from './services/bot-config-store.js';
 import { resolveRegularGroupMode } from './services/chat-reply-mode-store.js';
 import { renameBotOnOpenPlatform, changeBotAvatarOnOpenPlatform } from './services/open-platform-rename.js';
-import { migrateSandboxConfigAtStartup } from './services/sandbox-migration.js';
 import * as sessionStore from './services/session-store.js';
 import * as chatFirstSeenStore from './services/chat-first-seen-store.js';
 import { ensureDefaultOncallBound } from './services/oncall-store.js';
 import * as scheduleStore from './services/schedule-store.js';
-import { migrateSharedSchedulesAtStartup } from './services/schedule-split-migration.js';
-import { migrateOverloadAlertAtStartup } from './services/overload-alert-migration.js';
 import * as messageQueue from './services/message-queue.js';
 import { emitHookEvent, emitHookEventLocal, HOOK_EVENTS, type HookEvent } from './services/hook-runner.js';
 import { setSessionLifecycleShutdown } from './services/session-lifecycle-hooks.js';
@@ -142,7 +139,6 @@ import {
   setActiveSessionIfActive,
   rollbackRejectedSessionAndGetWinner,
   ensureCliEnv,
-  sweepGlobalBotmuxSkills,
   writableTerminalLinkFor,
   workerHasInitialized,
   sessionSupportsWebTerminal,
@@ -229,79 +225,6 @@ import { handleCardAction, resolveCardOperatorUnionId, runAutoWorktreeCommit } f
 import { setIssueActivate } from './im/lark/issue-command-deps.js';
 import { startIssueOutboxPump } from './services/issue-outbox-pump.js';
 import type { CardActionData, CardHandlerDeps } from './im/lark/card-handler.js';
-import {
-  parseWorkflowGrillTrigger,
-  buildWorkflowGrillPrompt,
-  isLegacyTemplateCommand,
-  LEGACY_TEMPLATE_RETIRED_MESSAGE,
-  WORKFLOW_USAGE,
-} from './im/lark/workflow-slash-command.js';
-import {
-  parseV3SavedWorkflowCommand,
-  v3SavedWorkflowUsage,
-} from './im/lark/v3-saved-workflow-command.js';
-import {
-  authorizeV3SavedWorkflowInvocation,
-  defaultV3SavedWorkflowExecutionServices,
-  deliverV3SavedWorkflowNotification,
-  executeV3SavedWorkflowCommand,
-  resolveV3SavedWorkflowMessageTargets,
-  type V3SavedWorkflowExecutionEffect,
-} from './im/lark/v3-saved-workflow-handler.js';
-import {
-  createV3GateRunner,
-  preflightV3RunStart,
-  readV3RunChatBinding,
-  requestV3RunCancel,
-  requestV3Retry,
-  requestV3LoopGrant,
-} from './workflows/v3/daemon-run.js';
-import { buildV3GateCard } from './im/lark/v3-gate-card.js';
-import { buildV3BlockedCard } from './im/lark/v3-blocked-card.js';
-import { buildV3LoopGrantCard } from './im/lark/v3-loop-grant-card.js';
-import { buildV3RevisitGrantCard } from './im/lark/v3-revisit-grant-card.js';
-import { buildV3ProgressCard } from './im/lark/v3-progress-card.js';
-import { V3ProgressCardManager } from './im/lark/v3-progress-card-manager.js';
-import { buildV3RunSaveActionValue } from './im/lark/v3-run-save-card.js';
-import { buildV3DistillationProposalCard } from './im/lark/v3-distillation-card.js';
-import { v3DistillationUserErrorMessage } from './im/lark/v3-distillation-card-handler.js';
-import {
-  acceptV3WorkflowDistillation,
-  generateV3WorkflowDistillationProposal,
-  prepareV3WorkflowDistillation,
-  v3DistillationProposalNonce,
-  type ProposedV3WorkflowDistillation,
-} from './workflows/v3/distillation-service.js';
-import {
-  listActiveV3DistillationProposals,
-  v3DistillationProposalDir,
-} from './workflows/v3/distillation-store.js';
-import {
-  runV3DistillationModel,
-  sweepAbandonedV3DistillationScratch,
-} from './workflows/v3/distillation-runner.js';
-import { botToSnapshot } from './workflows/v3/bot-resolve.js';
-import { isValidRunId as isValidV3RunId } from './workflows/v3/ops-projection.js';
-import {
-  authorizeV3SessionRunMutationRequest,
-  V3_SESSION_RUN_MUTATIONS,
-  V3_SESSION_RUN_MUTATION_ROUTE_PREFIX,
-} from './workflows/v3/session-relay.js';
-import { defaultBaseDir as v3DefaultBaseDir } from './workflows/v3/grill-state.js';
-import { persistV3StartIntent } from './workflows/v3/start-intent.js';
-import {
-  createWorkflowDaemonIpcNonceStore,
-  generateWorkflowDaemonBootInstanceId,
-  loadWorkflowDaemonIpcSecret,
-  signWorkflowDaemonIpcResponse,
-  verifyWorkflowDaemonIpcRequest,
-  WORKFLOW_DAEMON_IPC_ROUTE_PREFIX,
-} from './workflows/v3/daemon-ipc-auth.js';
-import {
-  parseWorkflowDaemonMutationBody,
-} from './workflows/v3/daemon-ipc-body.js';
-import type { WorkflowDaemonMutation } from './workflows/v3/daemon-ipc-client.js';
-import type { SavedWorkflowActorContext } from './workflows/v3/library-service.js';
 import { resolveEffectivePluginIds } from './core/plugins/effective.js';
 import {
   buildCodexCompletionCard,
@@ -319,11 +242,6 @@ import {
   startCodexNotifierAdoptionSession,
   type CodexTaskCompletedEvent,
 } from './features/codex-notifier/index.js';
-
-/** This daemon process's bot larkAppId (set in startDaemon).  Used to scope v3
- *  humanGate cold-attach + start to runs this bot owns (codex blocker #1). */
-let selfV3LarkAppId: string | undefined;
-let selfV3BootInstanceId: string | undefined;
 /** Generic daemon identity used by internal receiver endpoints. Unlike the
  *  VC listener switch, every agent daemon may receive a fenced membership. */
 let selfDaemonLarkAppId: string | undefined;
@@ -2191,8 +2109,6 @@ async function ensureVcMeetingReceiverSession(
   // later live Bot-config edit must neither weaken this session nor make an
   // old unisolated receiver appear eligible retroactively.
   session.sandbox = true;
-  session.sandboxHidePaths = bot.config.sandboxHidePaths ?? [];
-  session.sandboxReadonlyPaths = bot.config.sandboxReadonlyPaths ?? [];
   session.sandboxNetwork = bot.config.sandboxNetwork !== false;
   session.backendType = isolation.backendType;
   sessionStore.updateSession(session);
@@ -3246,8 +3162,6 @@ interface DaemonDescriptor {
   startedAt: number;
   /** Public, random audience that changes on every daemon process start. */
   bootInstanceId: string;
-  /** Full-envelope Workflow mutation protocol supported by this process. */
-  workflowIpcProtocol: 'v1';
   lastHeartbeat: number;
   /**
    * Resolved open_ids from this bot's allowedUsers config (post-email
@@ -3338,7 +3252,7 @@ function notifyAllowedUsersResolveFailure(
         await sendUserMessage(
           larkAppId,
           openId,
-          `⚠️ Botmux allowedUsers 解析告警\n\n${notice}`,
+          `⚠️ 我没能确认部分授权用户\n\n${notice}`,
           'text',
           undefined,
           { timeoutMs: 10_000 },
@@ -3367,7 +3281,7 @@ function scheduleAllowedUsersResolveRetry(larkAppId: string, attempt = 1): void 
         notifyAllowedUsersResolveFailure(
           larkAppId,
           `allowedUsers 自动解析在启动后重试 3 次仍失败，运行时白名单为空 —— 期间包括你在内的所有人都会被拒。` +
-          `请检查网络 / 飞书 contact API 后执行 \`botmux restart\` 重新解析。`,
+          `请管理员检查网络和飞书通讯录权限，再重启服务。`,
           bot.resolvedAllowedUsers ?? [],
         );
       }
@@ -3505,395 +3419,6 @@ function tag(ds: DaemonSession): string {
   return ds.session.sessionId.substring(0, 8);
 }
 
-interface V3SavedWorkflowImInvocation {
-  content: string;
-  anchor: string;
-  replyRootId?: string;
-  messageId: string;
-  chatId: string;
-  chatType: 'group' | 'p2p';
-  larkAppId: string;
-  initiatorOpenId: string | undefined;
-  /** union_id may grant teamBot trust only when the event was bot-authored. */
-  teamTrustUnionId?: string;
-  /** Raw sender union_id may independently grant the configured teamMember leg. */
-  memberUnionId?: string;
-  /** 发起方是飞书盖章的 bot → talk 复查走 evaluateBotTalk（与 dispatcher 外层同源）。 */
-  botSender?: boolean;
-}
-
-const v3DistillationGenerationInFlight = new Map<string, Promise<void>>();
-const V3_DISTILLATION_GENERATION_LOCK_WAIT_MS = 20 * 60 * 1000;
-const SAFE_V3_DISTILLATION_ERROR_NAMES = new Set([
-  'Error',
-  'SavedWorkflowConflictError',
-  'SavedWorkflowNotFoundError',
-  'V3DistillationCompileError',
-  'V3DistillationRunnerError',
-  'V3DistillationServiceError',
-  'V3DistillationSourceError',
-  'V3DistillationStoreError',
-]);
-
-function stableV3DistillationErrorCode(error: unknown): string {
-  if (error && typeof error === 'object') {
-    const code = (error as { code?: unknown }).code;
-    if (typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code)) return code;
-    if (error instanceof Error && SAFE_V3_DISTILLATION_ERROR_NAMES.has(error.name)) return error.name;
-  }
-  return 'UNKNOWN_ERROR';
-}
-
-function buildV3DistillationReviewCard(proposed: ProposedV3WorkflowDistillation): string {
-  return buildV3DistillationProposalCard({
-    proposalId: proposed.proposalId,
-    nonce: proposed.nonce,
-    parameters: proposed.compiled.safeSummary.parameters.map((parameter) => ({
-      name: parameter.name,
-      type: parameter.type,
-      required: parameter.required,
-      hasDefault: parameter.hasDefault,
-      replacementCount: parameter.replacementCount,
-      fieldCategories: parameter.fields.map((field) => ({
-        category: field.field === 'goal' ? 'goal' as const : 'system_prompt_append' as const,
-        ordinal: field.nodeOrdinal,
-      })),
-    })),
-  });
-}
-
-async function deliverV3DistillationReviewCard(input: {
-  proposed: ProposedV3WorkflowDistillation;
-  larkAppId: string;
-  anchor: string;
-}): Promise<void> {
-  const card = buildV3DistillationReviewCard(input.proposed);
-  const uuid = `v3-distill-${input.proposed.proposalId}`;
-  if (input.anchor.startsWith('oc_')) {
-    await sendMessage(input.larkAppId, input.anchor, card, 'interactive', uuid);
-  } else {
-    await replyMessage(input.larkAppId, input.anchor, card, 'interactive', true, uuid);
-  }
-}
-
-function launchV3DistillationGeneration(input: {
-  proposalId: string;
-  dataDir: string;
-  baseDir: string;
-  larkAppId: string;
-  anchor: string;
-  botSnapshot: ReturnType<typeof botToSnapshot>;
-  providerEnv: Readonly<Record<string, string>>;
-  onFailure?: (error: unknown) => Promise<void>;
-}): Promise<void> {
-  const existing = v3DistillationGenerationInFlight.get(input.proposalId);
-  if (existing) return existing;
-  const generation = (async () => {
-    try {
-      await withFileLock(
-        join(v3DistillationProposalDir(input.dataDir, input.proposalId), '.generation'),
-        async () => {
-          // A previous daemon can die after publishing the generation lock but
-          // before its detached model process exits. Reap that owner only after
-          // this process wins the cross-process claim; a live old daemon keeps
-          // the lock, so its subprocess is never killed by a concurrent recovery.
-          await sweepAbandonedV3DistillationScratch();
-          const proposed = await generateV3WorkflowDistillationProposal({
-            dataDir: input.dataDir,
-            baseDir: input.baseDir,
-            proposalId: input.proposalId,
-            suggest: (fields) => runV3DistillationModel({
-              fields,
-              botSnapshot: input.botSnapshot,
-              providerEnv: input.providerEnv,
-            }),
-          });
-          await deliverV3DistillationReviewCard({
-            proposed,
-            larkAppId: input.larkAppId,
-            anchor: input.anchor,
-          });
-        },
-        { maxWaitMs: V3_DISTILLATION_GENERATION_LOCK_WAIT_MS },
-      );
-    } catch (err) {
-      logger.warn(
-        `[v3-distillation:${input.proposalId}] generation/recovery failed: ` +
-        stableV3DistillationErrorCode(err),
-      );
-      // A live peer may legitimately own generation for up to the model
-      // timeout. A local wait timeout is not a business failure and must not
-      // contradict the peer's eventual review card with a false failure reply.
-      if (!(err instanceof Error && err.message.startsWith('file-lock timeout waiting for '))) {
-        await input.onFailure?.(err);
-      }
-    }
-  })();
-  v3DistillationGenerationInFlight.set(input.proposalId, generation);
-  void generation.finally(() => {
-    if (v3DistillationGenerationInFlight.get(input.proposalId) === generation) {
-      v3DistillationGenerationInFlight.delete(input.proposalId);
-    }
-  });
-  return generation;
-}
-
-async function recoverV3DistillationCommits(): Promise<void> {
-  const dataDir = dirname(v3DefaultBaseDir());
-  const baseDir = v3DefaultBaseDir();
-  const proposals = listActiveV3DistillationProposals(dataDir);
-
-  // Approval and the exact library allocation are durable. Resume these
-  // transitions without requiring the source run, model, old card click, or a
-  // currently configured bot. This global pass matters when the approving bot
-  // was removed or is temporarily invalid when the daemon restarts.
-  for (const loaded of proposals) {
-    if (loaded.state.state !== 'accepted' && loaded.state.state !== 'committing') continue;
-    if (!loaded.proposal) continue;
-    try {
-      await acceptV3WorkflowDistillation({
-        dataDir,
-        baseDir,
-        proposalId: loaded.prepared.proposalId,
-        proposalHash: loaded.proposal.proposalHash,
-        nonce: v3DistillationProposalNonce(loaded),
-        operatorOpenId: loaded.state.approval.operatorOpenId,
-        larkAppId: loaded.state.approval.larkAppId,
-        chatId: loaded.state.approval.chatId,
-      });
-    } catch (err) {
-      logger.warn(
-        `[v3-distillation:${loaded.prepared.proposalId}] commit recovery failed: ` +
-        stableV3DistillationErrorCode(err),
-      );
-    }
-  }
-}
-
-async function recoverV3DistillationProposalsForBot(larkAppId: string): Promise<void> {
-  const dataDir = dirname(v3DefaultBaseDir());
-  const baseDir = v3DefaultBaseDir();
-  const proposals = listActiveV3DistillationProposals(dataDir)
-    .filter((loaded) => loaded.prepared.sourceIdentity.larkAppId === larkAppId);
-
-  // A proposed body is already host-compiled and durable. Deliver its review
-  // card even if the bot's current CLI configuration no longer supports
-  // generating new proposals; no model invocation is needed on this path.
-  for (const loaded of proposals) {
-    if (
-      !loaded.proposal ||
-      (loaded.state.state !== 'prepared' && loaded.state.state !== 'proposed')
-    ) continue;
-    const target = loaded.prepared.replyTarget;
-    const anchor = target.kind === 'thread' ? target.rootMessageId : target.chatId;
-    try {
-      const proposed = await generateV3WorkflowDistillationProposal({
-        dataDir,
-        baseDir,
-        proposalId: loaded.prepared.proposalId,
-        suggest: async () => { throw new Error('unreachable stored-proposal model path'); },
-      });
-      await deliverV3DistillationReviewCard({ proposed, larkAppId, anchor });
-    } catch (err) {
-      logger.warn(
-        `[v3-distillation:${loaded.prepared.proposalId}] card recovery failed: ` +
-        stableV3DistillationErrorCode(err),
-      );
-    }
-  }
-
-  const bot = loadBotConfigs().find((candidate) => candidate.larkAppId === larkAppId);
-  if (
-    process.platform !== 'linux' || !bot || bot.cliId !== 'claude-code' ||
-    Boolean(bot.wrapperCli?.trim()) || Boolean(bot.cliPathOverride?.trim())
-  ) return;
-  let botSnapshot: ReturnType<typeof botToSnapshot>;
-  try {
-    botSnapshot = botToSnapshot(bot);
-  } catch {
-    return;
-  }
-  const providerEnv = { ...(bot.env ?? {}) };
-  const generative = proposals.filter((loaded) =>
-    loaded.state.state === 'prepared' && !loaded.proposal);
-  for (const loaded of generative) {
-    const target = loaded.prepared.replyTarget;
-    const anchor = target.kind === 'thread' ? target.rootMessageId : target.chatId;
-    await launchV3DistillationGeneration({
-      proposalId: loaded.prepared.proposalId,
-      dataDir,
-      baseDir,
-      larkAppId,
-      anchor,
-      botSnapshot,
-      providerEnv,
-    });
-  }
-}
-
-async function handleV3SavedWorkflowCommandIfAny(
-  invocation: V3SavedWorkflowImInvocation,
-): Promise<boolean> {
-  const {
-    content,
-    anchor,
-    replyRootId,
-    messageId,
-    chatId,
-    chatType,
-    larkAppId,
-    initiatorOpenId,
-    teamTrustUnionId,
-    memberUnionId,
-    botSender,
-  } = invocation;
-  const command = parseV3SavedWorkflowCommand(content);
-  if (!command) return false;
-
-  const targets = resolveV3SavedWorkflowMessageTargets({ anchor, replyRootId, messageId });
-  const notify = async (
-    message: string,
-    effect: V3SavedWorkflowExecutionEffect | 'validation' | 'authorization',
-  ): Promise<void> => {
-    try {
-      await sessionReply(targets.replyAnchor, message, 'text', larkAppId);
-    } catch (err) {
-      // Notification is downstream of any domain action. Never let a Lark
-      // transport failure turn an already-saved/started workflow into a false
-      // business failure (which previously prompted users to retry and fork
-      // duplicate definitions/runs).
-      logger.warn(
-        `[v3-saved-workflow] notification failed after ${effect}: ` +
-        `${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  };
-
-  if (command.kind === 'invalid') {
-    await notify(`❌ ${command.error}\n\n${v3SavedWorkflowUsage()}`, 'validation');
-    return true;
-  }
-  if (!initiatorOpenId) {
-    await notify('❌ Saved Workflow 需要可验证的飞书用户身份。', 'authorization');
-    return true;
-  }
-  if (
-    // Cancellation is decrease-only and is still protected below by the
-    // immutable owner/chat/app binding (or explicit canOperate). Keep it
-    // available even when a run launch consumed the caller's final grant.
-    (command.kind === 'save' || command.kind === 'run') &&
-    await replyGrantRestrictionIfNeeded(larkAppId, chatId, initiatorOpenId, targets.replyAnchor, '/workflow')
-  ) {
-    return true;
-  }
-
-  const operatorCanOperate = canOperate(larkAppId, chatId, initiatorOpenId, teamTrustUnionId);
-  const policy = await authorizeV3SavedWorkflowInvocation(command, {
-    canPublishGlobal: () => operatorCanOperate,
-    consumeMessageQuotaOnce: () => enforceMessageQuotaForCliInput(
-      larkAppId,
-      chatId,
-      initiatorOpenId,
-      targets.quotaMessageId,
-      targets.replyAnchor,
-      teamTrustUnionId,
-      memberUnionId,
-      chatType,
-      botSender,
-    ),
-  });
-  if (!policy.ok) {
-    if (policy.reason === 'global_requires_operate') {
-      await notify('❌ 只有本群可操作成员才能使用 `--global` 发布当前 Bot 全局 Saved Workflow。', 'authorization');
-    }
-    // Quota denial owns its exhausted-card notification in the shared quota
-    // gate; avoid a second reply here.
-    return true;
-  }
-
-  const context: SavedWorkflowActorContext = {
-    actor: { openId: initiatorOpenId, larkAppId },
-    chatId,
-    chatType,
-    rootMessageId: targets.runRootMessageId,
-  };
-  const dataDir = dirname(v3DefaultBaseDir());
-  const baseDir = v3DefaultBaseDir();
-  if (command.kind === 'save' && command.distill) {
-    if (!command.displayName) {
-      await notify('❌ 参数蒸馏必须显式指定模板名称。', 'validation');
-      return true;
-    }
-    const distillationBot = loadBotConfigs().find((candidate) => candidate.larkAppId === larkAppId);
-    if (
-      process.platform !== 'linux' || !distillationBot ||
-      distillationBot.cliId !== 'claude-code' || Boolean(distillationBot.wrapperCli?.trim()) ||
-      Boolean(distillationBot.cliPathOverride?.trim())
-    ) {
-      await notify('❌ 参数蒸馏 P0 目前只支持 Linux 上未使用启动 wrapper 的 Claude Code Bot。', 'validation');
-      return true;
-    }
-    let distillationBotSnapshot: ReturnType<typeof botToSnapshot>;
-    try {
-      distillationBotSnapshot = botToSnapshot(distillationBot);
-    } catch {
-      await notify('❌ 当前 Bot 的 Workflow 权限配置不支持参数蒸馏。', 'authorization');
-      return true;
-    }
-    const distillationProviderEnv = { ...(distillationBot.env ?? {}) };
-    let prepared;
-    try {
-      prepared = await prepareV3WorkflowDistillation({
-        dataDir,
-        baseDir,
-        source: command.source,
-        displayName: command.displayName,
-        requestKey: messageId,
-        context: { ownerOpenId: initiatorOpenId, larkAppId, chatId },
-        replyTarget: targets.replyAnchor.startsWith('oc_')
-          ? { kind: 'chat', chatId }
-          : { kind: 'thread', rootMessageId: targets.replyAnchor },
-      });
-    } catch (err) {
-      logger.warn(`[v3-distillation] prepare failed: ${stableV3DistillationErrorCode(err)}`);
-      await notify(`❌ ${v3DistillationUserErrorMessage(err, 'prepare')}`, 'failed');
-      return true;
-    }
-    await notify(`⏳ 正在分析可复用参数：\`${prepared.proposalId}\`。生成后会发送确认卡片；确认前不会创建 Saved Workflow。`, 'read_completed');
-    void launchV3DistillationGeneration({
-      proposalId: prepared.proposalId,
-      dataDir,
-      baseDir,
-      larkAppId,
-      anchor: targets.replyAnchor,
-      botSnapshot: distillationBotSnapshot,
-      providerEnv: distillationProviderEnv,
-      onFailure: (error) => notify(`❌ ${v3DistillationUserErrorMessage(error, 'generate')}`, 'failed'),
-    });
-    return true;
-  }
-  const result = await executeV3SavedWorkflowCommand(
-    { command, dataDir, baseDir, context, operatorCanOperate },
-    {
-      ...defaultV3SavedWorkflowExecutionServices,
-      loadBots: loadBotConfigs,
-      persistStartIntent: persistV3StartIntent,
-      driveDetached: (runId) => v3GateRunner.driveDetached(runId),
-      cancelAndDrive: (runId, cancelRequestId) =>
-        v3GateRunner.cancelAndDrive(runId, cancelRequestId),
-    },
-  );
-  await deliverV3SavedWorkflowNotification(
-    result,
-    (message) => sessionReply(targets.replyAnchor, message, 'text', larkAppId).then(() => undefined),
-    (err, effect) => logger.warn(
-      `[v3-saved-workflow] notification failed after ${effect}: ` +
-      `${err instanceof Error ? err.message : String(err)}`,
-    ),
-  );
-  return true;
-}
-
 function getActiveCount(): number {
   let count = 0;
   for (const [, ds] of activeSessions) {
@@ -3932,7 +3457,7 @@ function beginNewTurn(ds: DaemonSession, title: string): void {
       ds.session.sessionId, sessionAnchorId(ds), readUrl, prevTitle,
       ds.lastScreenContent ?? '', previousStatus, effectiveCliId,
       prevMode, ds.streamCardNonce, ds.currentImageKey,
-      !!ds.adoptedFrom, false, localeForBot(ds.larkAppId), previousUsageLimit,
+      !!ds.adoptedFrom, localeForBot(ds.larkAppId), previousUsageLimit,
       writableTerminalLinkFor(ds),
       isLocalCliOpenReady(ds, { cliId: effectiveCliId }),
       getDaemonStreamingCardUsageSnapshot(ds, effectiveCliId, { fresh: true }),
@@ -4073,136 +3598,6 @@ function fireSessionlessCommandDetached(
   );
 }
 
-// Dependencies passed to card-handler
-// v3 run-level progress is a best-effort IM projection. journal.ndjson remains
-// the only execution truth; the manager persists only Lark delivery state.
-const v3ProgressCardManager = new V3ProgressCardManager({
-  baseDir: v3DefaultBaseDir(),
-  transport: {
-    reply: (larkAppId, rootMessageId, cardJson, uuid) =>
-      replyMessage(larkAppId, rootMessageId, cardJson, 'interactive', true, uuid),
-    send: (larkAppId, chatId, cardJson, uuid) =>
-      sendMessage(larkAppId, chatId, cardJson, 'interactive', uuid),
-    patch: (larkAppId, messageId, cardJson) => updateMessage(larkAppId, messageId, cardJson),
-  },
-  buildCard: (view, loaded) => {
-    const binding = loaded.envelope.chatBinding;
-    const saveActions =
-      view.status === 'succeeded' &&
-      loaded.envelope.source.kind === 'ad_hoc' &&
-      binding?.ownerOpenId
-        ? {
-            chat: buildV3RunSaveActionValue(loaded.envelope, 'chat'),
-          }
-        : undefined;
-    return buildV3ProgressCard(view, saveActions ? { saveActions } : {});
-  },
-  onError: (runId, err) => {
-    logger.warn(`[v3:${runId}] progress card failed: ${err instanceof Error ? err.message : String(err)}`);
-  },
-});
-
-// v3 humanGate run-controller: drives daemon-side v3 runs, posts/​re-posts
-// approval cards to the run's bound topic, and re-arms pending gates on startup
-// (cold-attach).  postCard / notifyTerminal use the daemon's Lark sender; the
-// run logic + in-flight guard live in createV3GateRunner.
-const v3GateRunner = createV3GateRunner({
-  postCard: async (binding, gate, runId) => {
-    const card = buildV3GateCard({
-      runId,
-      waitId: gate.waitId,
-      nodeId: gate.nodeId,
-      prompt: gate.prompt,
-      options: gate.options,
-      approveOptions: gate.approveOptions,
-      approvers: gate.approvers,
-      hostApproval: gate.hostApproval,
-    });
-    // codex blocker #3: never silently skip — a missing rootMessageId would
-    // leave the run stuck at awaitingGate forever.  Reply in-thread when we have
-    // an anchor; otherwise post to the chat directly.
-    if (binding.rootMessageId) {
-      await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
-    } else {
-      await sendMessage(binding.larkAppId, binding.chatId, card, 'interactive');
-    }
-  },
-  postBlockedCard: async (binding, info, runId) => {
-    const card = buildV3BlockedCard({
-      runId,
-      nodeId: info.nodeId,
-      attemptId: info.attemptId,
-      errorClass: info.errorClass,
-      errorCode: info.errorCode,
-      message: info.message,
-      retryForbidden: info.retryForbidden,
-      // human-ask 受阻 → 渲染问题 + 选项按钮卡（替代纯重试卡）。
-      ...(info.ask ? { ask: info.ask } : {}),
-    });
-    if (binding.rootMessageId) {
-      await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
-    } else {
-      await sendMessage(binding.larkAppId, binding.chatId, card, 'interactive');
-    }
-  },
-  postLoopGrantCard: async (binding, info, runId) => {
-    const card = buildV3LoopGrantCard({
-      runId,
-      loopId: info.loopId,
-      iteration: info.iteration,
-      maxIterations: info.maxIterations,
-      granted: info.granted,
-      detail: info.detail,
-    });
-    if (binding.rootMessageId) {
-      await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
-    } else {
-      await sendMessage(binding.larkAppId, binding.chatId, card, 'interactive');
-    }
-  },
-  postRevisitGrantCard: async (binding, info, runId) => {
-    const card = buildV3RevisitGrantCard({
-      runId,
-      sourceNodeId: info.sourceNodeId,
-      toNodeId: info.toNodeId,
-      tier: info.tier,
-      attemptId: info.attemptId,
-      detail: info.detail,
-    });
-    if (binding.rootMessageId) {
-      await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
-    } else {
-      await sendMessage(binding.larkAppId, binding.chatId, card, 'interactive');
-    }
-  },
-  notifyTerminal: async (binding, runId, outcome) => {
-    if (await v3ProgressCardManager.finalize(runId)) return;
-    if (!binding) return;
-    const msg = outcome.runStatus === 'succeeded'
-      ? `✅ v3 workflow \`${runId}\` 跑完了`
-      : outcome.runStatus === 'cancelled'
-        ? outcome.uncertainHostEffects?.length
-          ? `⚠️ v3 workflow \`${runId}\` 已取消，但有 ${outcome.uncertainHostEffects.length} 个外部操作状态待核实；请先对账，不要直接重试`
-          : `⏹️ v3 workflow \`${runId}\` 已取消`
-      : outcome.runStatus === 'blocked'
-        // Fallback only — the blocked path normally posts a retry/grant card instead.
-        ? outcome.uncertainHostEffects?.length
-          ? `⚠️ v3 workflow \`${runId}\` 因外部操作状态不明而受阻；请先对账，普通 retry 已禁用`
-          : `⏸️ v3 workflow \`${runId}\` 受阻${outcome.blockedNodeId ? `（节点 ${outcome.blockedNodeId}）` : ''}，可 \`botmux workflow retry ${runId}\` 重试（loop 耗尽则 \`botmux workflow grant ${runId}\` 追加一轮）`
-        : `❌ v3 workflow \`${runId}\` 失败${outcome.failedNodeId ? `（节点 ${outcome.failedNodeId}）` : ''}`;
-    if (binding.rootMessageId) {
-      await sessionReply(binding.rootMessageId, msg, 'text', binding.larkAppId).catch(() => {});
-    } else {
-      await sendMessage(binding.larkAppId, binding.chatId, msg, 'text').catch(() => {});
-    }
-  },
-  onDriveBegin: (runId) => v3ProgressCardManager.observe(runId),
-  onDriveEnd: (runId) => v3ProgressCardManager.stopAndRefresh(runId).then(() => undefined),
-  onError: (runId, err) => {
-    logger.warn(`[v3:${runId}] drive failed: ${err instanceof Error ? err.message : String(err)}`);
-  },
-});
-
 // 每个 bot 的 EventHandlers，授权成功后重放消息时需要。
 // key = larkAppId，在 startLarkEventDispatcher 调用时写入。
 const botHandlers = new Map<string, EventHandlers>();
@@ -4302,7 +3697,7 @@ async function deliverCodexNotifierEvent(
         signal => sendUserMessage(
           larkAppId,
           ownerOpenId,
-          buildCodexCompletionCard(deliveryEvent),
+          buildCodexCompletionCard(deliveryEvent, { botName: getBot(larkAppId).botName }),
           'interactive',
           codexNotifierMessageUuid(event.eventId),
           {
@@ -4457,8 +3852,8 @@ async function adoptCodexNotifierEvent(
   let ds = activeSessions.get(activeKey);
 
   if (!ds) {
-    const fallbackTitle = event.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'Codex App';
-    const title = (event.title || `Codex App: ${fallbackTitle}`).slice(0, 50);
+    const fallbackTitle = event.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'Codex Desktop';
+    const title = (event.title || `Codex Desktop: ${fallbackTitle}`).slice(0, 50);
     const session = sessionStore.createSession(chatId, cardMessageId, title, 'p2p');
     const now = Date.now();
     session.larkAppId = larkAppId;
@@ -4595,7 +3990,7 @@ async function adoptCodexNotifierEvent(
     ? '现在可以直接在当前私聊继续发送指令；需要操作终端时，请点击会话卡内的「获取操作链接」。'
     : '请在本卡片的话题中继续发送指令；需要操作终端时，请点击话题会话卡内的「获取操作链接」。';
   return buildCodexNotifierResultCard(
-    '已接管 Codex App 任务',
+    '已接管 Codex Desktop 任务',
     bufferedInputDropped
       ? `⚠️ 你此前发送但尚未送达的消息未随本次接管发送，请重新发送一次。\n\n${baseAdoptNotice}`
       : baseAdoptNotice,
@@ -4631,44 +4026,6 @@ const cardDeps: CardHandlerDeps = {
   lastRepoScan,
   vcMeetingCardAction: (data, appId) => handleVcMeetingCardAction(data, appId),
   codexNotifierCardAction: (data, appId) => handleCodexNotifierCardAction(data, appId),
-  v3GateDeps: {
-    driveRun: (runId) => v3GateRunner.driveDetached(runId),
-    // 审批权限：复用 canOperate（话题 owner / allowedUsers / oncall）。无 binding（corrupt /
-    // 非 grill 出生的旧卡）→ **拒**（codex follow-up：合法卡一定有 binding，缺失即可疑）.
-    canResolve: (binding, operatorOpenId) =>
-      binding ? canOperate(binding.larkAppId, binding.chatId, operatorOpenId) : false,
-  },
-  v3BlockedDeps: {
-    driveRun: (runId) => v3GateRunner.driveDetached(runId),
-    canResolve: (binding, operatorOpenId) =>
-      binding ? canOperate(binding.larkAppId, binding.chatId, operatorOpenId) : false,
-  },
-  v3LoopGrantDeps: {
-    driveRun: (runId) => v3GateRunner.driveDetached(runId),
-    canResolve: (binding, operatorOpenId) =>
-      binding ? canOperate(binding.larkAppId, binding.chatId, operatorOpenId) : false,
-  },
-  v3RevisitGrantDeps: {
-    driveRun: (runId) => v3GateRunner.driveDetached(runId),
-    canResolve: (binding, operatorOpenId) =>
-      binding ? canOperate(binding.larkAppId, binding.chatId, operatorOpenId) : false,
-  },
-  v3RunSaveDeps: {
-    baseDir: v3DefaultBaseDir(),
-    dataDir: dirname(v3DefaultBaseDir()),
-    onError: (runId, err) => logger.warn(
-      `[v3:${runId}] terminal save card failed: ${err instanceof Error ? err.message : String(err)}`,
-    ),
-  },
-  v3DistillationDeps: {
-    baseDir: v3DefaultBaseDir(),
-    dataDir: dirname(v3DefaultBaseDir()),
-    resolveMessageChatId: getMessageChatId,
-    onError: (proposalId, err) => logger.warn(
-      `[v3-distillation:${proposalId}] card action failed: ` +
-      stableV3DistillationErrorCode(err),
-    ),
-  },
   capabilityDeps: {
     dataDir: config.session.dataDir,
     ownerOpenId: larkAppId => getOwnerOpenId(larkAppId),
@@ -4729,367 +4086,6 @@ const cardDeps: CardHandlerDeps = {
     handlers.replayMessageEvent(data);
   },
 };
-
-const LEGACY_WORKFLOW_API_RETIRED = {
-  ok: false,
-  error: 'legacy_workflow_retired',
-  message: 'v2 workflow runtime is retired; migrate the definition and use /workflow',
-} as const;
-
-const workflowDaemonIpcNonces = createWorkflowDaemonIpcNonceStore();
-
-interface WorkflowDaemonMutationBodies {
-  start: Record<string, never>;
-  cancel: { reason?: string };
-  retry: { nodeId?: string };
-  grant: { loopId?: string };
-}
-
-type WorkflowDaemonMutationHandler<K extends WorkflowDaemonMutation> = (
-  reply: (status: number, payload: unknown) => void,
-  params: Record<string, string>,
-  body: WorkflowDaemonMutationBodies[K],
-  identity: { larkAppId: string; bootInstanceId: string },
-) => Promise<void> | void;
-
-/** Post-auth mutation executors, shared verbatim by the signed-envelope route
- *  and the session relay route so both paths run one implementation. */
-const v3RunMutationExecutors: Partial<{
-  [K in WorkflowDaemonMutation]: WorkflowDaemonMutationHandler<K>;
-}> = {};
-
-/**
- * The only registration seam for Workflow v3 daemon HTTP mutations. Auth is
- * deliberately completed before handlers see runId or touch run files. The
- * verifier consumes the request body once; strict JSON parsing happens from
- * those authenticated bytes, never by reading `req` a second time.
- */
-function workflowDaemonMutationRoute<K extends WorkflowDaemonMutation>(
-  mutation: K,
-  handler: WorkflowDaemonMutationHandler<K>,
-): void {
-  (v3RunMutationExecutors as Record<K, WorkflowDaemonMutationHandler<K>>)[mutation] = handler;
-  ipcRoute('POST', `${WORKFLOW_DAEMON_IPC_ROUTE_PREFIX}/:runId/${mutation}`, async (req: IncomingMessage, res, params) => {
-    const identity = selfV3LarkAppId && selfV3BootInstanceId
-      ? { larkAppId: selfV3LarkAppId, bootInstanceId: selfV3BootInstanceId }
-      : undefined;
-    if (!identity) {
-      return jsonRes(res, 503, { ok: false, error: 'workflow_ipc_identity_unavailable' });
-    }
-
-    let secret: string;
-    try {
-      secret = loadWorkflowDaemonIpcSecret();
-    } catch {
-      return jsonRes(res, 503, {
-        ok: false,
-        error: 'workflow_ipc_auth_unavailable',
-        hint: 'restart all botmux daemons and dashboard together',
-      });
-    }
-    const verified = await verifyWorkflowDaemonIpcRequest(req, {
-      secret,
-      target: identity,
-      nonceStore: workflowDaemonIpcNonces,
-    });
-    if (!verified.ok) {
-      logger.warn(`[workflow-ipc] rejected ${mutation}: ${verified.reason}`);
-      return jsonRes(res, verified.httpStatus, {
-        ok: false,
-        error: verified.httpStatus === 413 ? 'body_too_large' : 'workflow_ipc_unauthorized',
-        ...(verified.httpStatus === 401
-          ? { hint: 'upgrade and restart CLI, dashboard, and all daemons together' }
-          : {}),
-      });
-    }
-
-    const parsed = parseWorkflowDaemonMutationBody(mutation, verified.bodyRaw);
-    const reply = (status: number, payload: unknown): void => {
-      const responseBody = JSON.stringify(payload);
-      const responseSignature = signWorkflowDaemonIpcResponse({
-        secret,
-        requestNonce: verified.nonce,
-        method: req.method ?? 'POST',
-        pathWithQuery: req.url ?? '/',
-        status,
-        body: responseBody,
-        target: verified.target,
-      });
-      res.writeHead(status, {
-        'content-type': 'application/json; charset=utf-8',
-        'X-Botmux-Workflow-Ipc-Response-Signature': responseSignature,
-      });
-      res.end(responseBody);
-    };
-    if (!parsed.ok) return reply(400, { ok: false, error: parsed.error });
-    // parseWorkflowDaemonMutationBody is keyed by the same `mutation` value;
-    // this cast only expresses that correlation to TypeScript.
-    return handler(
-      reply,
-      params,
-      parsed.body.value as WorkflowDaemonMutationBodies[K],
-      identity,
-    );
-  });
-}
-
-// Thin zero-I/O tombstones for old dashboard/cards/automation clients. Keeping
-// these explicit routes prevents stale callers from mistaking a generic 404 or
-// an unrelated handler for a recoverable run operation.
-for (const path of [
-  '/api/workflows/definitions/:id/run',
-  '/api/workflows/runs/:runId/approve',
-  '/api/workflows/runs/:runId/reject',
-  '/api/workflows/runs/:runId/cancel',
-  '/api/workflows/runs/:runId/attempts/:activityId/:attemptId/resume',
-  '/api/workflows/runs/:runId/attempts/:activityId/:attemptId/resume/end',
-]) {
-  ipcRoute('POST', path, (_req, res) => jsonRes(res, 410, LEGACY_WORKFLOW_API_RETIRED));
-}
-
-// v3 humanGate: start a daemon-driven run (grill `approve-dag` 后的主入口).
-// Fire-and-forget: the runner drives the run + posts gate cards; the caller
-// polls /api/v3/runs/:id for status.
-workflowDaemonMutationRoute('start', async (reply, params, _body, identity) => {
-  const runId = params.runId;
-  if (!isValidV3RunId(runId)) return reply(400, { ok: false, error: 'bad_run_id' });
-  const runDir = join(v3DefaultBaseDir(), runId);
-  const preflight = preflightV3RunStart(runDir);
-  if (!preflight.ok) {
-    if (preflight.error === 'no_grill_state') {
-      return reply(404, { ok: false, error: 'unknown_run' });
-    }
-    return reply(409, {
-      ok: false,
-      error: preflight.error,
-      ...(preflight.status ? { status: preflight.status } : {}),
-      ...(preflight.detail ? { detail: preflight.detail } : {}),
-    });
-  }
-  // Owner check (codex blocker #1): only the daemon owning this run's bot may
-  // start it — otherwise the wrong daemon drives + posts cards with its client.
-  const binding = preflight.context.binding;
-  if (!binding) return reply(404, { ok: false, error: 'unknown_run_or_no_binding' });
-  if (binding.larkAppId !== identity.larkAppId) {
-    return reply(409, { ok: false, error: 'wrong_daemon', ownerLarkAppId: binding.larkAppId });
-  }
-  // A 202 means the start intent is recoverable after an immediate daemon
-  // crash. Persist the journal boundary before scheduling detached work; cold
-  // attach will re-drive a run that has runStarted but no active attempt.
-  try {
-    persistV3StartIntent(runId, runDir);
-  } catch (err) {
-    return reply(409, {
-      ok: false,
-      error: 'run_journal_invalid',
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
-  v3GateRunner.driveDetached(runId);
-  return reply(202, { ok: true, runId });
-});
-
-// v3 durable cancel: journal intent first, then low-latency AbortController
-// delivery + replay. HTTP 202 is returned only after runCancelRequested has
-// been fsynced; an immediate daemon crash is therefore recovered by coldAttach.
-workflowDaemonMutationRoute('cancel', async (reply, params, body, identity) => {
-  const runId = params.runId;
-  if (!isValidV3RunId(runId)) return reply(400, { ok: false, error: 'bad_run_id' });
-  const runDir = join(v3DefaultBaseDir(), runId);
-  if (!existsSync(runDir)) return reply(404, { ok: false, error: 'unknown_run' });
-  const binding = readV3RunChatBinding(runDir);
-  if (!binding) {
-    return reply(409, {
-      ok: false,
-      error: 'run_not_daemon_owned',
-      hint: 'unbound/manual v3 runs must be interrupted by their local runner',
-    });
-  }
-  if (binding.larkAppId !== identity.larkAppId) {
-    return reply(409, { ok: false, error: 'wrong_daemon', ownerLarkAppId: binding.larkAppId });
-  }
-
-  let outcome;
-  try {
-    outcome = requestV3RunCancel(v3DefaultBaseDir(), runId, {
-      by: 'daemon-ipc',
-      ...(body.reason ? { reason: body.reason } : {}),
-    });
-  } catch (err) {
-    return reply(409, {
-      ok: false,
-      error: 'run_integrity_or_cancel_invalid',
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
-  if (outcome.kind === 'stale-run') {
-    return reply(404, { ok: false, error: 'unknown_run' });
-  }
-  if (outcome.kind === 'already-terminal') {
-    return reply(200, {
-      ok: true,
-      runId,
-      status: outcome.status,
-      alreadyTerminal: true,
-    });
-  }
-  if (outcome.kind === 'already-cancelled') {
-    return reply(200, {
-      ok: true,
-      runId,
-      status: 'cancelled',
-      alreadyTerminal: true,
-      ...(outcome.cancelRequestId ? { cancelRequestId: outcome.cancelRequestId } : {}),
-    });
-  }
-
-  v3GateRunner.cancelAndDrive(runId, outcome.cancelRequestId);
-  return reply(202, {
-    ok: true,
-    runId,
-    status: 'cancelling',
-    cancelRequestId: outcome.cancelRequestId,
-    alreadyRequested: outcome.kind === 'already-requested',
-  });
-});
-
-// v3 blocked retry: append the retry intent + re-drive.  Same owner posture as
-// /start.  Body: { nodeId? } (defaults to the run's blockedNodeId).
-workflowDaemonMutationRoute('retry', async (reply, params, body, identity) => {
-  const runId = params.runId;
-  if (!isValidV3RunId(runId)) return reply(400, { ok: false, error: 'bad_run_id' });
-  const binding = readV3RunChatBinding(join(v3DefaultBaseDir(), runId));
-  if (!binding) return reply(404, { ok: false, error: 'unknown_run_or_no_binding' });
-  if (binding.larkAppId !== identity.larkAppId) {
-    return reply(409, { ok: false, error: 'wrong_daemon', ownerLarkAppId: binding.larkAppId });
-  }
-  let outcome;
-  try {
-    outcome = requestV3Retry(v3DefaultBaseDir(), runId, {
-      ...(body.nodeId ? { nodeId: body.nodeId } : {}),
-    });
-  } catch (err) {
-    return reply(500, { ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-  if (outcome.kind === 'stale-run') {
-    return reply(409, {
-      ok: false,
-      error:
-        outcome.reason === 'missing' ? 'unknown_run'
-        : outcome.reason === 'loop-node' ? 'loop_node_use_grant'
-        : outcome.reason === 'host-effect-uncertain' ? 'host_effect_reconcile_required'
-        : 'not_blocked',
-    });
-  }
-  // requested / already-requested → make sure the run is moving.
-  v3GateRunner.driveDetached(runId);
-  return reply(202, { ok: true, runId, ...outcome });
-});
-
-// v3 loop grant: append one extra iteration for an exhausted loop + re-drive.
-// Same owner posture as /retry.  Body: { loopId? } (defaults to the run's
-// blocked loop).
-workflowDaemonMutationRoute('grant', async (reply, params, body, identity) => {
-  const runId = params.runId;
-  if (!isValidV3RunId(runId)) return reply(400, { ok: false, error: 'bad_run_id' });
-  const binding = readV3RunChatBinding(join(v3DefaultBaseDir(), runId));
-  if (!binding) return reply(404, { ok: false, error: 'unknown_run_or_no_binding' });
-  if (binding.larkAppId !== identity.larkAppId) {
-    return reply(409, { ok: false, error: 'wrong_daemon', ownerLarkAppId: binding.larkAppId });
-  }
-  let outcome;
-  try {
-    outcome = requestV3LoopGrant(v3DefaultBaseDir(), runId, {
-      ...(body.loopId ? { loopId: body.loopId } : {}),
-      by: 'daemon-ipc',
-    });
-  } catch (err) {
-    return reply(500, { ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-  if (outcome.kind === 'stale-run') {
-    return reply(409, { ok: false, error: outcome.reason === 'missing' ? 'unknown_run' : 'not_exhausted' });
-  }
-  // granted / already-granted → make sure the run is moving.
-  v3GateRunner.driveDetached(runId);
-  return reply(202, { ok: true, runId, ...outcome });
-});
-
-// ─── v3 session relay：sandbox / read-isolation 会话的 workflow 变更通道 ─────
-//
-// 沙盒（Linux bwrap）/ read-isolation（macOS）里的 chat CLI 读不到宿主进程树
-// marker、run 目录和 .dashboard-secret，无法走上面的签名信封路由。这里复用
-// /api/asks 的窄孔姿态：请求携带 worker 每轮轮换的 capability，daemon 用自己的
-// 活跃会话记录反推 (caller, chat, bot) 三元组——请求体选不了身份——再按与 CLI
-// 宿主路径完全相同的 run 绑定规则授权，最后调用同一个 mutation 执行器。
-// narrow-untrusted 白名单见 dashboard-ipc-server 的 routeHasNarrowUntrustedAuth。
-for (const sessionRelayMutation of V3_SESSION_RUN_MUTATIONS) {
-  ipcRoute(
-    'POST',
-    `${V3_SESSION_RUN_MUTATION_ROUTE_PREFIX}/:runId/${sessionRelayMutation}`,
-    async (req: IncomingMessage, res, params) => {
-      let raw: unknown;
-      try {
-        raw = await readJsonBody<unknown>(req);
-      } catch {
-        return jsonRes(res, 400, { ok: false, error: 'bad_json' });
-      }
-      const claimedSessionId = raw && typeof raw === 'object' && !Array.isArray(raw)
-        ? (raw as Record<string, unknown>).sessionId
-        : undefined;
-      const ds = typeof claimedSessionId === 'string'
-        ? findActiveBySessionId(claimedSessionId)
-        : undefined;
-      const decision = authorizeV3SessionRunMutationRequest({
-        runId: params.runId,
-        mutation: sessionRelayMutation,
-        raw,
-        trustedHost: isTrustedHostIpcRequest(req),
-        session: ds
-          ? {
-              receiver: !!ds.session.vcMeetingReceiver,
-              ...(ds.managedTurnOrigin ? { liveOrigin: ds.managedTurnOrigin } : {}),
-              ...(ds.session.lastCallerOpenId
-                ? { callerOpenId: ds.session.lastCallerOpenId }
-                : {}),
-              ...(ds.chatId ? { chatId: ds.chatId } : {}),
-              ...(ds.larkAppId ? { larkAppId: ds.larkAppId } : {}),
-              // Current-turn pointers for the generation join: the authorizer
-              // rejects a capability whose turn is no longer the session's
-              // current inbound turn (a queued message already advanced these).
-              ...(ds.session.quoteTargetId
-                ? { quoteTargetId: ds.session.quoteTargetId }
-                : {}),
-              ...((ds.currentReplyTarget ?? ds.session.currentReplyTarget)?.turnId
-                ? {
-                    currentReplyTargetTurnId:
-                      (ds.currentReplyTarget ?? ds.session.currentReplyTarget)!.turnId,
-                  }
-                : {}),
-            }
-          : undefined,
-        selfLarkAppId: selfV3LarkAppId,
-        baseDir: v3DefaultBaseDir(),
-      });
-      if (!decision.ok) {
-        return jsonRes(res, decision.status, {
-          ok: false,
-          error: decision.error,
-          ...(decision.detail ? { detail: decision.detail } : {}),
-        });
-      }
-      const executor = v3RunMutationExecutors[sessionRelayMutation];
-      if (!executor || !selfV3LarkAppId || !selfV3BootInstanceId) {
-        return jsonRes(res, 503, { ok: false, error: 'workflow_ipc_identity_unavailable' });
-      }
-      return executor(
-        (status, payload) => jsonRes(res, status, payload),
-        { runId: params.runId },
-        decision.body as never,
-        { larkAppId: selfV3LarkAppId, bootInstanceId: selfV3BootInstanceId },
-      );
-    },
-  );
-}
 
 // ─── botmux ask v0.1.7 IPC route ─────────────────────────────────────────────
 //
@@ -15844,51 +14840,7 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
     content,
   });
 
-  // Workflow 保留动词必须先于即兴 grill，避免 `run/save/cancel/list/show`
-  // 被当成自由文本目标；v2 runtime 已没有回退路径。
-  if (await handleV3SavedWorkflowCommandIfAny({
-    content: cmdContent,
-    anchor,
-    replyRootId,
-    messageId: parsed.messageId,
-    chatId,
-    chatType,
-    larkAppId,
-    initiatorOpenId: senderOpenId,
-    teamTrustUnionId,
-    memberUnionId: senderUnionId,
-    botSender: isBotSenderType,
-  })) {
-    return;
-  }
-
-  // v3 即兴 grill：`/workflow [new] <目标>`。daemon 不拷问——把目标包成触发
-  // botmux-workflow skill 的 prompt（改写 content，promptContent 随后从 content
-  // 构造），fall-through 到正常 session 创建，让本话题 agent 接管整条链路。
-  // v3 Workflow 动词已在上方处理；`/template` 只保留退役提示。
-  // Freeze the Lark-authored bytes before a workflow command rewrites the
-  // legacy model prompt. Codex App clean-input must keep those original bytes
-  // as the visible UserMessage and move the generated skill prompt into hidden
-  // untrusted context.
   const codexAppVisibleText = content;
-  let workflowGrillPrompt: string | undefined;
-  const newTopicGrill = parseWorkflowGrillTrigger(cmdContent);
-  if (newTopicGrill) {
-    if (await replyGrantRestrictionIfNeeded(larkAppId, chatId, senderOpenId, anchor, '/workflow')) {
-      return;
-    }
-    if (newTopicGrill.kind === 'usage') {
-      await sessionReply(anchor, WORKFLOW_USAGE, 'text', larkAppId);
-      return;
-    }
-    workflowGrillPrompt = buildWorkflowGrillPrompt(newTopicGrill.goal);
-    content = workflowGrillPrompt;
-    // 保留原 cmdContent（"/workflow new …"）供 title/日志；/workflow 非注册命令，
-    // 下面的 parseSlashCommandInvocation 会让它落到正常 spawn 路径。
-  } else if (isLegacyTemplateCommand(cmdContent)) {
-    await sessionReply(anchor, LEGACY_TEMPLATE_RETIRED_MESSAGE, 'text', larkAppId);
-    return;
-  }
 
   // Intercept daemon commands in new topics (no session needed for some commands)
   const invocation = parseSlashCommandInvocation(cmdContent);
@@ -16109,7 +15061,7 @@ async function handleNewTopic(data: any, ctx: RoutingContext): Promise<void> {
     : '';
   // 话题 hint 同样前置到 codex-app 结构化 sidecar lane（与 quote hint 一致双 lane
   // 下发），否则 codex-app（clean input）bot 走 sidecar 时会静默丢掉该 hint。
-  const codexAppMessageContext = historyLookupContext + topicThreadContext + codexAppQuoteContext + (workflowGrillPrompt ?? '');
+  const codexAppMessageContext = historyLookupContext + topicThreadContext + codexAppQuoteContext;
   const userPromptContent = stripLeadingMentions(content, parsed.mentions);
   const promptContent = historyLookupContext + topicThreadContext + codexAppQuoteContext + codexAppApplicationContext + userPromptContent;
 
@@ -16882,15 +15834,12 @@ async function handleThreadReply(
     ? `${tr('daemon.foreign_bot_mention_prefix', { botName: foreignBotName! }, localeForBot(larkAppId))}\n`
     : '';
 
-  // `let` (not const): the v3 grill gate below may replace this with a
-  // skill-trigger prompt when the user sends `/workflow [new] <目标>` mid-thread.
   const initialCodexAppMessageContext = buildQuoteHint(parsed, scope, anchor, localeForBot(larkAppId)) + botSenderPrefix;
   const initialCodexAppApplicationContext = vcMeetingApplicationContext(ctx);
   const initialPromptContent = initialCodexAppMessageContext
     + initialCodexAppApplicationContext
     + parsed.content;
   let promptContent = initialPromptContent;
-  let rewrittenCodexAppMessageContext: string | undefined;
   if (!prepared) {
     const existingHookSession = activeSessions.get(sessionKey(anchor, larkAppId));
     emitHookEvent('thread.reply', {
@@ -17011,51 +15960,6 @@ async function handleThreadReply(
     )) {
       return;
     }
-  }
-
-  // v3 Workflow 命令在 thread 内同样由 host 直接处理，不转发给 CLI。
-  if (await handleV3SavedWorkflowCommandIfAny({
-    content: cmdContent,
-    anchor,
-    replyRootId,
-    messageId: parsed.messageId,
-    chatId: threadChatId,
-    chatType: ctxChatType,
-    larkAppId,
-    initiatorOpenId: threadSenderOpenId,
-    teamTrustUnionId: threadTeamTrustUnionId,
-    memberUnionId: threadSenderUnionId,
-    botSender: isBotSenderType || isForeignBot,
-  })) {
-    return;
-  }
-
-  // v3 即兴 grill（thread 内）：`/workflow [new] <目标>` → 把目标包成触发
-  // botmux-workflow skill 的 prompt 覆盖 promptContent，fall-through 到下面正常
-  // 转发逻辑，让现有/新建的 agent 接管。v3 Workflow 动词已在上方处理，
-  // `/template` 只保留退役提示。
-  const threadGrill = parseWorkflowGrillTrigger(cmdContent);
-  if (threadGrill) {
-    if (await replyGrantRestrictionIfNeeded(larkAppId, threadChatId, threadSenderOpenId, anchor, '/workflow')) {
-      return;
-    }
-    if (threadGrill.kind === 'usage') {
-      await sessionReply(anchor, WORKFLOW_USAGE, 'text', larkAppId);
-      return;
-    }
-    const workflowPrompt = buildWorkflowGrillPrompt(threadGrill.goal);
-    // Legacy/non-clean paths still need daemon-owned VC lifecycle context.
-    // For clean Codex App, keep that trusted context in the application lane
-    // and expose only quote/bot prefixes + the generated workflow prompt as
-    // hidden untrusted message context.
-    promptContent = initialCodexAppMessageContext
-      + initialCodexAppApplicationContext
-      + workflowPrompt;
-    rewrittenCodexAppMessageContext = initialCodexAppMessageContext + workflowPrompt;
-    // fall through to normal forwarding with the rewritten promptContent
-  } else if (isLegacyTemplateCommand(cmdContent)) {
-    await sessionReply(anchor, LEGACY_TEMPLATE_RETIRED_MESSAGE, 'text', larkAppId);
-    return;
   }
 
   // Intercept daemon commands
@@ -17241,10 +16145,7 @@ async function handleThreadReply(
   // 回调 URL 已在上方 return，可用来中止）。答复权限 = canTalk，由
   // broker 在 submitCustomReply 内按注入的 canTalkChecker 判定：非授权人返回
   // 'unauthorized'，这里 fall through 到正常路由。卡片由 broker.onSettle 自动 PATCH。
-  // `!threadGrill`：grill goal 分支只改写 promptContent 后 fall-through（不 return），
-  // cmdContent 仍是字面量 `/workflow new <目标>`；若不排除，待回答 ask 会把它当答案吞掉，
-  // grill 永远不启动。grill 必须穿过拦截器走正常转发。
-  if (threadSenderOpenId && threadChatId && !threadGrill) {
+  if (threadSenderOpenId && threadChatId) {
     const askReplyText = cmdContent.trim();
     if (askReplyText) {
       const pendingAsk = findPendingAskByAnchor({
@@ -17314,12 +16215,7 @@ async function handleThreadReply(
     return;
   }
 
-  // When a command path rewrites the model prompt (for example /workflow),
-  // keep the Lark-authored bytes visible and move the rewritten instruction
-  // into hidden untrusted context. Simple quote/bot prefixes use only the
-  // prefix as context, avoiding a duplicate copy of the user text.
-  const codexAppMessageContext = rewrittenCodexAppMessageContext
-    ?? initialCodexAppMessageContext;
+  const codexAppMessageContext = initialCodexAppMessageContext;
   const codexAppApplicationContext = initialCodexAppApplicationContext;
 
   // Download attachments
@@ -18576,17 +17472,6 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   // 不阻塞：首张截图可能仍是豆腐块，装完重启 daemon 即可正常。
   ensureCjkFontsInstalled();
 
-  // Auto-migrate legacy sandbox fields (readIsolation / sandboxHidePaths /
-  // sandboxReadonlyPaths / readDenyExtraPaths → sandbox + sandboxPaths) BEFORE
-  // loading, so the parsed configs below already carry the new model. Writes
-  // new fields, keeps old ones (downgrade = zero-op), backs up once. Idempotent.
-  // SKIP in core-only (codex P1-2): this reads + backs-up + rewrites the on-disk
-  // fleet bots.json. A headless core-only service must never touch an ambient
-  // host fleet config — its identity is a synthesized in-memory apiOnly bot.
-  if (process.env.BOTMUX_CORE_ONLY !== '1') {
-    await migrateSandboxConfigAtStartup();
-  }
-
   // Load the assigned bot (one daemon per bot)
   let botConfigs = loadBotConfigs();
   const idx = botIndex ?? 0;
@@ -18782,12 +17667,9 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   }, VC_MEETING_DELIVERY_LEASE_SCAN_MS);
   vcMeetingDeliveryLeaseTimer.unref?.();
   // Bind the schedule store to this daemon's bot (per-bot stores live in each
-  // BOT_HOME), split a legacy shared data/schedules.json if one still exists,
-  // then watch our own store for external writes (e.g. `botmux schedule add`
+  // BOT_HOME), then watch our own store for external writes (e.g. `botmux schedule add`
   // running in a separate node process) so dashboard event bus stays in sync.
   scheduleStore.setScheduleScope(cfg.larkAppId);
-  migrateSharedSchedulesAtStartup(botConfigs.map(b => b.larkAppId), botConfigs[0]?.larkAppId ?? cfg.larkAppId);
-  void migrateOverloadAlertAtStartup(botConfigs.map(b => ({ larkAppId: b.larkAppId, apiOnly: b.apiOnly })));
   scheduleStore.startExternalWriteWatcher();
   logger.info(`Bot ${idx}/${botConfigs.length}: ${cfg.larkAppId} (cli: ${cfg.cliId})`)
   setAskCardDispatcher(createLarkAskCardDispatcher());
@@ -18846,8 +17728,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     ipcPort,
     pid: process.pid,
     startedAt: Date.now(),
-    bootInstanceId: generateWorkflowDaemonBootInstanceId(),
-    workflowIpcProtocol: 'v1',
+    bootInstanceId: randomUUID(),
     lastHeartbeat: Date.now(),
     // Dashboard create-group only consumes app-scoped open_ids — publish ONLY
     // ou_ entries. Before the resolution below runs, the list may still hold raw
@@ -19015,8 +17896,6 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     larkAppId: cfg.larkAppId,
     bootInstanceId: desc.bootInstanceId,
   });
-  selfV3LarkAppId = cfg.larkAppId; // scope v3 humanGate cold-attach / start to this bot
-  selfV3BootInstanceId = desc.bootInstanceId;
 
   // Bind dashboard IPC HTTP server BEFORE publishing the registry descriptor.
   // Otherwise the dashboard process can race-fetch the IPC port from the
@@ -19123,26 +18002,6 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   }, 30_000);
   // Don't keep the event loop alive on this interval alone.
   if (typeof descriptorHeartbeat.unref === 'function') descriptorHeartbeat.unref();
-
-  // Reap a dead prior daemon's detached classifier before any prepared
-  // proposal can be recovered. Per-proposal generation locks still serialize
-  // live rolling-restart overlap; this sweep handles only dead-owner markers.
-  await sweepAbandonedV3DistillationScratch().catch((err) => {
-    logger.warn(
-      `[v3-distillation] scratch sweep failed: ${stableV3DistillationErrorCode(err)}`,
-    );
-  });
-
-  // Accepted distillation transactions no longer need a live bot/provider or
-  // Lark delivery. Recover them once globally before per-bot card/generation
-  // recovery, so removing a bot cannot strand an already approved save.
-  try {
-    await recoverV3DistillationCommits();
-  } catch (err) {
-    logger.warn(
-      `[v3-distillation] global commit recovery failed: ${stableV3DistillationErrorCode(err)}`,
-    );
-  }
 
   // Per-bot initialization
   for (const bot of getAllBots()) {
@@ -19327,16 +18186,6 @@ export async function startDaemon(botIndex?: number): Promise<void> {
       startLarkEventDispatcher(cfg.larkAppId, cfg.larkAppSecret, botEventHandlers, normalizeBrand(cfg.brand));
     }
 
-    // A distillation command is durably prepared before its model run/card
-    // delivery. Resume active prepared/proposed allocations after a daemon
-    // crash; deterministic Lark UUIDs suppress duplicate cards in the
-    // transport dedupe window, while callback CAS keeps later clicks safe.
-    void recoverV3DistillationProposalsForBot(cfg.larkAppId).catch((err) => {
-      logger.warn(
-        `[v3-distillation] cold recovery failed: ${stableV3DistillationErrorCode(err)}`,
-      );
-    });
-
     startCapabilityProposalDelivery(cfg.larkAppId);
 
     const vcCfg = effectiveVcMeetingAgentConfig(cfg.larkAppId);
@@ -19435,17 +18284,6 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   vcMeetingReceiverRecoverySchedulingComplete = true;
   refreshVcMeetingReceiverRecoveryReady();
 
-  // Second global-skills sweep, AFTER restore has settled. The early
-  // cleanupGlobalBotmuxSkillsOnce() pass (in the startup ensureCliEnv above)
-  // runs before any restart overlap settles, so an outgoing old-build daemon
-  // (pre `--plugin-dir` migration) can re-create ~/.claude/skills/botmux-* a few
-  // ms after we cleaned it — leaving it to leak into the user's standalone
-  // `claude` until the *next* restart. Re-sweeping here, once this daemon's own
-  // spawns and the handoff window are done, catches that leak on the same
-  // startup. Idempotent & best-effort — never blocks startup.
-  try { sweepGlobalBotmuxSkills(); }
-  catch (err) { logger.warn(`[skills] post-restore global sweep failed: ${err instanceof Error ? err.message : String(err)}`); }
-
   // 文档订阅恢复 + 评论轮询：都是主动调飞书文档 API 的路径。apiOnly（core-only）
   // bot 从不连飞书，且其合成身份不会有真实文档订阅——整块跳过，否则非 pristine
   // dataDir 上的遗留订阅会让「无飞书连接」的 bot 每 5 秒主动打飞书。
@@ -19496,16 +18334,6 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   }, 120_000);
   sandboxReconcileTimer.unref?.();
 
-  // v3 humanGate cold-attach: re-post pending gate cards + resume healed gates
-  // for runs OWNED BY THIS BOT (codex blocker #1 — owner filter, mirrors
-  // the immutable v3 run binding). Best-effort; never blocks startup.
-  await v3GateRunner.coldAttach(cfg.larkAppId).catch((err) => {
-    logger.warn(`[v3] cold-attach failed; continuing daemon startup: ${err instanceof Error ? err.message : String(err)}`);
-  });
-  await v3ProgressCardManager.coldAttach(cfg.larkAppId).catch((err) => {
-    logger.warn(`[v3] progress-card cold-attach failed; continuing daemon startup: ${err instanceof Error ? err.message : String(err)}`);
-  });
-
   // Start scheduler in every daemon.  Each daemon owns exactly one bot, so
   // each filters to only execute tasks whose `larkAppId` matches its bot
   // (unmatched tasks are handled by the owning bot's daemon instead; a
@@ -19539,6 +18367,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
   if (idx === 0 && !coreOnly) {
     startMaintenance();
     startCliRuntimeUpdateMonitor({
+      botName: () => getBot(cfg.larkAppId).botName,
       dataDir: config.session.dataDir,
       primaryLarkAppId: cfg.larkAppId,
       ownerOpenId: () => resolvePrimaryOwnerOpenId(cfg.larkAppId),
@@ -19552,6 +18381,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     setTimeout(() => {
       const dash = dashboardUrlForReport();
       void sendRestartReportIfPending({
+        botName: getBot(cfg.larkAppId).botName,
         primaryLarkAppId: cfg.larkAppId,
         ownerOpenId: resolvePrimaryOwnerOpenId(cfg.larkAppId),
         dashboardUrl: dash.url,
@@ -19671,7 +18501,6 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     deferredScheduleSettleTimers.clear();
     vcMeetingReceiverRecoveryReady = false;
     stopCliRuntimeUpdateMonitor();
-    v3ProgressCardManager.close();
     clearInterval(maintenanceHeartbeat);
     clearInterval(docCommentPollTimer);
     for (const session of vcMeetingSessions.values()) cleanupVcMeetingDaemonSession(session, 'daemon-shutdown');

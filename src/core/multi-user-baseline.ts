@@ -6,13 +6,14 @@ import {
   readlinkSync,
   readdirSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   unlinkSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
 
-const MANIFEST_NAME = '.botmux-baseline.json';
+const MANIFEST_NAME = '.provider-baseline.json';
 
 interface BaselineManifest {
   links: Record<string, string>;
@@ -115,6 +116,10 @@ export function syncMultiUserBaselineDirectory(
     includeFiles?: boolean;
     overrideDirs?: readonly string[];
     targetRoot?: string;
+    /**
+     * Replace disposable installed-code cache entries, never personal Skills or runtime data.
+     */
+    replaceCacheEntries?: boolean;
   } = {},
 ): MultiUserBaselineSyncResult {
   const result: MultiUserBaselineSyncResult = {
@@ -123,6 +128,15 @@ export function syncMultiUserBaselineDirectory(
     removed: [],
     readonlyRoots: [],
   };
+  if (options.replaceCacheEntries && !options.targetRoot) {
+    throw new Error('Replacing cache entries requires a contained target root');
+  }
+  // Validate ancestors before inspecting or unlinking the target itself. A
+  // principal must not redirect a host-side refresh through a parent symlink.
+  if (options.targetRoot && !ensureContainedDirectory(options.targetRoot, dirname(targetDir))) {
+    result.preserved.push(targetDir);
+    return result;
+  }
   const canonicalSources: string[] = [];
   for (const source of typeof sourceDir === 'string' ? [sourceDir] : sourceDir) {
     if (!existsSync(source)) continue;
@@ -219,6 +233,11 @@ export function syncMultiUserBaselineDirectory(
     }
     if (oldSource && symlinkMatches(target, oldSource) && oldSource !== source) {
       unlinkSync(target);
+    }
+    if (options.replaceCacheEntries && !symlinkMatches(target, source)) {
+      // Containment was checked above. rmSync removes a leaf symlink itself;
+      // it never follows it into a provider or another principal's directory.
+      rmSync(target, { recursive: true, force: true });
     }
     if (!existsSync(target)) {
       try {

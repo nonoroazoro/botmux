@@ -5,7 +5,7 @@ import { config } from '../config.js';
 
 export type ConnectorVerifyType = 'hmac-sha256' | 'token';
 export type ConnectorTargetMode = 'dynamic' | 'fixed' | 'new-group';
-export type ConnectorTargetKind = 'turn' | 'workflow';
+export type ConnectorTargetKind = 'turn';
 export type ConnectorTopicMessageMode = 'default' | 'custom' | 'none';
 
 export interface ConnectorDefinition {
@@ -29,7 +29,6 @@ export interface ConnectorDefinition {
     botIds?: string[];
     chatId?: string;
     allowChats?: string[];
-    workflowId?: string;
   };
   promptEnvelope: {
     sourceName: string;

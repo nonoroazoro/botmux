@@ -36,7 +36,7 @@ import {
   getAvailableBots,
 } from './session-manager.js';
 import { markInitialUserTurnPending } from './initial-user-turn.js';
-import { discoverSlashCommandsForAdapter, listMcpServerNames, supportsFilesystemCommandDiscovery } from './command-discovery.js';
+import { discoverSlashCommandsForAdapter, supportsFilesystemCommandDiscovery } from './command-discovery.js';
 import { validateWorkingDir } from './working-dir.js';
 import { repinSessionWorkingDir } from './session-cwd.js';
 import { validateAdoptTarget, adoptTargetKey, adoptTargetLabel, type AdoptableSession } from './session-discovery.js';
@@ -3663,7 +3663,6 @@ export async function handleCommand(
         //   ② 当前 CLI adapter 默认透传命令（defaultPassthroughCommands）
         //   ③ 用户在 bots.json 自定义配置的额外透传命令（customPassthroughCommands）
         //   ④ 文件系统自动发现的 CLI 自定义命令 / skill / 插件
-        // MCP 的 /mcp__<server>__<prompt> 需运行时握手才能枚举，这里仅按 .mcp.json 提示 server 名。
         const botCfg = ds
           ? getBot(ds.larkAppId).config
           : (larkAppId ? getBot(larkAppId).config : getAllBots()[0]?.config);
@@ -3692,10 +3691,8 @@ export async function handleCommand(
         const discovered = cliAdapter && discoverySupported
           ? discoverSlashCommandsForAdapter(workingDir, cliAdapter)
           : [];
-        const mcpServers = listMcpServerNames(workingDir);
-
         const card = buildSlashListCard(
-          { cliName, builtin, adapterDefaults, custom, discovered, workingDir, mcpServers, discoverySupported },
+          { cliName, builtin, adapterDefaults, custom, discovered, workingDir, discoverySupported },
           loc,
         );
         await sessionReply(rootId, card, 'interactive');
@@ -3763,9 +3760,6 @@ export async function handleCommand(
           t('help.login_status', undefined, loc),
           t('help.pair', undefined, loc),
           '',
-          t('help.heading_workflow', undefined, loc),
-          t('help.workflow_run', undefined, loc),
-          t('help.workflow_cancel', undefined, loc),
           '',
           t('help.heading_role', undefined, loc),
           t('help.role_show', undefined, loc),
@@ -3925,7 +3919,7 @@ export async function startCodexAppThreadSession(
   ds.lastScreenStatus = undefined;
 
   ds.session.workingDir = thread.cwd;
-  ds.session.title = `Codex App: ${title}`;
+  ds.session.title = `Codex Desktop: ${title}`;
   ds.session.cliId = 'codex-app';
   ds.session.cliSessionId = thread.threadId;
   ds.session.adoptedFrom = undefined;

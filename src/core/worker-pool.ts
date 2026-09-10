@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { readFileSync, readdirSync, mkdirSync, existsSync, realpathSync, unlinkSync } from 'node:fs';
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
 import { fileURLToPath } from 'node:url';
-import { ensureSkills, ensureAskSkill, ensurePluginSkills, ensureWhiteboardSkill, removeGlobalBotmuxSkills } from '../skills/installer.js';
+import { ensureSkills, ensureAskSkill, ensurePluginSkills, ensureWhiteboardSkill } from '../skills/installer.js';
 import { shouldInstallGlobalSkills } from '../skills/injection-mode.js';
 import { whiteboardEnabled } from '../services/whiteboard-store.js';
 import { cliSupportsNativeUsage } from '../services/transcript-resolver.js';
@@ -122,7 +122,7 @@ function daemonCardLocalHomeLinkMode(ds: DaemonSession): LocalHomeLinkMode {
   // while restoring sessions that do not yet have an initConfig.
   const backendType = ds.initConfig?.backendType ?? ds.session.backendType;
   return ds.session.sandbox === true
-    || ds.initConfig?.readIsolation === true
+    || ds.initConfig?.sandbox === true
     || sandboxEnabled()
     ? 'lexical'
     : 'filesystem';
@@ -900,7 +900,6 @@ function scheduleLocalCliOpenReadinessPatch(ds: DaemonSession): void {
     ds.streamCardNonce,
     ds.currentImageKey,
     !!ds.adoptedFrom,
-    false,
     localeForBot(ds.larkAppId),
     status === 'limited' ? ds.usageLimit : undefined,
     writableTerminalLinkFor(ds),
@@ -952,7 +951,6 @@ function scheduleCodexServiceTierPatch(ds: DaemonSession): void {
     ds.streamCardNonce,
     ds.currentImageKey,
     !!ds.adoptedFrom,
-    false,
     localeForBot(ds.larkAppId),
     status === 'limited' ? ds.usageLimit : undefined,
     writableTerminalLinkFor(ds),
@@ -1025,7 +1023,6 @@ export function refreshStreamingCardUsage(ds: DaemonSession): void {
     ds.streamCardNonce,
     ds.currentImageKey,
     !!ds.adoptedFrom,
-    false,
     localeForBot(ds.larkAppId),
     cardUsageLimit(ds),
     writableTerminalLinkFor(ds),
@@ -1266,7 +1263,6 @@ function scheduleUsageLimitCardPatch(ds: DaemonSession): void {
     ds.streamCardNonce,
     ds.currentImageKey,
     !!ds.adoptedFrom,
-    false,
     localeForBot(ds.larkAppId),
     ds.usageLimit,
     writableTerminalLinkFor(ds),
@@ -1467,7 +1463,6 @@ export async function postFreshStreamingCard(
     ds.streamCardNonce,
     ds.currentImageKey,
     !!ds.adoptedFrom,
-    false,
     localeForBot(ds.larkAppId),
     cardUsageLimit(ds),
     writableTerminalLinkFor(ds),
@@ -1944,16 +1939,7 @@ export function ensureCliSkills(cliId: CliId, cliPathOverride?: string): void {
   // session-manager buildNewTopicPrompt + skills/injection-mode.ts).
   const skillsDir = adapter.skillsDir;
   const globalInstall = skillsDir ? shouldInstallGlobalSkills(skillsDir) : false;
-  // 白板 skill + 泄漏清理都**每次 spawn 重新评估**（在 once-cache 之前），保证在
-  // CLI 真正执行前生效——而不仅在 daemon 启动那一次：
-  //  - 白板：跟随运行时开关，仅 global 模式落全局盘。
-  //  - prompt/off 泄漏清理：每个新会话拉起 CLI 前，把共享 skills 目录里的 botmux
-  //    技能清掉。这样「运行时从 global 切到 prompt/off」「旧版本或外部重新写入的
-  //    残留」都会在下一个会话的 CLI 启动前被扫干净，用户手动跑的独立 codex/gemini
-  //    立刻不再看到 botmux 技能，无需等 daemon 重启。只动 `botmux-` 命名空间，
-  //    绝不碰用户自定义 skill。
   ensureWhiteboardSkill(cliId, skillsDir, globalInstall && whiteboardEnabled());
-  if (!globalInstall && skillsDir) removeGlobalBotmuxSkills(skillsDir);
 
   if (skillsInstalledCliIds.has(cliId)) return;
   // 安装是稳定动作，留在 once-cache 里跑一次即可（幂等，内容相同不重写）。
@@ -1976,37 +1962,7 @@ export function ensureCliSkills(cliId: CliId, cliPathOverride?: string): void {
 
 /** Ensure built-in CLI integration for this daemon lifecycle. */
 export function ensureCliEnv(cliId: CliId, cliPathOverride?: string): void {
-  cleanupGlobalBotmuxSkillsOnce();
   ensureCliSkills(cliId, cliPathOverride);
-}
-
-/** The user's global skills dir that botmux must NOT pollute (Claude now injects
- *  its skills per-session via `--plugin-dir`). Single source of truth for the
- *  path so the early once-pass and the post-restore re-sweep stay in sync. */
-const GLOBAL_CLAUDE_SKILLS_DIR = '~/.claude/skills';
-
-/** Unconditionally sweep botmux-owned skills out of the user's global
- *  `~/.claude/skills`. botmux owns the `botmux-` namespace there and injects its
- *  skills per-session via `--plugin-dir`, so anything matching is a leak that
- *  would otherwise surface (and mis-fire) in the user's standalone `claude`.
- *  Idempotent & best-effort — safe to call repeatedly. */
-export function sweepGlobalBotmuxSkills(): void {
-  removeGlobalBotmuxSkills(GLOBAL_CLAUDE_SKILLS_DIR);
-}
-
-let globalBotmuxSkillsCleaned = false;
-/** One-time, CLI-independent cleanup of botmux skills that older versions
- *  installed into the global `~/.claude/skills`. Runs early at daemon startup
- *  via ensureCliEnv (CLI-independent: the leak surfaces in standalone `claude`
- *  no matter which CLI THIS daemon's bot uses, so it must NOT be gated on
- *  `adapter.pluginDir`). NOTE: this early pass can lose a restart race — an
- *  outgoing old-build daemon may re-create the dirs a few ms later — so
- *  {@link sweepGlobalBotmuxSkills} is called again post-restore (see daemon.ts)
- *  to catch that on the same startup instead of leaving it until next restart. */
-function cleanupGlobalBotmuxSkillsOnce(): void {
-  if (globalBotmuxSkillsCleaned) return;
-  globalBotmuxSkillsCleaned = true;
-  sweepGlobalBotmuxSkills();
 }
 
 // ─── Claude Code folder-trust pre-acceptance ─────────────────────────────────
@@ -4125,15 +4081,13 @@ export async function forkSession(
   //     /model or /effort override the source carried (reasoningEffort has no
   //     botCfg fallback at all → drops to undefined). Copying the frozen tuple
   //     keeps the clone's launch identity == the source's.
-  // readIsolation is intentionally NOT copied: it is not a persisted Session
+  // Credential confinement is derived from transport availability, not copied as a Session
   // field (forkWorker derives it from botCfg at spawn), and the child runs the
   // SAME bot, so it is preserved automatically. persistentBackendTarget is also
   // intentionally NOT inherited — that is the parent's specific pane/Herdr
   // affinity; the child cold-spawns its own fresh backing.
   childSession.sandbox = ds.session.sandbox;
   childSession.sandboxPaths = ds.session.sandboxPaths;
-  childSession.sandboxHidePaths = ds.session.sandboxHidePaths;
-  childSession.sandboxReadonlyPaths = ds.session.sandboxReadonlyPaths;
   childSession.sandboxNetwork = ds.session.sandboxNetwork;
   childSession.model = ds.session.model;
   childSession.reasoningEffort = ds.session.reasoningEffort;
@@ -4501,13 +4455,9 @@ export function forkWorker(
     if (!resume) {
       ds.session.sandbox = botCfg.sandbox === true || botCfg.multiUserIsolation?.enabled === true;
       ds.session.sandboxPaths = botCfg.sandboxPaths;
-      ds.session.sandboxHidePaths = botCfg.sandboxHidePaths ?? [];
-      ds.session.sandboxReadonlyPaths = botCfg.sandboxReadonlyPaths ?? [];
       ds.session.sandboxNetwork = botCfg.sandboxNetwork !== false;
     } else {
       ds.session.sandbox = botCfg.multiUserIsolation?.enabled === true;
-      ds.session.sandboxHidePaths = [];
-      ds.session.sandboxReadonlyPaths = [];
       ds.session.sandboxNetwork = true;
     }
     sessionStore.updateSession(ds.session);
@@ -4515,8 +4465,6 @@ export function forkWorker(
   if (botCfg.multiUserIsolation?.enabled && ds.session.sandbox !== true) {
     ds.session.sandbox = true;
     ds.session.sandboxPaths = botCfg.sandboxPaths;
-    ds.session.sandboxHidePaths = botCfg.sandboxHidePaths ?? [];
-    ds.session.sandboxReadonlyPaths = botCfg.sandboxReadonlyPaths ?? [];
     ds.session.sandboxNetwork = botCfg.sandboxNetwork !== false;
     sessionStore.updateSession(ds.session);
   }
@@ -4729,27 +4677,12 @@ export function forkWorker(
     env: botCfg.env,
     // Use the decision recorded on the session (above), NOT the live bot flag, so
     // historical sessions never get retroactively sandboxed on restart.
-    sandbox: ds.session.sandbox === true,
+    sandbox: ds.session.sandbox === true
+      || !larkTransportEnabled({ chatId: ds.chatId, apiOnly: botCfg.apiOnly }),
     sandboxPaths: ds.session.sandboxPaths ?? botCfg.sandboxPaths,
-    sandboxHidePaths: ds.session.sandboxHidePaths ?? [],
-    sandboxReadonlyPaths: ds.session.sandboxReadonlyPaths ?? [],
     sandboxNetwork: ds.session.sandboxNetwork !== false,
     multiUserHomeDir: multiUserPaths?.homeDir,
     sharedCodexHome: multiUserPaths?.sharedCodexHome,
-    // Per-bot local read isolation (enforced worker-side; the worker gates it).
-    // Sibling data needs no app-id enumeration: per-bot dirs are denied wholesale
-    // and per-bot session files by filename pattern (see buildV2DenyPaths).
-    // HARD credential boundary for a no-transport session (apiOnly bot OR HTTP
-    // virtual chat): force read isolation so the CLI physically cannot read the
-    // full bots.json / sibling BOT_HOME / send-cred / lark-cli store — a model
-    // that deletes/forges the ancestry marker or bypasses the CLI still cannot
-    // build ANY (sibling) Lark client. The pid-marker gate is only friendly
-    // early-reject; THIS is the fail-closed boundary. Reuses the existing unified
-    // fs-policy (mac+Linux fail-closed); a backend that can't isolate locally
-    // refuses to spawn rather than leak creds.
-    readIsolation: botCfg.readIsolation === true
-      || !larkTransportEnabled({ chatId: ds.chatId, apiOnly: botCfg.apiOnly }),
-    readDenyExtraPaths: botCfg.readDenyExtraPaths ?? [],
     // Identifies THIS daemon lifetime. Stamped onto isolated panes so the worker
     // can tell a suspend→resume reattach (same boot id, still isolated) from a
     // stale pane surviving a daemon restart (different id → kill + cold-spawn).
@@ -5143,10 +5076,8 @@ function setupWorkerHandlers(
     }
   };
 
-  // Adopt mode flags — computed once, used in all buildStreamingCard calls.
-  // Bridge mode (the v3 default for /adopt) hides the legacy takeover button.
+  // Adopt mode controls whether cards offer disconnect instead of closing the CLI.
   const isAdopt = !!ds.adoptedFrom;
-  const showTakeover = false;
 
   worker.on('message', async (msg: WorkerToDaemon) => {
     // Every IPC message is scoped to the child generation that emitted it.
@@ -5384,7 +5315,6 @@ function setupWorkerHandlers(
               ds.streamCardNonce,
               ds.currentImageKey,
               isAdopt,
-              showTakeover,
               loc,
               initStatus === 'limited' ? ds.usageLimit : undefined,
               writableTerminalLinkFor(ds),
@@ -5459,7 +5389,6 @@ function setupWorkerHandlers(
             ds.streamCardNonce,
             ds.currentImageKey,
             isAdopt,
-            showTakeover,
             loc,
             initStatus === 'limited' ? ds.usageLimit : undefined,
             writableTerminalLinkFor(ds),
@@ -5819,7 +5748,6 @@ function setupWorkerHandlers(
             ds.streamCardNonce,
             ds.currentImageKey,
             isAdopt,
-            showTakeover,
             loc,
             cardUsageLimit(ds),
             writableTerminalLinkFor(ds),
@@ -5886,7 +5814,6 @@ function setupWorkerHandlers(
             ds.streamCardNonce,
             ds.currentImageKey,
             isAdopt,
-            showTakeover,
             loc,
             cardUsageLimit(ds),
             writableTerminalLinkFor(ds),
@@ -5946,7 +5873,6 @@ function setupWorkerHandlers(
           ds.streamCardNonce,
           ds.currentImageKey,
           isAdopt,
-          showTakeover,
           loc,
           cardUsageLimit(ds),
           writableTerminalLinkFor(ds),
@@ -6320,7 +6246,7 @@ function setupWorkerHandlers(
               ds.session.sessionId, sessionAnchorId(ds), readUrl, turnTitle,
               ds.lastScreenContent ?? '', 'idle', effectiveCliId,
               ds.displayMode ?? 'hidden', ds.streamCardNonce, ds.currentImageKey,
-              isAdopt, showTakeover, loc, undefined, writableTerminalLinkFor(ds),
+              isAdopt, loc, undefined, writableTerminalLinkFor(ds),
               isLocalCliOpenReady(ds, { cliId: effectiveCliId }),
               getDaemonStreamingCardUsageSnapshot(ds, effectiveCliId, { fresh: true }),
               sessionRuntimeDisplayName(ds, botCfg),
@@ -6364,7 +6290,7 @@ function setupWorkerHandlers(
               ds.session.sessionId, sessionAnchorId(ds), readUrl, turnTitle,
               ds.lastScreenContent ?? '', 'idle', effectiveCliId,
               ds.displayMode ?? 'hidden', ds.streamCardNonce, ds.currentImageKey,
-              isAdopt, showTakeover, loc, undefined, writableTerminalLinkFor(ds),
+              isAdopt, loc, undefined, writableTerminalLinkFor(ds),
               isLocalCliOpenReady(ds, { cliId: effectiveCliId }),
               getDaemonStreamingCardUsageSnapshot(ds, effectiveCliId, { fresh: true }),
               sessionRuntimeDisplayName(ds, botCfg),
@@ -7310,7 +7236,7 @@ function reserveWorkerGeneration(ds: DaemonSession): number {
  * only be established at spawn time (bwrap wrap / Seatbelt profile); adopt
  * attaches to an ALREADY-running host process, so it could only ever run
  * UNsandboxed. From-strict UNION of every source that can require isolation:
- *  - live per-bot `sandbox` / legacy `readIsolation`,
+ *  - live per-bot `sandbox`,
  *  - the global `BOTMUX_SANDBOX=1` (sandboxEnabled()),
  *  - the session's FROZEN sandbox decision (`session.sandbox`, recorded at
  *    creation). forkWorker treats the frozen decision as authoritative, so a
@@ -7326,7 +7252,6 @@ function reserveWorkerGeneration(ds: DaemonSession): number {
 export function adoptSandboxBlocked(
   botCfg: {
     sandbox?: boolean;
-    readIsolation?: boolean;
     apiOnly?: boolean;
     multiUserIsolation?: { enabled: true };
   },
@@ -7334,7 +7259,6 @@ export function adoptSandboxBlocked(
 ): boolean {
   return botCfg.sandbox === true
     || botCfg.multiUserIsolation?.enabled === true
-    || botCfg.readIsolation === true
     // A core-only (apiOnly) bot — or a session on a synthetic HTTP virtual chat —
     // must NOT adopt-observe a pre-existing external CLI: that CLI runs fully
     // unisolated (the adopt observe branch returns before any fs-policy build),

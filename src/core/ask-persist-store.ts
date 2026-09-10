@@ -21,8 +21,7 @@
  * could delete a LIVE pending ask). Production wires the real dir once at
  * daemon bootstrap.
  *
- * Design mirrors `workflows/v3/gate-wait-store.ts` (also "survive restart"):
- * atomic writes, fsync durability, a `list()` restore scan.
+ * Persistence uses atomic writes, fsync durability, and a `list()` restore scan.
  *
  * IDENTITY (codex影响面纠正): `askKey` is supplied by the caller and is derived
  * from a per-invocation `requestId` (generated once by the hook, reused across

@@ -353,7 +353,7 @@ export async function triggerSessionTurn(
     return { ok: false, errorCode: 'bot_not_found', error: 'request routed to the wrong daemon' };
   }
   if (req.target.kind !== 'turn') {
-    return { ok: false, errorCode: 'workflow_trigger_not_implemented', error: 'only turn triggers are implemented in this daemon route' };
+    return { ok: false, errorCode: 'target_required', error: 'only turn triggers are implemented in this daemon route' };
   }
 
   // apiOnly (core-only) fail-closed: a bot with no Feishu transport must never

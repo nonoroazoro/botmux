@@ -103,8 +103,7 @@ export async function dispatchTriggerRequest(
   deps: TriggerApiDeps,
   logContext?: TriggerDispatchLogContext,
 ): Promise<{ status: number; body: TriggerResponse }> {
-  // Both turn and workflow are proxied by botId to the owning daemon's
-  // /api/trigger; the daemon IPC handler dispatches turn vs workflow.
+  // Route the turn to the daemon that owns the target bot.
   const botId = body.target.botId;
   if (!botId) {
     return {
@@ -156,7 +155,6 @@ export async function dispatchTriggerRequest(
         httpStatus: upstream.status,
         durationMs: Math.max(0, Date.now() - logContext.startedAtMs),
         ...(parsed.target?.sessionId ? { sessionId: parsed.target.sessionId } : {}),
-        ...(parsed.target?.workflowRunId ? { workflowRunId: parsed.target.workflowRunId } : {}),
         ...(parsed.target?.chatId ? { chatId: parsed.target.chatId } : {}),
       },
     } : {}),

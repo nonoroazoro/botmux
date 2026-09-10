@@ -32,13 +32,6 @@ const ACTIVITY_TYPES = [
 
 const INSTRUCTIONS_MAX = 8000;
 const PROFILE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-/**
- * Pre-provenance migration target. Keep this byte-for-byte aligned with the
- * v2 generated minutes profile: the old seed has no marker, so the explicit
- * Dashboard CTA is the only authority allowed to replace its instructions.
- */
-const V2_DEFAULT_MINUTES_INSTRUCTIONS = '持续整理会议纪要，重点记录已确认的决策、待办事项（含负责人和截止时间）以及未解决风险；字幕修订时更新已有条目，不重复记录同一事项。仅在出现新的关键决策、明确待办或风险，或被用户点名时，才在监听群输出简洁增量；无实质增量时保持静默，不发送确认或心跳。需要向会议内发送文字或语音时，必须通过 botmux 受管 request-output/action gate 提交，不得绕过权限、所有权与审核策略。';
-
 type FieldErrorMap = Record<string, string>;
 
 interface DraftProfile extends VcMeetingConsumerProfileDto {
@@ -58,7 +51,6 @@ interface CatalogState {
   profiles: DraftProfile[];
   agentOptions: VcMeetingAgentOptionDto[];
   templateCatalog: VcMeetingConsumerProfileTemplateCatalog;
-  migrationOffer?: 'enable_seeded_minutes_default';
 }
 
 let uiKeySeq = 0;
@@ -228,9 +220,6 @@ export function VcConsumerProfilesSection(props: {
             && Array.isArray(body.templateCatalog.templates)
             ? body.templateCatalog
             : { schemaVersion: 1, templates: [] },
-          ...(body.migrationOffer === 'enable_seeded_minutes_default'
-            ? { migrationOffer: body.migrationOffer }
-            : {}),
         });
         setLoadError(null);
         setDirty(false);
@@ -333,9 +322,6 @@ export function VcConsumerProfilesSection(props: {
           && Array.isArray(body.templateCatalog.templates)
           ? body.templateCatalog
           : { schemaVersion: 1, templates: [] },
-        ...(body.migrationOffer === 'enable_seeded_minutes_default'
-          ? { migrationOffer: body.migrationOffer }
-          : {}),
       });
       setDirty(false);
       setSavedTick(true);
@@ -534,32 +520,6 @@ export function VcConsumerProfilesSection(props: {
       {err('profiles') ? <p className="hint-warn">{err('profiles')}</p> : null}
       {catalog ? (
         <>
-          {catalog.migrationOffer === 'enable_seeded_minutes_default' ? (
-            <p className="hint-warn vc-profile-migration-offer">
-              {tr('settings.vcProfiles.migrationOffer')}{' '}
-              <button
-                type="button"
-                className="vc-profiles-link"
-                disabled={frozen || dirty}
-                onClick={() => mutate(state => ({
-                  ...state,
-                  defaultMode: 'agents',
-                  defaultConsumerIds: ['minutes'],
-                  profiles: state.profiles.map(profile => profile.id === 'minutes'
-                    ? {
-                        ...profile,
-                        instructions: V2_DEFAULT_MINUTES_INSTRUCTIONS,
-                        responseMode: 'listener_thread',
-                        permissionPreset: 'meeting_text_voice',
-                      }
-                    : profile),
-                  migrationOffer: undefined,
-                }))}
-              >
-                {tr('settings.vcProfiles.migrationEnable')}
-              </button>
-            </p>
-          ) : null}
           {catalog.catalogState === 'uninitialized'
             && catalog.profiles.length === 0
             && !hasStructurallyEligibleAgent ? (

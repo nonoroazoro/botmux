@@ -118,15 +118,8 @@ export function resolveHerdrTraexPluginConfig(env: NodeJS.ProcessEnv = process.e
   const enabled = envEnabled != null && envEnabled !== ''
     ? envEnabled.toLowerCase() === 'true'
     : dashboardCfg?.enabled === true; // default OFF
-  // One-cycle compatibility for review deployments of the old `spec` schema.
-  // `owner/repo#ref` was never valid herdr argv; split it into the real fields.
-  const legacySpec = (env.BOTMUX_HERDR_TRAEX_PLUGIN_SPEC ?? '').trim();
-  const legacyHash = legacySpec.lastIndexOf('#');
-  const legacySource = legacyHash > 0 ? legacySpec.slice(0, legacyHash) : legacySpec;
-  const legacyRef = legacyHash > 0 ? legacySpec.slice(legacyHash + 1) : '';
-  const usesLegacySpec = env.BOTMUX_HERDR_TRAEX_PLUGIN_SOURCE == null && !!legacySource;
-  const source = (env.BOTMUX_HERDR_TRAEX_PLUGIN_SOURCE ?? (legacySource || dashboardCfg?.source) ?? '').trim();
-  const ref = (env.BOTMUX_HERDR_TRAEX_PLUGIN_REF ?? (usesLegacySpec ? legacyRef : dashboardCfg?.ref) ?? '').trim();
+  const source = (env.BOTMUX_HERDR_TRAEX_PLUGIN_SOURCE ?? dashboardCfg?.source ?? '').trim();
+  const ref = (env.BOTMUX_HERDR_TRAEX_PLUGIN_REF ?? dashboardCfg?.ref ?? '').trim();
   return { enabled, source, ref };
 }
 

@@ -69,10 +69,9 @@ export function buildVcMeetingConsumerBootstrapAgents(
 }
 
 /**
- * Choose a durable receiver identity. Persisted legacy preferences, when a
- * caller explicitly supplies them, win. Otherwise prefer the listener itself
- * when structurally eligible, then fall back deterministically to another
- * eligible agent. Online state is deliberately absent because it is transient.
+ * Choose a durable receiver identity. Explicit preferences win. Otherwise
+ * prefer the event receiver itself, then another eligible agent. Online state
+ * is deliberately absent because it is transient.
  */
 export function selectVcMeetingDefaultConsumerAgent(
   listenerBotAppId: string,
@@ -100,20 +99,9 @@ const LEGACY_VC_CONSUMER_AGENT_FIELDS = [
 ] as const;
 
 const DEFAULT_CONSUMER_PROFILE_GENERATOR_VERSION = 2;
-const LEGACY_PROVENANCE_GENERATOR_VERSION = 1;
 const DEFAULT_CONSUMER_PROFILE_ID = 'minutes';
 const DEFAULT_CONSUMER_PROFILE_LABEL = '会议纪要';
-const LEGACY_DEFAULT_CONSUMER_PROFILE_INSTRUCTIONS = '持续整理会议纪要，重点记录已确认的决策、待办事项（含负责人和截止时间）以及未解决风险；字幕修订时更新已有条目，不重复记录同一事项。';
-export const DEFAULT_CONSUMER_PROFILE_INSTRUCTIONS = 'Maintain current meeting minutes with confirmed decisions, action items with owners and deadlines, and unresolved risks. Apply transcript corrections to existing entries instead of creating duplicates. Post a concise delta to the listener chat only when there is a new key decision, explicit action, material risk, or direct request. Otherwise remain silent. Submit any in-meeting text or voice through the botmux managed output gate; never bypass permission, ownership, or approval policy.';
-const LEGACY_DEFAULT_CONSUMER_PROFILE_KEYS = [
-  'agentAppId',
-  'capabilities',
-  'id',
-  'instructions',
-  'label',
-  'responseMode',
-  'role',
-] as const;
+export const DEFAULT_CONSUMER_PROFILE_INSTRUCTIONS = 'Maintain current meeting minutes with confirmed decisions, action items with owners and deadlines, and unresolved risks. Apply transcript corrections to existing entries instead of creating duplicates. Post a concise update to the meeting chat only when there is a new key decision, explicit action, material risk, or direct request. Otherwise remain silent. Use the meeting reply controls for any in-meeting text or voice, and follow the configured permission and approval rules.';
 
 export interface VcMeetingDefaultConsumerProfileOwnedConfig {
   defaultMode: unknown;
@@ -186,24 +174,6 @@ function vcMeetingDefaultConsumerBootstrapProfileForVersion(
   }
 }
 
-function isLegacyGeneratedMinutesProfile(profile: unknown): profile is Record<string, unknown> & { agentAppId: string } {
-  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return false;
-  const entry = profile as Record<string, unknown>;
-  const keys = Object.keys(entry).sort();
-  if (keys.length !== LEGACY_DEFAULT_CONSUMER_PROFILE_KEYS.length
-    || keys.some((key, index) => key !== LEGACY_DEFAULT_CONSUMER_PROFILE_KEYS[index])) return false;
-  return entry.id === DEFAULT_CONSUMER_PROFILE_ID
-    && typeof entry.agentAppId === 'string'
-    && entry.agentAppId.trim().length > 0
-    && entry.label === DEFAULT_CONSUMER_PROFILE_LABEL
-    && entry.role === 'minutes'
-    && entry.instructions === LEGACY_DEFAULT_CONSUMER_PROFILE_INSTRUCTIONS
-    && entry.responseMode === 'silent'
-    && Array.isArray(entry.capabilities)
-    && entry.capabilities.length === 1
-    && entry.capabilities[0] === 'meeting.read';
-}
-
 function createVcMeetingDefaultConsumerProfile(agentAppId: string): Record<string, unknown> {
   return {
     id: DEFAULT_CONSUMER_PROFILE_ID,
@@ -222,63 +192,8 @@ function createVcMeetingDefaultConsumerProfile(agentAppId: string): Record<strin
 }
 
 /**
- * Upgrade only an untouched, single-profile v1 bootstrap. The single-profile
- * requirement matters because the v1 marker intentionally ignored extra
- * operator-owned catalog entries; silently adding listener/sink ownership in
- * that case could make previously composable selections conflict.
- */
-function upgradeVcMeetingDefaultConsumerProfileV1(
-  meetingConsumer: Record<string, unknown>,
-): boolean {
-  if (meetingConsumer.defaultMode !== 'agents'
-    || !Array.isArray(meetingConsumer.defaultConsumerIds)
-    || meetingConsumer.defaultConsumerIds.length !== 1
-    || meetingConsumer.defaultConsumerIds[0] !== DEFAULT_CONSUMER_PROFILE_ID
-    || !Array.isArray(meetingConsumer.consumerProfiles)
-    || meetingConsumer.consumerProfiles.length !== 1) return false;
-  const profile = vcMeetingDefaultConsumerBootstrapProfileForVersion(
-    meetingConsumer,
-    LEGACY_PROVENANCE_GENERATOR_VERSION,
-  );
-  if (!isLegacyGeneratedMinutesProfile(profile)) return false;
-
-  const upgradedProfile = createVcMeetingDefaultConsumerProfile(profile.agentAppId);
-  meetingConsumer.consumerProfiles = [upgradedProfile];
-  meetingConsumer.defaultProfileBootstrap = {
-    generatorVersion: DEFAULT_CONSUMER_PROFILE_GENERATOR_VERSION,
-    profileId: DEFAULT_CONSUMER_PROFILE_ID,
-    configHash: computeVcMeetingDefaultConsumerProfileConfigHash({
-      defaultMode: 'agents',
-      defaultConsumerIds: [DEFAULT_CONSUMER_PROFILE_ID],
-      profile: upgradedProfile,
-    }),
-  };
-  return true;
-}
-
-/**
- * Match only the exact raw profile emitted by the pre-provenance generator.
- * This intentionally does not normalize aliases or tolerate extra profile
- * fields: a near miss may be operator-owned and must not be offered an
- * automatic migration.
- */
-export function isLegacyVcMeetingDefaultConsumerSeedCandidate(
-  meetingConsumer: unknown,
-): boolean {
-  if (!meetingConsumer || typeof meetingConsumer !== 'object' || Array.isArray(meetingConsumer)) return false;
-  const consumer = meetingConsumer as Record<string, unknown>;
-  if (consumer.defaultMode !== 'listenOnly'
-    || Object.prototype.hasOwnProperty.call(consumer, 'defaultConsumerIds')
-    || Object.prototype.hasOwnProperty.call(consumer, 'defaultProfileBootstrap')
-    || LEGACY_VC_CONSUMER_AGENT_FIELDS.some(field => Object.prototype.hasOwnProperty.call(consumer, field))
-    || !Array.isArray(consumer.consumerProfiles)
-    || consumer.consumerProfiles.length !== 1) return false;
-  return isLegacyGeneratedMinutesProfile(consumer.consumerProfiles[0]);
-}
-
-/**
- * Mutate one latest raw meetingConsumer object only when no profile or legacy
- * agent policy has ever been initialized. Own-property checks are intentional:
+ * Mutate one latest raw meetingConsumer object only when no profile or agent
+ * policy has ever been initialized. Own-property checks are intentional:
  * `consumerProfiles: []` is an explicit opt-out and must never be resurrected.
  */
 export function seedVcMeetingDefaultConsumerProfile(
@@ -286,10 +201,6 @@ export function seedVcMeetingDefaultConsumerProfile(
   listenerBotAppId: string,
   agents: readonly VcMeetingConsumerBootstrapAgent[],
 ): boolean {
-  // The same lock-scoped mutator handles fresh materialization and provenance-
-  // fenced v1 upgrades, so daemon boot and Dashboard listener selection cannot
-  // diverge. Upgrade before the own-property opt-out gates below.
-  if (upgradeVcMeetingDefaultConsumerProfileV1(meetingConsumer)) return true;
   if (Object.prototype.hasOwnProperty.call(meetingConsumer, 'consumerProfiles')) return false;
   if (Object.prototype.hasOwnProperty.call(meetingConsumer, 'defaultConsumerIds')) return false;
   if (LEGACY_VC_CONSUMER_AGENT_FIELDS.some(field =>

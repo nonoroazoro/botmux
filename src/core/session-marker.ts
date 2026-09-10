@@ -115,12 +115,12 @@ export function findAuthenticatedAncestorSessionContext(
       }
       if (!marker.sessionId || !marker.procStart) {
         throw new SessionMarkerAuthenticationError(
-          '后台进程信息不完整，暂时不能执行变更。请运行 botmux restart 后重试。',
+          '后台进程信息不完整，暂时不能执行变更。请重启服务后再试。',
         );
       }
       if (!marker.turnId) {
         throw new SessionMarkerAuthenticationError(
-          '当前会话还没有绑定到这条消息，暂时不能执行变更。请在原话题重新发送一次；如果仍失败，请运行 botmux restart。',
+          '当前会话还没有绑定到这条消息，暂时不能执行变更。请在原话题重新发送一次；如果仍失败，请重启服务。',
         );
       }
       const liveStart = readProcessStartIdentity(pid);

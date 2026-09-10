@@ -11,28 +11,22 @@ let sessions: Map<string, Session> = new Map();
 let loaded = false;
 let currentAppId: string | undefined;
 
-// Legacy fields from the removed「处理中」placeholder-card PATCH delivery. They
-// no longer exist on Session and nothing reads them, but sessions persisted
-// before the removal still carry them on disk. Strip on write so the file
-// converges to clean on the first save (daemon + CLI both call this).
-const LEGACY_PENDING_CARD_FIELDS = ['pendingResponseCardId', 'pendingResponseCardState', 'lastPatchedResponseCardId'] as const;
-export function stripLegacyPendingCardFields(session: Record<string, unknown>): void {
-  for (const f of LEGACY_PENDING_CARD_FIELDS) delete session[f];
-}
-
 /**
  * Initialise session store for a specific bot (multi-daemon mode).
- * When appId is set, sessions are stored in `sessions-{appId}.json`.
- * When unset, uses the legacy `sessions.json`.
+ * Sessions are stored in `sessions-{appId}.json`.
  */
-export function init(appId?: string): void {
+export function init(appId: string): void {
+  if (!appId || /[\\/]/.test(appId) || appId === '.' || appId === '..') {
+    throw new Error('Session store requires a valid bot appId');
+  }
   currentAppId = appId;
   loaded = false;
   sessions = new Map();
 }
 
 function getFilePath(): string {
-  const fileName = currentAppId ? `sessions-${currentAppId}.json` : 'sessions.json';
+  if (!currentAppId) throw new Error('Session store must be initialized with a bot appId');
+  const fileName = `sessions-${currentAppId}.json`;
   return join(config.session.dataDir, fileName);
 }
 
@@ -43,37 +37,6 @@ function ensureDir(): void {
   }
 }
 
-// A short-lived /repo bug recreated chat-scope sessions with the chat routing
-// anchor (`oc_...`) copied into rootMessageId and omitted scope. That shape is
-// impossible for a real thread: Lark message ids are `om_...`. Repair only this
-// narrow signature so ordinary legacy records without scope keep their
-// documented thread fallback. The original trace message cannot be recovered,
-// but chat routing does not use rootMessageId.
-export function repairMissingChatScope(session: unknown): boolean {
-  if (!session || typeof session !== 'object' || Array.isArray(session)) return false;
-  const record = session as Record<string, unknown>;
-  if (
-    record.scope === undefined
-    && typeof record.chatId === 'string'
-    && record.chatId.startsWith('oc_')
-    && typeof record.rootMessageId === 'string'
-    && record.rootMessageId === record.chatId
-  ) {
-    record.scope = 'chat';
-    return true;
-  }
-  return false;
-}
-
-function repairMissingChatScopes(): number {
-  let repaired = 0;
-  for (const session of sessions.values()) {
-    if (repairMissingChatScope(session)) repaired += 1;
-  }
-  return repaired;
-}
-
-// Sessions persisted before 2026-04-29 lack `cliId`; consumers must fall back to 'unknown' at the render boundary.
 function load(): void {
   if (loaded) return;
   ensureDir();
@@ -88,43 +51,7 @@ function load(): void {
       loaded = true;
       return;
     }
-    const repaired = repairMissingChatScopes();
-    if (repaired > 0) {
-      try {
-        save();
-        logger.info(`Repaired ${repaired} scope-less chat session(s) in ${fp}`);
-      } catch (err) {
-        // Loading succeeded, so keep the in-memory sessions available even if
-        // this best-effort migration cannot be persisted yet (ENOSPC/EACCES).
-        logger.error(`Failed to persist repaired chat session scopes: ${err}`);
-      }
-    }
     logger.info(`Loaded ${sessions.size} sessions from ${fp}`);
-  } else if (currentAppId) {
-    // Per-bot file doesn't exist — migrate matching sessions from legacy sessions.json
-    const legacyFp = join(config.session.dataDir, 'sessions.json');
-    if (existsSync(legacyFp)) {
-      try {
-        const data: Record<string, Session> = JSON.parse(readFileSync(legacyFp, 'utf-8'));
-        sessions = new Map();
-        for (const [k, v] of Object.entries(data)) {
-          if (v.larkAppId === currentAppId) {
-            sessions.set(k, v);
-          }
-        }
-        if (sessions.size > 0) {
-          const repaired = repairMissingChatScopes();
-          save();
-          logger.info(`Migrated ${sessions.size} sessions from sessions.json to ${fp}`);
-          if (repaired > 0) {
-            logger.info(`Repaired ${repaired} scope-less chat session(s) during migration`);
-          }
-        }
-      } catch (err) {
-        logger.error(`Failed to migrate sessions from legacy file: ${err}`);
-        sessions = new Map();
-      }
-    }
   }
   loaded = true;
 }
@@ -145,7 +72,6 @@ function save(): void {
   const { raw: existingRaw } = readExistingSessionsFromDisk(fp);
   const obj: Record<string, Session> = {};
   for (const [k, v] of sessions) {
-    stripLegacyPendingCardFields(v as unknown as Record<string, unknown>);
     obj[k] = v;
   }
   const json = JSON.stringify(obj, null, 2);
@@ -234,7 +160,7 @@ function findInOtherFiles(sessionId: string): Session | undefined {
   const currentFp = getFilePath();
   try {
     for (const file of readdirSync(dataDir)) {
-      if (!file.startsWith('sessions') || !file.endsWith('.json')) continue;
+      if (!file.startsWith('sessions-') || !file.endsWith('.json')) continue;
       const fp = join(dataDir, file);
       if (fp === currentFp) continue;
       try {
@@ -348,7 +274,7 @@ export function countActiveSessionsOnDisk(dataDir: string = config.session.dataD
   let n = 0;
   try {
     for (const file of readdirSync(dataDir)) {
-      if (!file.startsWith('sessions') || !file.endsWith('.json')) continue;
+      if (!file.startsWith('sessions-') || !file.endsWith('.json')) continue;
       try {
         const data: Record<string, Session> = JSON.parse(readFileSync(join(dataDir, file), 'utf-8'));
         for (const s of Object.values(data)) if (s?.status === 'active') n++;
@@ -383,7 +309,7 @@ export function collectBotmuxSessionIdentities(dataDir: string = config.session.
   // Then every bot's persisted store file (other daemons own their own files).
   try {
     for (const file of readdirSync(dataDir)) {
-      if (!file.startsWith('sessions') || !file.endsWith('.json')) continue;
+      if (!file.startsWith('sessions-') || !file.endsWith('.json')) continue;
       try {
         const data: Record<string, Session> = JSON.parse(readFileSync(join(dataDir, file), 'utf-8'));
         for (const s of Object.values(data)) add(s);
@@ -403,7 +329,7 @@ function findActiveSessionsMatching(predicate: (s: Session) => boolean): Session
   const currentFp = getFilePath();
   try {
     for (const file of readdirSync(dataDir)) {
-      if (!file.startsWith('sessions') || !file.endsWith('.json')) continue;
+      if (!file.startsWith('sessions-') || !file.endsWith('.json')) continue;
       const fp = join(dataDir, file);
       if (fp === currentFp) continue;
       try {

@@ -75,7 +75,7 @@ function effectiveSpeaker(v: VoiceConfig): string {
  */
 export async function synthesizeVoicePcmForMessage(larkAppId: string | undefined, text: string): Promise<Pcm> {
   const cfg = resolveVoiceConfig(larkAppId);
-  if (!cfg) throw new Error('未配置语音引擎：在 ~/.botmux/config.json 的 voice 块或 bots.json 里配置 OpenAI 兼容引擎。');
+  if (!cfg) throw new Error('我还没有可用的语音引擎，请管理员先在语音设置中配置。');
   const spoken = toSpoken(text);
   if (!spoken) throw new Error('精简后没有可朗读的内容');
   const speaker = effectiveSpeaker(cfg);

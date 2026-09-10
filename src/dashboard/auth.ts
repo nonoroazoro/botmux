@@ -212,8 +212,6 @@ export function buildSetCookie(token: string): string {
  *
  * Public surfaces today (codex review v0.1.2 → canary.3):
  *   - `GET/HEAD /`, `/assets/*`, root icons    — static SPA shell
- *   - `GET /api/workflows/*`                   — zero-I/O legacy retirement
- *                                                tombstone (HTTP 410).
  *
  * Anything else (sessions, schedules, dashboard rotate, etc.) requires the active session token, matching the
  * "get_write_link" pattern that the chat web terminal already uses.
@@ -229,10 +227,8 @@ export type AuthDecision =
  *  even in public mode — so a newly-added GET endpoint is private by default
  *  and can't silently leak (connector configs, webhook-secret metadata,
  *  trigger logs, role/persona files, per-bot config, onboarding, raw PTY are
- *  all absent on purpose). The static SPA shell and the zero-I/O legacy
- *  workflow tombstone are handled separately in decideDashboardAuth. Full v3
- *  workflow projections stay private because goals, node ids, and run ids can
- *  contain project or personal information.
+ *  all absent on purpose). The static SPA shell is handled separately in
+ *  decideDashboardAuth.
  *  口径：公开 = 会话板 / 排程(脱敏) / 设置(只读) / 群名册 / 事件流。 */
 const PUBLIC_READ_PATHS: ReadonlySet<string> = new Set([
   '/api/sessions',    // session board
@@ -257,17 +253,6 @@ export function decideDashboardAuth(opts: {
 }): AuthDecision {
   const { method, pathname, hasTokenParam, presentedToken, activeToken, publicReadOnly } = opts;
 
-  // Historical `…/terminal-log/raw` routes are gone, but keep the generic raw
-  // suffix excluded from public-read policy so future APIs cannot expose a PTY
-  // transcript by accidentally inheriting this carve-out.
-  const isRawTerminalLog = pathname.endsWith('/terminal-log/raw');
-
-  // The legacy workflow prefix is now a public zero-I/O 410 tombstone. Keeping
-  // it public lets stale cards/clients receive an actionable retirement result.
-  const isWorkflowReadOnly =
-    method === 'GET' &&
-    (pathname === '/api/workflows' || pathname.startsWith('/api/workflows/')) &&
-    !isRawTerminalLog;
   const isStaticShell =
     (method === 'GET' || method === 'HEAD') &&
     (
@@ -289,7 +274,7 @@ export function decideDashboardAuth(opts: {
 
   const authed = !!presentedToken && presentedToken === activeToken;
 
-  if (!authed && !isWorkflowReadOnly && !isStaticShell && !isPublicRead) {
+  if (!authed && !isStaticShell && !isPublicRead) {
     return { kind: 'deny401' };
   }
 

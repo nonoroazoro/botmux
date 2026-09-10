@@ -591,8 +591,6 @@ function isolatedCodexTitleEnv(
     // API key / 自定义 provider 可完全依赖环境变量；凭证复制失败时交给 app-server 回退。
   }
   env.CODEX_HOME = isolatedCodexHome;
-  delete env.BOTMUX_MCP_GATEWAY_REQUIRED;
-  delete env.BOTMUX_MCP_GATEWAY_SOCKET;
   return env;
 }
 

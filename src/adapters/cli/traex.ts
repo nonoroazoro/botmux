@@ -100,33 +100,6 @@ function latestTraeSessionForBotmuxSession(botmuxSessionId: string): string | un
   }) ?? undefined;
 }
 
-// -------------------------------------------------------------------------
-
-/**
- * TRAE/Codex sanitizes the environment inherited by model shell tools. Goal
- * mode is file-backed, so the agent must receive these non-secret path vars or
- * commands such as `cat $BOTMUX_GOAL_PATH` collapse to an empty argument and
- * can hang on stdin. Forward only the goal contract, not the full worker env.
- */
-const TRAEX_GOAL_ENV_KEYS = [
-  'BOTMUX_GOAL_PATH',
-  'BOTMUX_GOAL_INPUTS_PATH',
-  'BOTMUX_GOAL_OUTPUT_DIR',
-  'BOTMUX_GOAL_MANIFEST_PATH',
-  'BOTMUX_GOAL_ATTEMPT_DIR',
-  'BOTMUX_V3_GOAL',
-] as const;
-
-function goalEnvConfigArgs(env: NodeJS.ProcessEnv = process.env): string[] {
-  const args: string[] = [];
-  for (const key of TRAEX_GOAL_ENV_KEYS) {
-    const value = env[key];
-    if (value === undefined) continue;
-    args.push('-c', `shell_environment_policy.set.${key}=${JSON.stringify(value)}`);
-  }
-  return args;
-}
-
 /**
  * First-run "Legacy TRAE CLI data detected → migrate?" done-markers at the
  * ~/.trae ROOT. traecli treats a marker's mere EXISTENCE (content/mode
@@ -199,7 +172,6 @@ export function createTraexAdapter(pathOverride?: string): CliAdapter {
           ...(bypassHookTrust ? ['--dangerously-bypass-hook-trust'] : []),
         ] : []),
         '--no-alt-screen',
-        ...goalEnvConfigArgs(),
       ];
       if (model && model.trim()) baseArgs.push('--model', model.trim());
       if (workingDir) baseArgs.push('-C', workingDir);

@@ -7,7 +7,6 @@ import { renderSkillCatalogBlock } from '../skills/prompt.js';
 import { prepareSessionSkillPrompt } from '../skills/session-runtime.js';
 import type { SessionSkillManifest } from '../skills/types.js';
 import { refreshSessionPluginManifest, type SessionPluginManifest } from './session-manifest.js';
-import { refreshSessionMcpRuntimeManifest } from './mcp/session-runtime.js';
 import { resolvePluginSkillPackages } from './skills.js';
 
 export interface CliPluginGenerationResult {
@@ -34,7 +33,7 @@ function renderReplacementCatalog(manifest: SessionSkillManifest | null): string
   ].join('\n');
 }
 
-/** Prepare the shared Skills/MCP snapshot immediately before a real CLI spawn. */
+/** Prepare the shared Skill snapshot immediately before a real CLI spawn. */
 export function prepareCliPluginGeneration(opts: {
   sessionId: string;
   bot: Pick<BotConfig, 'larkAppId' | 'name' | 'plugins' | 'skills'>;
@@ -52,12 +51,6 @@ export function prepareCliPluginGeneration(opts: {
     sessionId: opts.sessionId,
     bot: opts.bot,
     global: opts.global,
-    dataDir: opts.dataDir,
-    now: opts.now,
-  });
-  refreshSessionMcpRuntimeManifest({
-    sessionId: opts.sessionId,
-    pluginIds: pluginManifest.pluginIds,
     dataDir: opts.dataDir,
     now: opts.now,
   });
