@@ -4180,7 +4180,7 @@ ipcRoute('PUT', '/api/bot-summary-range', async (req, res) => {
 // Per-bot 授权偏好。Body 任意子集：
 //   • restrictGrantCommands: boolean       — 限制被授权人只能纯对话
 //   • autoGrantRequestCards: boolean       - 未授权 @ 或私聊被挡住时是否向 owner 私发 grant 申请卡
-//   • messageQuotaDefaultLimit: number|null — 卡片默认额度覆盖（null = 产品默认 3 条）
+//   • messageQuotaDefaultLimit: number|null: card quota override; null means unlimited.
 ipcRoute('PUT', '/api/bot-grant-prefs', async (req, res) => {
   if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
   let raw: unknown;

@@ -1272,7 +1272,7 @@ export interface BotConfig {
   groupOpen?: boolean;
   /**
    * 消息额度覆盖配置：
-   *   • 未配置（undefined）→ 卡片使用产品默认 3 条；oncall 不自动计数。
+   *   • Omitted: grant cards have no message limit; oncall usage is not counted.
    *   • 配置正整数 D    → 卡片默认 D 条，同时作为 oncall 默认额度。
    * 显式 `/grant @x N` 的 N **恒生效**，与本字段是否配置无关（见 {@link quotaState}）。
    * 仅约束 chatGrants / globalGrants 这类 per-user talk 授权，绝不影响 canOperate。
@@ -2422,7 +2422,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       if (ids.length > 0) globalGrants = ids;
     }
 
-    // messageQuota.defaultLimit：仅保留正整数；非法/缺省 → undefined（卡片用产品默认 3 条）。
+    // Keep positive integer overrides; omitted or invalid values mean unlimited.
     let messageQuota: { defaultLimit?: number } | undefined;
     const rawMq = entry.messageQuota;
     if (rawMq && typeof rawMq === 'object' && !Array.isArray(rawMq)) {

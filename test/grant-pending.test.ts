@@ -32,11 +32,11 @@ describe('grant-pending', () => {
     expect(checkNonce('a1', 'oc_x', 'ou_g', 'whatever')).toBe(false);
   });
 
-  it('defaults to one hour + three messages and stages both limits under the nonce', () => {
+  it('defaults to permanent access and unlimited messages and stages explicit limits', () => {
     const nonce = openPending('a1', 'oc_1', 'ou_g');
     expect(getPendingGrantLimits('a1', 'oc_1', 'ou_g')).toEqual({
-      quota: 3,
-      durationMs: 60 * 60 * 1000,
+      quota: undefined,
+      durationMs: undefined,
     });
     expect(updatePendingGrantLimits('a1', 'oc_1', ['ou_g'], nonce, { quota: 10, durationMs: 8 * 60 * 60 * 1000 })).toBe(true);
     expect(getPendingGrantLimits('a1', 'oc_1', 'ou_g')).toEqual({

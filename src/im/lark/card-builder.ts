@@ -1412,7 +1412,7 @@ export function buildGrantCard(o: GrantCardOpts, locale?: Locale): string {
                       tag: 'select_static',
                       name: 'grant_duration',
                       width: 'fill',
-                      initial_option: String(durationMs),
+                      initial_option: durationMs === undefined ? 'permanent' : String(durationMs),
                       placeholder: { tag: 'plain_text', content: t('card.grant.duration_label', undefined, locale) },
                       options: [
                         ...GRANT_DURATION_OPTIONS.map(ms => ({

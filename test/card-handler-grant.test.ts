@@ -89,6 +89,18 @@ describe('card-handler grant actions', () => {
     expect(registry.getBot('h1').config.chatGrants).toBeUndefined();
   });
 
+  it.each([true, false])('grants permanent unlimited access with submitted defaults: %s', async (submitForm) => {
+    const { registry, pending, handler } = await fresh();
+    const nonce = pending.openPending('h1', 'oc_1', 'ou_g');
+    const submitted: any = action('grant_chat', { nonce });
+    if (submitForm) submitted.action.form_value = { grant_duration: 'permanent', grant_quota: '' };
+    await handler.handleCardAction(submitted, deps, 'h1');
+    const cfg = registry.getBot('h1').config;
+    expect(cfg.chatGrants?.['oc_1']).toContain('ou_g');
+    expect(cfg.quotaState?.['chat:oc_1:ou_g']).toBeUndefined();
+    expect(cfg.grantExpiryState?.['chat:oc_1:ou_g']).toBeUndefined();
+  });
+
   it('persists duration and free-form quota submitted with the grant button', async () => {
     const { registry, pending, handler } = await fresh();
     const nonce = pending.openPending('h1', 'oc_1', 'ou_g');

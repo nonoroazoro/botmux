@@ -1,6 +1,6 @@
-/** 卡片授权默认限制：任一条件先到即失效。 */
-export const DEFAULT_GRANT_DURATION_MS = 60 * 60 * 1000;
-export const DEFAULT_GRANT_QUOTA = 3;
+/** Omitted limits grant permanent access with unlimited messages. */
+export const DEFAULT_GRANT_DURATION_MS: number | undefined = undefined;
+export const DEFAULT_GRANT_QUOTA: number | undefined = undefined;
 /** 卡片消息额度自由输入的上限。卡片 normalize 与初值夹取共用此常量，避免历史
  *  `messageQuota.defaultLimit`（parser 无上限）超过它时生成一张无法提交的坏卡。 */
 export const MAX_GRANT_QUOTA = 1000;

@@ -144,15 +144,15 @@ describe('buildGrantCard', () => {
     expect(byAction.grant_global).toMatchObject({ target_open_ids: ['ou_a', 'ou_b', 'ou_bot'], chat_id: 'oc_3', nonce: 'n3' });
   });
 
-  it('defaults to one hour and three messages in one two-column row', () => {
+  it.each(['request', 'owner'] as const)('defaults %s grants to permanent access and unlimited messages', mode => {
     const card = JSON.parse(buildGrantCard(
-      { ownerOpenId: 'ou_o', targets: [{ openId: 'ou_g', name: 'Bob' }], chatId: 'oc_2', nonce: 'n2', mode: 'owner' },
+      { ownerOpenId: 'ou_o', targets: [{ openId: 'ou_g', name: 'Bob' }], chatId: 'oc_2', nonce: 'n2', mode },
       'zh',
     ));
     const expiry = deepFind(card, value => value?.tag === 'select_static' && value?.name === 'grant_duration')[0];
     const quota = deepFind(card, value => value?.tag === 'input' && value?.name === 'grant_quota')[0];
-    expect(expiry.initial_option).toBe('3600000');
-    expect(quota.default_value).toBe('3');
+    expect(expiry.initial_option).toBe('permanent');
+    expect(quota.default_value).toBe('');
     expect(quota.options).toBeUndefined();
     expect(quota.max_length).toBeUndefined();
     expect(deepFind(card, value => value?.tag === 'collapsible_panel')).toHaveLength(0);
