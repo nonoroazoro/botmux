@@ -255,9 +255,9 @@ import {
 import { parseWorkerRequestUrl } from './utils/worker-http.js';
 import { detectCliUsageLimit, usageLimitStateKey, structuredRateLimitState, isStructuredRateLimitAuthoritative, type CliUsageLimitState } from './utils/cli-usage-limit.js';
 import { uploadImageBuffer } from './utils/lark-upload.js';
+import { setIsolatedUserHome } from './core/multi-user-env.js';
 import { multiUserGitFallbackPath } from './core/multi-user-git-identity.js';
 import {
-  ISOLATED_USER_ENV_KEYS,
   redactChildEnv,
   scrubClaudeSessionMarkerEnv,
   scrubSessionCliHomeEnv,
@@ -8734,9 +8734,7 @@ async function spawnCli(
   // pty/direct-spawn path, whose child inherits childEnv.PATH directly.)
   childEnv.PATH = prependBotmuxBin(resolveBotmuxWrapperBinDir(process.env), childEnv.PATH);
   if (cfg.multiUserHomeDir) {
-    for (const key of ISOLATED_USER_ENV_KEYS) delete childEnv[key];
-    childEnv.HOME = cfg.multiUserHomeDir;
-    childEnv.XDG_CONFIG_HOME = join(cfg.multiUserHomeDir, '.config');
+    setIsolatedUserHome(childEnv, cfg.multiUserHomeDir);
     childEnv.PATH = [
       join(cfg.multiUserHomeDir, '.local', 'bin'),
       join(cfg.multiUserHomeDir, '.npm-global', 'bin'),
@@ -8847,7 +8845,7 @@ async function spawnCli(
   // merged into childEnv) so the tmux/zellij backends inject it via the per-pane
   // `/usr/bin/env` prefix and never into the shared backing-server global env,
   // keeping it from leaking across bots. Re-sanitized here (crossed IPC).
-  const perBotInjectEnv = sanitizePerBotEnv(cfg.env);
+  const perBotInjectEnv = sanitizePerBotEnv(cfg.env, !!cfg.multiUserHomeDir);
   const perBotInjectKeys = Object.keys(perBotInjectEnv);
   if (perBotInjectKeys.length) log(`Injecting ${perBotInjectKeys.length} per-bot env var(s): ${perBotInjectKeys.join(', ')}`);
   const hermesUsesBotmuxSessionProfile = basename(cfg.cliPathOverride ?? '') === 'hermes-botmux-session';
@@ -8897,6 +8895,12 @@ async function spawnCli(
     // (the /tmp→/private/tmp class) silently fail-opens.
     const canonical = (p: string) => { try { return realpathSync(p); } catch { return p; } };
     const sandboxHome = canonical(cfg.multiUserHomeDir ?? homedir());
+    if (cfg.multiUserHomeDir) {
+      setIsolatedUserHome(childEnv, sandboxHome);
+      const gitFallbackConfig = multiUserGitFallbackPath(sandboxHome);
+      if (existsSync(gitFallbackConfig)) childEnv.GIT_CONFIG_SYSTEM = gitFallbackConfig;
+      log(`[multi-user] Private runtime home=${sandboxHome}; data=${childEnv.XDG_DATA_HOME}; state=${childEnv.XDG_STATE_HOME}`);
+    }
     const expandTilde = (raw: string) => raw.replace(/^~(?=\/|$)/, sandboxHome);
     // LEXICAL `~` expansion — uses the raw (NON-canonicalized) homedir(). Used ONLY
     // for the redirect authPath CONTAINMENT decision below, where both sides of the
@@ -9283,12 +9287,6 @@ async function spawnCli(
       spawnBin = sbx.bin;
       spawnArgs = sbx.args;
       Object.assign(childEnv, sbx.env);
-      if (cfg.multiUserHomeDir) {
-        const gitFallbackConfig = multiUserGitFallbackPath(sandboxHome);
-        if (existsSync(gitFallbackConfig)) childEnv.GIT_CONFIG_SYSTEM = gitFallbackConfig;
-        else delete childEnv.GIT_CONFIG_SYSTEM;
-        childEnv.XDG_CONFIG_HOME = join(sandboxHome, '.config');
-      }
       if (sandboxStopWatcher) { try { sandboxStopWatcher(); } catch { /* */ } }
       if (sandboxCleanup) { try { sandboxCleanup(); } catch { /* */ } }
       sandboxCleanup = sbx.cleanup;

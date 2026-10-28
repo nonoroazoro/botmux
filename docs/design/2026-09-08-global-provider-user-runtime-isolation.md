@@ -30,6 +30,11 @@ effective runtime = global provider capabilities + scoped Botmux capabilities
 | Personal capability | Principal | Personal Knowledge, Skills, Workflows | Available only to the owner |
 | Runtime | Principal | Sessions, history, SQLite state, logs, plugin data, mutable caches, workspace, project trust | Never shared across principals |
 
+Business-tool accounts belong to the principal. Sharing a CLI installation does
+not share its login, tokens, Git credentials, or service permissions. Only the AI
+provider account is deployment-owned. A tool that exposes several services uses
+the principal's identity for all of those services.
+
 Provider credentials may be copied into a principal-owned credential file so a
 CLI can use its normal filesystem contract. The credential bytes still identify
 one deployment-owned provider account. The copy is an isolation mechanism, not
@@ -55,6 +60,31 @@ test fixture teardown remain part of the current lifecycle.
    user's trusted project paths into another user's runtime.
 7. The effective CLI executable comes from the deployment PATH or configured
    runtime registry. Per-user HOME isolation must not hide system tools.
+
+## Shared tool installations
+
+Install complete shared tool distributions under `/usr/local` or
+`/opt/shared-tools`, with command entry points in `/usr/local/bin` on the
+deployment PATH. The sandbox already exposes these system installation trees
+read-only. Keep packaged dependencies and resources with the executable;
+exposing a launcher alone does not make its imports or symlink targets available.
+
+The deployment operator maintains these installations. User sessions read the
+program files and write authentication, configuration, caches, and other state
+into their own home. Do not expose a host home or its entire `.local/share` just
+to make one executable visible. Installation changes are deployment operations,
+not runtime data migrations.
+
+An isolated principal's home is writable by default. Host-home restrictions on
+`.gitconfig`, `.config/git`, `.local/share`, and language-tool directories do not
+apply there. Shared Skills, plugins, and executable sources retain separate
+read-only grants at their canonical source paths.
+
+Each child receives private `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
+`XDG_CACHE_HOME`, and `XDG_STATE_HOME` values. Inherited Git identity overrides,
+SSH agent sockets, and `XDG_RUNTIME_DIR` are cleared. These values are injected
+into persistent backend panes after shell startup, never into the shared server
+environment. Per-bot environment settings cannot override these boundaries.
 
 ## Codex mapping
 

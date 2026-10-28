@@ -670,7 +670,7 @@ export function buildBotmuxEnvAssignments(
   // spaces / quotes / `$` need no escaping. Re-sanitized defensively (the value
   // crossed an IPC boundary from the daemon).
   if (injectEnv) {
-    for (const [key, val] of Object.entries(sanitizePerBotEnv(injectEnv))) {
+    for (const [key, val] of Object.entries(sanitizePerBotEnv(injectEnv, isolatedUserHome))) {
       out.push(`${key}=${val}`);
     }
   }

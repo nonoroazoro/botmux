@@ -296,6 +296,10 @@ export function accessForPath(rules: readonly FsRule[], path: string): { access:
 /** Home-relative entries shared by both platforms. Existence-filtered by the
  *  worker before compiling (a missing path has nothing to protect or expose). */
 function commonHomeBaseline(h: string, isolatedUserHome = false): FsRule[] {
+  // A principal owns this entire home. Host toolchain restrictions would make
+  // personal credentials and configuration read-only through deeper rules.
+  // Shared installations are granted separately at their canonical source paths.
+  if (isolatedUserHome) return [];
   const ro = (p: string): FsRule => ({ path: p, access: 'readOnly', source: 'baseline' });
   const rw = (p: string): FsRule => ({ path: p, access: 'readWrite', source: 'baseline' });
   const deny = (p: string): FsRule => ({ path: p, access: 'deny', source: 'baseline' });
@@ -329,19 +333,17 @@ function commonHomeBaseline(h: string, isolatedUserHome = false): FsRule[] {
     // Crown jewels — most are already unreachable via deny-by-default; these
     // explicit denies guard the ones that could fall under an allowed tree
     // (workingDir = $HOME, a broad user readOnly, …). Defence-in-depth.
-    ...(!isolatedUserHome ? [
-      // Toolchain credential files sitting inside read-allowed directories.
-      deny(`${h}/.cargo/credentials`), deny(`${h}/.cargo/credentials.toml`),
-      deny(`${h}/.gem/credentials`),
-      deny(`${h}/.m2/settings.xml`), deny(`${h}/.m2/settings-security.xml`),
-      deny(`${h}/.gradle/gradle.properties`),
-      deny(`${h}/.ssh`), deny(`${h}/.aws`), deny(`${h}/.azure`), deny(`${h}/.gnupg`),
-      deny(`${h}/.netrc`), deny(`${h}/.config/gh`), deny(`${h}/.config/glab-cli`),
-      deny(`${h}/.config/gcloud`), deny(`${h}/.config/op`), deny(`${h}/.config/1Password`),
-      deny(`${h}/.1password`), deny(`${h}/.password-store`), deny(`${h}/.git-credentials`),
-      deny(`${h}/.npmrc`), deny(`${h}/.pypirc`), deny(`${h}/.docker/config.json`), deny(`${h}/.kube`),
-      deny(`${h}/.lark-cli`),
-    ] : []),
+    // Toolchain credential files sitting inside read-allowed directories.
+    deny(`${h}/.cargo/credentials`), deny(`${h}/.cargo/credentials.toml`),
+    deny(`${h}/.gem/credentials`),
+    deny(`${h}/.m2/settings.xml`), deny(`${h}/.m2/settings-security.xml`),
+    deny(`${h}/.gradle/gradle.properties`),
+    deny(`${h}/.ssh`), deny(`${h}/.aws`), deny(`${h}/.azure`), deny(`${h}/.gnupg`),
+    deny(`${h}/.netrc`), deny(`${h}/.config/gh`), deny(`${h}/.config/glab-cli`),
+    deny(`${h}/.config/gcloud`), deny(`${h}/.config/op`), deny(`${h}/.config/1Password`),
+    deny(`${h}/.1password`), deny(`${h}/.password-store`), deny(`${h}/.git-credentials`),
+    deny(`${h}/.npmrc`), deny(`${h}/.pypirc`), deny(`${h}/.docker/config.json`), deny(`${h}/.kube`),
+    deny(`${h}/.lark-cli`),
   ];
 }
 
@@ -363,15 +365,17 @@ function darwinBaseline(h: string, isolatedUserHome = false): FsRule[] {
     // ~/Library: CLIs need broad read (fonts/prefs/frameworks caches) and write
     // into Caches + Application Support — with the secret stores denied DEEPER
     // (longest-prefix beats the rw grant).
-    ro(`${h}/Library`),
-    rw(`${h}/Library/Caches`),
-    rw(`${h}/Library/Application Support`),
-    rw(`${h}/Library/Logs`),
-    deny(`${h}/Library/Keychains`),
-    // lark-cli's key store holds EVERY bot's app-secret ciphertext + master key
-    // (the known pre-refactor leak — see design doc §2.4). Deny the dir; the
-    // bot's OWN send path uses send-cred.json in BOT_HOME, not this store.
-    deny(`${h}/Library/Application Support/lark-cli`),
+    ...(!isolatedUserHome ? [
+      ro(`${h}/Library`),
+      rw(`${h}/Library/Caches`),
+      rw(`${h}/Library/Application Support`),
+      rw(`${h}/Library/Logs`),
+      deny(`${h}/Library/Keychains`),
+      // lark-cli's key store holds EVERY bot's app-secret ciphertext + master key
+      // (the known pre-refactor leak — see design doc §2.4). Deny the dir; the
+      // bot's OWN send path uses send-cred.json in BOT_HOME, not this store.
+      deny(`${h}/Library/Application Support/lark-cli`),
+    ] : []),
   ];
 }
 
@@ -567,11 +571,6 @@ export function buildFsPolicy(ctx: FsPolicyContext): FsPolicy {
     ...dropAuthority([ctx.workingDir]),
     ...(!ctx.isolatedUserHome ? [ctx.botHome] : []),
     ...(ctx.isolatedUserHome ? [ctx.homeDir] : []),
-    ...(ctx.isolatedUserHome ? [
-      `${ctx.homeDir}/.local/bin`,
-      `${ctx.homeDir}/.npm-global/bin`,
-      `${ctx.homeDir}/go/bin`,
-    ] : []),
   ], 'readWrite', 'internal');
   // Own role-library subtree (`~/botmux-roles/<self>`). workingDir alone covers
   // only the ACTIVE role dir, which silently disables the whole role system

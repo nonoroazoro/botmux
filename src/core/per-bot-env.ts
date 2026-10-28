@@ -1,3 +1,5 @@
+import { isIsolatedUserEnvKey } from '../utils/child-env.js';
+
 /**
  * Per-bot environment variables (`bots.json` → `env`).
  *
@@ -34,8 +36,7 @@ const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * creds — a per-bot `env` must never set these, or user config could hijack
  * session identity, clobber the CLI data root (Seed/Relay), or shadow a
  * botmux-managed flag. Mirrors the worker's injected/redacted keys
- * (BOTMUX_INJECTED_ENV_KEYS + REDACTED_CHILD_ENV_KEYS); kept as a local literal
- * so this stays a dependency-free leaf module. `LARK_APP_` covers both bare
+ * (BOTMUX_INJECTED_ENV_KEYS + REDACTED_CHILD_ENV_KEYS). `LARK_APP_` covers both bare
  * creds; `BOTMUX` prefix covers all session-routing keys.
  */
 const RESERVED_ENV_PREFIXES = ['BOTMUX', 'LARK_APP_'] as const;
@@ -75,8 +76,10 @@ export function isReservedPerBotEnvKey(key: string): boolean {
  * keys with an invalid env-var name or a botmux-reserved name, and values that
  * aren't a string/number/boolean (primitives are stringified). Pure + total —
  * always returns an object, never throws.
+ * Isolated sessions also reject overrides of principal-owned paths and Git
+ * identity, using {@link isIsolatedUserEnvKey}.
  */
-export function sanitizePerBotEnv(raw: unknown): Record<string, string> {
+export function sanitizePerBotEnv(raw: unknown, isolatedUserHome = false): Record<string, string> {
   const obj =
     raw && typeof raw === 'object' && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
@@ -85,6 +88,7 @@ export function sanitizePerBotEnv(raw: unknown): Record<string, string> {
   for (const [key, value] of Object.entries(obj)) {
     if (!ENV_KEY_RE.test(key)) continue;
     if (isReservedPerBotEnvKey(key)) continue;
+    if (isolatedUserHome && isIsolatedUserEnvKey(key)) continue;
     if (typeof value === 'string') out[key] = value;
     else if (typeof value === 'number' || typeof value === 'boolean') out[key] = String(value);
   }

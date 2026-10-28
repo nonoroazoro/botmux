@@ -3,8 +3,32 @@ import { describe, expect, it } from 'vitest';
 import { buildBotmuxEnvAssignments } from '../src/adapters/backend/tmux-backend.js';
 import { tmuxEnv } from '../src/setup/ensure-tmux.js';
 import { zellijEnv } from '../src/setup/ensure-zellij.js';
+import { setIsolatedUserHome } from '../src/core/multi-user-env.js';
 
 describe('isolated user environment', () => {
+  it('carries private data roots into the pane without seeding shared servers or allowing overrides', () => {
+    const env: NodeJS.ProcessEnv = { PATH: '/usr/local/bin:/usr/bin' };
+    setIsolatedUserHome(env, '/users/alice/home');
+    const overrides = {
+      HOME: '/home/service',
+      XDG_DATA_HOME: '/host/data',
+      XDG_CACHE_HOME: '/host/cache',
+      XDG_STATE_HOME: '/host/state',
+      XDG_RUNTIME_DIR: '/run/user/1000',
+      GIT_CONFIG_GLOBAL: '/host/gitconfig',
+      OPENAI_API_KEY: 'provider-key',
+    };
+    const assignments = buildBotmuxEnvAssignments(env, overrides, true);
+    for (const key of ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME']) {
+      expect(tmuxEnv(env, true)[key]).toBeUndefined();
+      expect(zellijEnv(env, true)[key]).toBeUndefined();
+      expect(assignments.filter(value => value.startsWith(`${key}=`))).toEqual([`${key}=${env[key]}`]);
+    }
+    expect(assignments).not.toContain('XDG_RUNTIME_DIR=/run/user/1000');
+    expect(assignments).not.toContain('GIT_CONFIG_GLOBAL=/host/gitconfig');
+    expect(assignments).toContain('OPENAI_API_KEY=provider-key');
+  });
+
   it('keeps user-scoped values out of shared tmux server state', () => {
     const env = {
       HOME: '/users/alice/home',

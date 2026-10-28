@@ -244,6 +244,10 @@ export const ISOLATED_USER_ENV_KEYS = [
   'SSH_AGENT_PID',
   'SSH_AUTH_SOCK',
   'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_CACHE_HOME',
+  'XDG_STATE_HOME',
+  'XDG_RUNTIME_DIR',
 ] as const;
 
 /** Proxy env vars that must reach the CLI child process so it can dial the

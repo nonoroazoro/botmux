@@ -4,9 +4,9 @@ import { accessForPath, buildFsPolicy } from '../../../src/adapters/cli/fs-polic
 import { soulStoreRoot } from '../../../src/core/personality/index.js';
 
 describe('multi-user filesystem policy', () => {
-  it('allows credentials only inside the dedicated principal home', () => {
+  it.each(['linux', 'darwin'] as const)('keeps personal state writable and shared code read-only on %s', (platform) => {
     const policy = buildFsPolicy({
-      platform: 'linux',
+      platform,
       homeDir: '/var/lib/product/users/alice/home',
       isolatedUserHome: true,
       botmuxHome: '/home/service/.botmux',
@@ -16,6 +16,7 @@ describe('multi-user filesystem policy', () => {
       sessionId: 'session-a',
       botHome: '/home/service/.botmux/bots/cli_test',
       redirectedCliData: true,
+      readonlyRoots: ['/home/service/.agents/skills', '/opt/shared-tools'],
     });
 
     expect(accessForPath(policy.rules, '/var/lib/product/users/alice/home/.ssh/id_ed25519').access)
@@ -28,6 +29,28 @@ describe('multi-user filesystem policy', () => {
       .toBe('none');
     expect(accessForPath(policy.rules, '/var/lib/product/users/alice/home/.local/bin/sample-tool').access)
       .toBe('readWrite');
+    for (const path of [
+      '.local/share/sample-tool/data/token.json',
+      '.config/git/config',
+      '.gitconfig',
+      '.npmrc',
+      '.cargo/credentials.toml',
+      '.cache/sample-tool/session.json',
+      '.local/state/sample-tool/history.json',
+      'Library/Application Support/sample-tool/auth.json',
+      'Library/Preferences/sample-tool.plist',
+    ]) {
+      expect(accessForPath(policy.rules, `/var/lib/product/users/alice/home/${path}`).access, path)
+        .toBe('readWrite');
+      expect(accessForPath(policy.rules, `/var/lib/product/users/bob/home/${path}`).access, path)
+        .toBe('none');
+      expect(accessForPath(policy.rules, `/home/service/${path}`).access, path)
+        .toBe('none');
+    }
+    expect(accessForPath(policy.rules, '/opt/shared-tools/sample-tool/bin/tool').access)
+      .toBe('readOnly');
+    expect(accessForPath(policy.rules, '/home/service/.agents/skills/sample/SKILL.md').access)
+      .toBe('readOnly');
   });
 });
 
